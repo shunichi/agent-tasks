@@ -1,0 +1,10 @@
+# agent-tasks worktree-init がコピーする gitignored ファイル (Rails テンプレ)。
+# .gitignore 構文。プロジェクトに合わせて調整してください。
+#
+# 注意: .env.local はコピーしない。post-create が worktree ごとに
+# 一意なポート等で生成するため。
+
+.env
+config/master.key
+# 複数環境の credentials を使っているなら有効化:
+# config/credentials/development.key

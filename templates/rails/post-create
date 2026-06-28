@@ -1,0 +1,43 @@
+#!/bin/sh
+# agent-tasks worktree post-create フック (Rails テンプレ)。
+# 新しい worktree で 1 度だけ実行される (cwd = その worktree)。
+# dev サーバのポートと DB を worktree ごとに分離し、依存をインストールする。
+# プロジェクトに合わせて自由に編集してください。
+#
+# 渡される env: AGENT_TASKS_WORKTREE / AGENT_TASKS_MAIN / AGENT_TASKS_PROJECT
+#
+# DB 分離の考え方: database.yml で ENV を参照させ、worktree ごとに別 DB 名にする。例)
+#   development:
+#     database: myapp_development<%= ENV['DATABASE_NAME_SUFFIX'] %>
+set -e
+
+WT_NAME=$(basename "${AGENT_TASKS_WORKTREE:-$PWD}")
+
+# worktree 名から決定的なポートオフセット (10..900, 10 刻み) を作る。
+OFFSET=$(( ($(printf '%s' "$WT_NAME" | cksum | cut -d' ' -f1) % 90 + 1) * 10 ))
+PORT=$(( 3000 + OFFSET ))
+
+# .env.local が無ければ書き込む (既存は尊重)。
+if [ ! -f .env.local ]; then
+  cat > .env.local <<EOF
+# agent-tasks: worktree ごとの設定 ($WT_NAME)
+PORT=$PORT
+DATABASE_NAME_SUFFIX=_$(printf '%s' "$WT_NAME" | tr -c 'a-zA-Z0-9' '_')
+EOF
+  echo "wrote .env.local (PORT=$PORT)"
+fi
+
+# 依存インストール。
+if [ -f Gemfile ]; then
+  bundle install
+fi
+if [ -f yarn.lock ]; then
+  yarn install
+elif [ -f package.json ]; then
+  npm install
+fi
+
+# DB 準備 (存在すれば。失敗してもフック全体は止めない)。
+if [ -x bin/rails ]; then
+  bin/rails db:prepare || echo "db:prepare をスキップ (手動で実行してください)"
+fi

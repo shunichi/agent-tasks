@@ -94,6 +94,8 @@ func dispatch(args []string) error {
 		return cmdSync(args)
 	case "worktree-init":
 		return cmdWorktreeInit(args)
+	case "scaffold-worktree":
+		return cmdScaffoldWorktree(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -119,6 +121,8 @@ USAGE:
   agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
   agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
+  agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create) を
+                                     プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

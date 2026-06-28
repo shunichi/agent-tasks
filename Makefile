@@ -5,7 +5,7 @@ PREFIX ?= $(HOME)/.local
 
 build: $(BIN)
 
-$(BIN): $(wildcard *.go) go.mod
+$(BIN): $(wildcard *.go) $(wildcard templates/*/*) go.mod
 	go build -o $(BIN) .
 
 # CLI を PATH へ、skill を ~/.claude/skills へ symlink (ビルドも実行)

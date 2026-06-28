@@ -1,0 +1,40 @@
+#!/bin/sh
+# agent-tasks worktree post-create フック (Firebase テンプレ)。
+# 新しい worktree で 1 度だけ実行される (cwd = その worktree)。
+# Firebase emulator / dev サーバのポートを worktree ごとに一意化し、依存をインストールする。
+# プロジェクトに合わせて自由に編集してください。
+#
+# 渡される env: AGENT_TASKS_WORKTREE / AGENT_TASKS_MAIN / AGENT_TASKS_PROJECT
+#
+# 前提 (gist: Firebase × git worktree のポート分離):
+#   - package.json の emulators スクリプトで EMULATOR_PORT_OFFSET を全ポートに加算し、
+#     --config .firebase-emulator.json --import/--export-on-exit=./emulator-data で起動する。
+#   - vite.config は DEV_PORT を読み strictPort: true にする。
+#   - .firebase-emulator.json / emulator-data/ は .gitignore に入れておく。
+set -e
+
+WT_NAME=$(basename "${AGENT_TASKS_WORKTREE:-$PWD}")
+
+# worktree 名から決定的なポートオフセット (10..900, 10 刻み) を作る。
+# 衝突したら strictPort が検知してくれる。メイン (offset 0) とはぶつからない。
+OFFSET=$(( ($(printf '%s' "$WT_NAME" | cksum | cut -d' ' -f1) % 90 + 1) * 10 ))
+DEV_PORT=$(( 5173 + OFFSET ))
+
+# .env.local が無ければオフセットを書き込む (既存は尊重)。
+if [ ! -f .env.local ]; then
+  cat > .env.local <<EOF
+# agent-tasks: worktree ごとのポート分離 ($WT_NAME)
+DEV_PORT=$DEV_PORT
+EMULATOR_PORT_OFFSET=$OFFSET
+EOF
+  echo "wrote .env.local (DEV_PORT=$DEV_PORT, EMULATOR_PORT_OFFSET=$OFFSET)"
+fi
+
+# 依存インストール (pnpm > npm を lockfile で自動選択)。
+if [ -f pnpm-lock.yaml ]; then
+  pnpm install
+elif [ -f package-lock.json ]; then
+  npm ci || npm install
+elif [ -f package.json ]; then
+  npm install
+fi

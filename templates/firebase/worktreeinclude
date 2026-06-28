@@ -1,0 +1,9 @@
+# agent-tasks worktree-init がコピーする gitignored ファイル (Firebase テンプレ)。
+# .gitignore 構文。プロジェクトに合わせて調整してください。
+#
+# 注意: .env.local はコピーしない。post-create が worktree ごとに
+# 一意なポートオフセットで生成するため (コピーすると衝突する)。
+
+.env
+# サービスアカウント鍵などを使っているなら有効化:
+# serviceAccountKey.json

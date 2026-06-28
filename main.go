@@ -102,6 +102,8 @@ func dispatch(args []string) error {
 		return cmdShow(args)
 	case "edit":
 		return cmdEdit(args)
+	case "status":
+		return cmdStatus(args)
 	case "sync":
 		return cmdSync(args)
 	case "worktree-init":
@@ -134,6 +136,8 @@ USAGE:
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks show [<project>] <id>  1タスクの全文を表示 (project 省略時は現在 project)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
+  agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
+                                     (未同期があれば exit 1。sync が要るかの確認に使う)
   agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
   agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
@@ -470,6 +474,24 @@ func editorArgv() []string {
 // cmdSync はストア (storeDir) を git で add/commit/push してマシン間同期する。
 // 既定は push まで。--no-push なら commit で止める。push 前に pull --rebase して
 // 別マシンの更新を取り込む (依存ゼロ方針のため git は os/exec で呼ぶ)。
+// cmdStatus はストアの未 sync 状態 (uncommitted / unpushed) を 1 行で表示する。
+// 未同期があれば exit 1 (prompt / スクリプトで「sync が要るか」を終了コードで判別できる)。
+func cmdStatus(args []string) error {
+	for _, a := range args {
+		return usagef("unknown option: %s", a)
+	}
+	dir := storeDir()
+	st, err := loadSyncStatus(dir)
+	if err != nil {
+		return err
+	}
+	fmt.Println(formatSyncStatus(st, newColors()))
+	if !st.Clean() {
+		return &silentExit{code: 1}
+	}
+	return nil
+}
+
 func cmdSync(args []string) error {
 	push := true
 	for _, a := range args {

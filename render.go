@@ -8,8 +8,8 @@ import (
 
 // colors は色を出すと決まったときだけ ANSI カラーを返す (出さないときは全フィールド空)。
 type colors struct {
-	reset, dim, bold                string
-	todo, prog, block, review, done string
+	reset, dim, bold                      string
+	todo, prog, block, review, done, warn string
 }
 
 // colorMode は --color フラグの値 (always|auto|never)。main が解決して設定する。
@@ -53,6 +53,7 @@ func newColors() colors {
 		block:  "\033[31m",
 		review: "\033[35m",
 		done:   "\033[32m",
+		warn:   "\033[33m",
 	}
 }
 
@@ -77,6 +78,43 @@ func isTTY(f *os.File) bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// formatSyncStatus はストアの同期状況を 1 行サマリに整形する。
+// クリーンなら緑、未同期があれば黄、git 管理外/upstream 未設定は淡色で注記する。
+func formatSyncStatus(s SyncStatus, c colors) string {
+	if s.NotGit {
+		return c.dim + "git 管理されていません (git init とリモート設定が必要)" + c.reset
+	}
+	if s.Clean() {
+		return c.done + "クリーン (同期済み)" + c.reset + c.dim + " — " + s.Upstream + c.reset
+	}
+
+	var parts []string
+	if s.Dirty > 0 {
+		parts = append(parts, fmt.Sprintf("未コミット %d ファイル", s.Dirty))
+	}
+	if s.NoUpstream {
+		parts = append(parts, "upstream 未設定 (未 push)")
+	} else {
+		if s.Ahead > 0 {
+			parts = append(parts, fmt.Sprintf("未 push %d コミット", s.Ahead))
+		}
+		if s.Behind > 0 {
+			parts = append(parts, fmt.Sprintf("未取得 %d コミット", s.Behind))
+		}
+	}
+	if len(parts) == 0 {
+		// Dirty=0 かつ ahead/behind=0 だが upstream あり → Clean が拾うのでここには来ない。
+		parts = append(parts, "未同期")
+	}
+
+	summary := c.warn + strings.Join(parts, " / ") + c.reset
+	ref := ""
+	if s.Upstream != "" {
+		ref = c.dim + " (" + s.Upstream + ")" + c.reset
+	}
+	return summary + ref
 }
 
 // cell は 1 マス。color はセル内容に付ける前置 ANSI (幅計算には含めない)。

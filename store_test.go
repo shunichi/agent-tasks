@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -78,6 +79,29 @@ func TestLoadTasksSorted(t *testing.T) {
 	// project 昇順 -> id 昇順
 	if tasks[0].Project != "alpha" || tasks[1].Project != "zeta" || tasks[1].ID != "0001" {
 		t.Errorf("sort order wrong: %+v", tasks)
+	}
+}
+
+func TestEditorArgv(t *testing.T) {
+	// 既定は code。
+	t.Setenv("AGENT_TASKS_EDITOR", "")
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+	if got := editorArgv(); len(got) != 1 || got[0] != "code" {
+		t.Errorf("default = %v, want [code]", got)
+	}
+
+	// 優先順位 AGENT_TASKS_EDITOR > VISUAL > EDITOR、かつ引数も分割する。
+	t.Setenv("EDITOR", "vi")
+	t.Setenv("VISUAL", "nano")
+	t.Setenv("AGENT_TASKS_EDITOR", "code -w")
+	if got := editorArgv(); !slices.Equal(got, []string{"code", "-w"}) {
+		t.Errorf("got %v, want [code -w]", got)
+	}
+
+	t.Setenv("AGENT_TASKS_EDITOR", "")
+	if got := editorArgv(); !slices.Equal(got, []string{"nano"}) {
+		t.Errorf("VISUAL precedence: got %v, want [nano]", got)
 	}
 }
 

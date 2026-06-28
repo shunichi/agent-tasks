@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -43,6 +44,8 @@ func main() {
 		err = cmdList(args)
 	case "show":
 		err = cmdShow(args)
+	case "edit":
+		err = cmdEdit(args)
 	case "where":
 		fmt.Println(storeDir())
 	default:
@@ -71,11 +74,13 @@ USAGE:
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project で絞り込み
   agent-tasks show <project> <id>    1タスクの全文を表示
+  agent-tasks edit [<project> <id>]  ストア (引数なし) か1タスクをエディタで開く
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 
 ENV:
   AGENT_TASKS_STORE    タスクデータの場所 (既定: ~/agent-tasks-store)
+  AGENT_TASKS_EDITOR   edit で使うエディタ (既定: code。VISUAL/EDITOR も参照)
 `)
 }
 
@@ -163,17 +168,10 @@ func cmdShow(args []string) error {
 	if len(args) < 2 {
 		return usagef("show は <project> と <id> が必要")
 	}
-	project, id := args[0], args[1]
-	projDir := filepath.Join(storeDir(), project)
-
-	matches, _ := filepath.Glob(filepath.Join(projDir, id+"-*.md"))
-	if len(matches) == 0 {
-		matches, _ = filepath.Glob(filepath.Join(projDir, id+".md"))
+	path, err := resolveTaskPath(args[0], args[1])
+	if err != nil {
+		return err
 	}
-	if len(matches) == 0 {
-		return fmt.Errorf("見つかりません: %s / %s", project, id)
-	}
-	path := matches[0]
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -182,4 +180,54 @@ func cmdShow(args []string) error {
 	fmt.Printf("%s# %s%s\n", c.dim, path, c.reset)
 	os.Stdout.Write(data)
 	return nil
+}
+
+// resolveTaskPath は <project>/<id>-*.md (なければ <id>.md) を1件解決する。
+func resolveTaskPath(project, id string) (string, error) {
+	projDir := filepath.Join(storeDir(), project)
+	matches, _ := filepath.Glob(filepath.Join(projDir, id+"-*.md"))
+	if len(matches) == 0 {
+		matches, _ = filepath.Glob(filepath.Join(projDir, id+".md"))
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("見つかりません: %s / %s", project, id)
+	}
+	return matches[0], nil
+}
+
+// cmdEdit はストア (引数なし) か1タスク (<project> <id>) をエディタで開く。
+func cmdEdit(args []string) error {
+	target := storeDir()
+	switch len(args) {
+	case 0:
+		// ストアのルートを開く
+	case 1:
+		return usagef("edit は引数なし (ストア) か <project> <id> が必要")
+	default:
+		path, err := resolveTaskPath(args[0], args[1])
+		if err != nil {
+			return err
+		}
+		target = path
+	}
+
+	argv := append(editorArgv(), target)
+	bin, err := exec.LookPath(argv[0])
+	if err != nil {
+		return fmt.Errorf("エディタが見つかりません: %s (AGENT_TASKS_EDITOR / VISUAL / EDITOR で指定可)", argv[0])
+	}
+	cmd := exec.Command(bin, argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+// editorArgv は使うエディタを AGENT_TASKS_EDITOR > VISUAL > EDITOR の順で決め、
+// いずれも未設定なら code を使う。値は空白区切りで引数も解釈する (例: "code -w")。
+func editorArgv() []string {
+	for _, env := range []string{"AGENT_TASKS_EDITOR", "VISUAL", "EDITOR"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return strings.Fields(v)
+		}
+	}
+	return []string{"code"}
 }

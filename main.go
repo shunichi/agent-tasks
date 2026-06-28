@@ -119,6 +119,8 @@ func dispatch(args []string) error {
 		return cmdDoctor(args)
 	case "session-hook":
 		return cmdSessionHook(args)
+	case "session-link":
+		return cmdSessionLink(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -153,6 +155,8 @@ USAGE:
                                      問題があれば exit 1。CI / 着手前チェックに使う)
   agent-tasks session-hook [--print-config]  Claude Code の hook から呼ぶ。stdin の JSON を読んで
                                      セッションの working/waiting を記録する (--print-config で設定例を出力)
+  agent-tasks session-link [<project>] <id>  現在のセッションをタスクに紐づける (start 手順が呼ぶ)。
+                                     同一セッション start でも SESSION 状態が出るようにする
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

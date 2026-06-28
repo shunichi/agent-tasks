@@ -19,7 +19,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   render.go                     # 色付け + CJK 幅対応のテーブル描画
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
-  session.go                    # session-hook + list の SESSION 列 (working/waiting/ended)
+  session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
@@ -87,6 +87,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   store の agent-tasks/0021)。
 - ✅ 着手/完了日時 (`started_at`/`completed_at`) を記録 (start/done で。show が所要時間/経過を
   サマリ表示、doctor が日時の矛盾を検査。store の agent-tasks/0024)。
+- ✅ 同一セッションで start したタスクにも session 状態を紐づけ (`session-link`。hook が session_id
+  キーのマーカーも書き、start 時に cwd 逆引きで自セッションを特定して `<wt>.link.json` に記録。
+  list は worktree マーカーと link の新しい方を採用。store の agent-tasks/0027)。
 
 ## コミットメッセージ
 

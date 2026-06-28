@@ -104,10 +104,25 @@ func normalizeID(id string) string {
 
 // loadTasks は store 配下の <project>/*.md を全て読み、project / id 順で返す。
 func loadTasks(dir string) ([]Task, error) {
+	tasks, _, err := loadTasksReport(dir)
+	return tasks, err
+}
+
+// LoadFailure は走査中に読めなかった (parse 失敗 / ディレクトリ読み取り失敗) ファイル。
+// loadTasks はこれらを黙って一覧から落とすため、doctor が「無言で消えたタスク」を
+// 可視化するのに使う (長大な1行・権限などで起きうる)。
+type LoadFailure struct {
+	Path string
+	Err  error
+}
+
+// loadTasksReport は loadTasks 本体。読めたタスクに加え、読めなかったファイルも返す。
+func loadTasksReport(dir string) ([]Task, []LoadFailure, error) {
 	var tasks []Task
+	var failures []LoadFailure
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, projEntry := range entries {
 		if !projEntry.IsDir() {
@@ -117,6 +132,7 @@ func loadTasks(dir string) ([]Task, error) {
 		projDir := filepath.Join(dir, project)
 		files, err := os.ReadDir(projDir)
 		if err != nil {
+			failures = append(failures, LoadFailure{projDir, err})
 			continue
 		}
 		for _, f := range files {
@@ -126,6 +142,7 @@ func loadTasks(dir string) ([]Task, error) {
 			path := filepath.Join(projDir, f.Name())
 			t, err := parseTask(path)
 			if err != nil {
+				failures = append(failures, LoadFailure{path, err})
 				continue
 			}
 			if t.Project == "" {
@@ -149,7 +166,7 @@ func loadTasks(dir string) ([]Task, error) {
 			cmp.Compare(a.ID, b.ID),
 		)
 	})
-	return tasks, nil
+	return tasks, failures, nil
 }
 
 // Duplicate は同一 (project, id) を共有する複数ファイルを表す検出結果。

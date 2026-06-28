@@ -67,12 +67,30 @@ func TestFindTimestampIssues(t *testing.T) {
 		{Project: "p", ID: "0003", Status: "done", StartedAt: "2026-06-29T10:00:00Z", CompletedAt: "2026-06-28T10:00:00Z"}, // 逆転
 		{Project: "p", ID: "0004", Status: "done"},                                                                         // 旧 (どちらも無) → 無視
 		{Project: "p", ID: "0005", Status: "in-progress", StartedAt: "2026-06-29T10:00:00Z"},                               // OK
+		{Project: "p", ID: "0006", Status: "done", StartedAt: "2026-06-29T10:00:00Z"},                                      // done なのに completed 無し
 	}
 	issues := findTimestampIssues(tasks)
-	if len(issues) != 2 {
-		t.Fatalf("len(issues) = %d, want 2 (%+v)", len(issues), issues)
+	if len(issues) != 3 {
+		t.Fatalf("len(issues) = %d, want 3 (%+v)", len(issues), issues)
 	}
-	if issues[0].ID != "0002" || issues[1].ID != "0003" {
+	if issues[0].ID != "0002" || issues[1].ID != "0003" || issues[2].ID != "0006" {
+		t.Errorf("検出対象がずれている: %+v", issues)
+	}
+}
+
+func TestFindBlockedIssues(t *testing.T) {
+	tasks := []Task{
+		{Project: "p", ID: "0001", Status: "blocked", BlockedAt: "2026-06-28T10:00:00Z", BlockedReason: "確認待ち"}, // OK
+		{Project: "p", ID: "0002", Status: "in-progress", BlockedAt: "2026-06-28T10:00:00Z"},                    // クリア漏れ
+		{Project: "p", ID: "0003", Status: "done", BlockedReason: "残骸"},                                         // クリア漏れ
+		{Project: "p", ID: "0004", Status: "blocked"},                                                           // blocked なのに blocked_at 無し
+		{Project: "p", ID: "0005", Status: "todo"},                                                              // OK
+	}
+	issues := findBlockedIssues(tasks)
+	if len(issues) != 3 {
+		t.Fatalf("len(issues) = %d, want 3 (%+v)", len(issues), issues)
+	}
+	if issues[0].ID != "0002" || issues[1].ID != "0003" || issues[2].ID != "0004" {
 		t.Errorf("検出対象がずれている: %+v", issues)
 	}
 }

@@ -47,10 +47,12 @@ type TimestampIssue struct {
 }
 
 // findTimestampIssues は started_at / completed_at の論理的な矛盾を拾う。
-// **欠落は問題にしない** (この機能より前のタスクは元々どちらも持たないため)。
-// 拾うのは「あり得ない組み合わせ」だけ:
+// **純粋な欠落は問題にしない** (この機能より前のタスクは元々どちらも持たないため)。
+// 拾うのは「あり得ない組み合わせ」と「新しい記録漏れ」:
 //   - completed_at はあるが started_at が無い (done の記録漏れ/順序おかしい)
 //   - completed_at が started_at より前 (時系列の矛盾)
+//   - status=done かつ started_at はあるのに completed_at が無い (done の記録漏れ)。
+//     started_at を持つ = 本機能以降のタスクなので、旧 done を誤検出しない。
 func findTimestampIssues(tasks []Task) []TimestampIssue {
 	var out []TimestampIssue
 	for _, t := range tasks {
@@ -61,6 +63,8 @@ func findTimestampIssues(tasks []Task) []TimestampIssue {
 			out = append(out, TimestampIssue{t.Project, t.ID, "completed_at があるのに started_at が無い", t.Path})
 		case okC && okS && completed.Before(started):
 			out = append(out, TimestampIssue{t.Project, t.ID, "completed_at が started_at より前", t.Path})
+		case t.Status == "done" && okS && !okC:
+			out = append(out, TimestampIssue{t.Project, t.ID, "status=done なのに completed_at が無い (記録漏れ)", t.Path})
 		}
 	}
 	return out

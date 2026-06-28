@@ -207,6 +207,56 @@ func findIDMismatches(tasks []Task) []Mismatch {
 	return out
 }
 
+// SyncStatus はストア (git repo) の同期状況。CLI の status / sync で使う。
+type SyncStatus struct {
+	NotGit     bool   // git 管理されていない (rev-parse 失敗)
+	Dirty      int    // 未コミットの変更エントリ数 (working tree + index)
+	Branch     string // 現在のブランチ名
+	NoUpstream bool   // upstream (@{u}) 未設定
+	Upstream   string // upstream の参照名 (例 origin/main)
+	Ahead      int    // upstream に対して未 push のコミット数
+	Behind     int    // upstream より遅れているコミット数
+}
+
+// Clean は「同期済み (未コミットも未 push も無い)」かを返す。
+// git 管理外・upstream 未設定は同期判断ができないので Clean=false 扱い。
+func (s SyncStatus) Clean() bool {
+	return !s.NotGit && !s.NoUpstream && s.Dirty == 0 && s.Ahead == 0 && s.Behind == 0
+}
+
+// loadSyncStatus はストア dir の git 状態を集計する。git は main.go の同名ヘルパを使う
+// (同一 package)。git 管理外・upstream 未設定はエラーにせず status のフラグで返す。
+func loadSyncStatus(dir string) (SyncStatus, error) {
+	var st SyncStatus
+	if out, err := git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || out != "true" {
+		st.NotGit = true
+		return st, nil
+	}
+	porcelain, err := git(dir, "status", "--porcelain")
+	if err != nil {
+		return st, fmt.Errorf("git status に失敗しました: %w", err)
+	}
+	if porcelain != "" {
+		st.Dirty = len(strings.Split(porcelain, "\n"))
+	}
+	st.Branch, _ = git(dir, "rev-parse", "--abbrev-ref", "HEAD")
+
+	up, err := git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil {
+		st.NoUpstream = true
+		return st, nil
+	}
+	st.Upstream = up
+	// rev-list --count --left-right @{u}...HEAD => "<behind>\t<ahead>"
+	if counts, err := git(dir, "rev-list", "--count", "--left-right", "@{u}...HEAD"); err == nil {
+		if behind, ahead, ok := strings.Cut(counts, "\t"); ok {
+			st.Behind, _ = strconv.Atoi(strings.TrimSpace(behind))
+			st.Ahead, _ = strconv.Atoi(strings.TrimSpace(ahead))
+		}
+	}
+	return st, nil
+}
+
 // parseTask は Markdown ファイル先頭の YAML frontmatter (フラットな key: value) を読む。
 func parseTask(path string) (Task, error) {
 	t := Task{Path: path}

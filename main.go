@@ -183,7 +183,9 @@ func cmdShow(args []string) error {
 }
 
 // resolveTaskPath は <project>/<id>-*.md (なければ <id>.md) を1件解決する。
+// id は数値なら4桁ゼロ埋めに正規化してから照合するので `5` でも `0005` を指せる。
 func resolveTaskPath(project, id string) (string, error) {
+	id = normalizeID(id)
 	projDir := filepath.Join(storeDir(), project)
 	matches, _ := filepath.Glob(filepath.Join(projDir, id+"-*.md"))
 	if len(matches) == 0 {

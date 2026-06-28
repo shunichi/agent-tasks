@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"cmp"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +37,17 @@ func storeDir() string {
 		return "agent-tasks-store"
 	}
 	return filepath.Join(home, "agent-tasks-store")
+}
+
+// normalizeID は入力 ID を照合用に正規化する。数値なら4桁ゼロ埋めにそろえ
+// (5 -> 0005, 05 -> 0005, 12345 -> 12345)、数値でなければそのまま返す。
+// 保存される ID 自体は4桁ゼロ埋めのままで、入力だけ緩く受けるための関数。
+// start/done/block を CLI 化する場合も ID 解決でこれを共有する想定。
+func normalizeID(id string) string {
+	if n, err := strconv.Atoi(id); err == nil && n >= 0 {
+		return fmt.Sprintf("%04d", n)
+	}
+	return id
 }
 
 // loadTasks は store 配下の <project>/*.md を全て読み、project / id 順で返す。

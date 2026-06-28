@@ -1,6 +1,6 @@
 ---
 name: agent-tasks
-description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks-store) で管理する skill。タスクの登録・一覧・着手 (git worktree で並行)・完了・保留を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', 'タスクに着手', 'タスクを完了', '/agent-tasks create|list|start|done|block' など。"
+description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks-store) で管理する skill。タスクの登録・一覧・着手 (git worktree で並行)・完了・保留・別 pane への spawn を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', 'タスクに着手', 'タスクを完了', '別 pane で着手/spawn', '/agent-tasks create|list|start|done|block|spawn' など。"
 ---
 
 # agent-tasks skill
@@ -60,6 +60,7 @@ updated: 2026-06-28
 - **create**: 「タスクを作る/追加/登録」「〜というタスク」
 - **list**: 「タスク一覧」「タスクの進捗」「何が残ってる」
 - **start**: 「〜に着手」「タスク 0001 をやって」「start 0001」
+- **spawn**: 「別 pane で着手」「新しいセッションで 0001 をやって」「spawn 0001」
 - **done**: 「〜が完了」「done 0001」
 - **block**: 「〜を保留」「block 0001」
 
@@ -103,11 +104,14 @@ updated: 2026-06-28
    - 各 in-progress タスクの要件・進捗ログから「触る予定のファイル/領域」を読み取り、本タスクの想定変更と重なりそうか判断する。
    - 重なりそうなら **着手前にユーザーへ伝える**: どのタスク (id/branch) と、どのファイル/領域で衝突しそうかを具体的に示し、(a) 先に片方を終えてから進める / (b) 承知の上で並行する のどちらにするか確認する。明示の指示があるまで worktree は作らない。
    - 重なりが無さそうなら、その旨を一言添えてそのまま進める。
-4. worktree とブランチを作る。コードリポジトリの root で:
+4. worktree とブランチを用意する (**冪等**)。コードリポジトリの root で:
    ```sh
    git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>
    ```
    - 既定ブランチ (main) の最新から分岐する。必要なら事前に `git fetch` / 最新化する。
+   - **既に同じ worktree/branch が存在する場合は作成をスキップする** (`git worktree list` に
+     `../<project>--<NNNN>` があれば再作成しない)。`spawn` から起動された子セッションは worktree が
+     既に在る状態で start するため、ここでエラーにせず frontmatter 更新 (手順 5) へ進む。
 5. タスクファイルの frontmatter を更新する:
    - `status: in-progress`
    - `agent: claude` (自分のエージェント名)
@@ -116,6 +120,58 @@ updated: 2026-06-28
    - `updated:` 当日、`## 進捗ログ` に「着手」を追記
 6. **以降の実装作業は作成した worktree (`../<project>--<NNNN>`) の中で行う。** 元のチェックアウトは汚さない。
 7. プロジェクトの作法に従って実装する (`CLAUDE.md` / `AGENTS.md` を読む)。完了に近づいたら `done` へ。
+
+---
+
+## spawn — 別 pane に新セッションを開いて着手 (tmux)
+
+並行開発をワンステップで。**worktree を用意 → tmux の別 pane を開く → そこで新しいエージェント
+セッションを起動 → そのセッションが自分で `start` して着手する** までを通す。`start` を内包するのでは
+なく、worktree だけ用意して**着手 (frontmatter 確定) は子セッションに任せる**。理由: frontmatter の
+`session:` には着手したセッション自身の URL が入るべきで、それを知っているのは子だけだから。
+
+### 前提とフォールバック
+
+- **tmux 内で実行する必要がある** (`$TMUX` が設定されているか確認)。
+- tmux 外、または確認だけしたい場合は副作用を出さず、**手で貼り付けられるコマンド一式を表示して終了**
+  する (下記「フォールバック出力」)。新ターミナルの自動起動はしない (環境依存で脆いため)。
+
+### 手順
+
+1. 対象タスクファイルを特定する (project + id)。slug から `branch: task/<NNNN>-<slug>` /
+   `worktree: ../<project>--<NNNN>` を決める。
+2. **二重着手チェック**: `status` が `in-progress` で `session` が埋まっていれば別セッション作業中の
+   可能性。ユーザーに確認し、明示の指示がなければ中止する。
+3. **コンフリクトチェック**: start と同様、同 project の他 `in-progress` と触る領域が重ならないか確認する
+   (重なりそうならユーザーに伝えて判断を仰ぐ)。
+4. `$TMUX` を確認する。未設定なら「フォールバック出力」に進む。
+5. worktree を用意する (**冪等**。frontmatter はここでは触らない — 子の start に任せる):
+   ```sh
+   git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>   # 既存ならスキップ
+   ```
+6. worktree の**絶対パス**を求め、その場所でシェルを持つ pane を開いて子セッションを起動する:
+   ```sh
+   WT="$(cd ../<project>--<NNNN> && pwd)"
+   AGENT="${AGENT_TASKS_AGENT:-claude}"        # agent 非依存。既定 claude、env で上書き可
+   tmux split-window -c "$WT"                  # 縦分割なら -h を付ける
+   tmux send-keys "$AGENT 'タスク <NNNN> に着手して'" Enter
+   ```
+   - pane が最初から worktree 内にあるので、子セッション終了後もそのまま作業継続できる。
+   - 初期プロンプト「タスク <NNNN> に着手して」は agent 非依存。codex など固有の渡し方が要る場合は
+     将来対応 (今は claude 既定)。
+7. 子セッションは起動後に `/agent-tasks start <NNNN>` を実行する。worktree は既存なので冪等にスキップ
+   され、frontmatter (status/agent/**session**/branch/worktree) を子自身が確定する。
+8. **親 (spawn した側) は frontmatter を更新しない。** pane を開いたことを報告して終了する。
+
+### フォールバック出力 (tmux 外 / 確認だけのとき)
+
+副作用を出さず、ユーザーが手で実行できる形を表示する:
+
+```sh
+git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>   # 未作成なら
+cd ../<project>--<NNNN>
+claude 'タスク <NNNN> に着手して'
+```
 
 ---
 

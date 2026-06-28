@@ -11,7 +11,7 @@
 
 ```
 agent-tasks/
-  skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/完了/保留
+  skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/spawn/完了/保留
   main.go store.go render.go    # 閲覧 (人間用) CLI 本体 (Go, 依存ゼロ)
   store_test.go                 # テスト
   Makefile                      # build / install / test
@@ -63,11 +63,14 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 | 登録 | 「〜というタスクを作って」「/agent-tasks create」 |
 | 一覧 | 「タスク一覧」「/agent-tasks list」 |
 | 着手 | 「タスク 0001 に着手」「/agent-tasks start 0001」(git worktree で並行開発) |
+| 別 pane で着手 | 「別 pane で 0001 をやって」「/agent-tasks spawn 0001」(tmux の別 pane に新セッション) |
 | 完了 | 「0001 を完了」「/agent-tasks done 0001」 |
 | 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
 
 **並行開発**: 別々のエージェントセッションでそれぞれ別タスクを `start` すると、
 タスクごとに git worktree + ブランチが切られ、衝突なく同時に開発できる。
+`spawn` は tmux の別 pane を開き、その worktree で新しいセッションを起動して着手まで通す
+(着手・session URL 記録は子セッションが担当)。tmux 外では貼り付け用コマンドを表示するだけ。
 
 ### 閲覧 (ターミナルから)
 

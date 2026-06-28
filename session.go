@@ -22,9 +22,12 @@ import (
 //   (1) worktree 経路: hook の cwd の git root basename (例 agent-tasks--0020) でマーカーを書く。
 //       spawn 子セッションは worktree 内で動くので確実に当たる。
 //   (2) session 経路: 同一セッションで start したタスク (cwd がメインリポのまま) は (1) では当たらない。
-//       hook が session_id キーのマーカー (cwd 付き) も書き、session-link が現在 cwd で逆引きして
-//       <worktreeキー>.link.json に対応を記録する。list は両者の新しい方を採用する。
+//       hook が session_id キーのマーカー (cwd 付き) も書き、session-link が <worktreeキー>.link.json に
+//       対応を記録する。session_id は --session で明示 (Claude は self-id を知れる) するか、省略時は
+//       hook の sess マーカーを現在 cwd で逆引きして特定する。list は両者の新しい方を採用する。
 //
+// 層の切り分け: マーカー・link の保管/突合 (この CLI) は agent 中立。状態の信号源 (hook) と
+// self-id の取得方法は agent 固有なので SKILL 側に agent 別に置く。
 // マーカー・link はマシンローカルな揮発情報なので、git 同期されるストアの外 (state dir) に置く。
 
 // セッション状態の値。
@@ -386,7 +389,29 @@ func sessionHookConfig() string {
 // 自分の session_id は直接知れない (env が無い) ので、hook が書いた sess マーカーを
 // 現在 cwd で逆引きして特定する。見つからない (hook 未導入など) ときはエラーにせず案内のみ。
 func cmdSessionLink(args []string) error {
-	project, id, err := resolveProjectID(args)
+	// --session <id> を先に抜く。残りを <project>/<id> として解決する。
+	// 取得層は agent 固有なので、自分の session_id を言える agent (例: Claude Code) は
+	// --session で明示する (cwd 逆引きの曖昧性を回避)。言えなければ省略し、hook が書いた
+	// sess マーカーを cwd で逆引きするフォールバックに任せる。
+	var explicitSession string
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--session":
+			if i+1 >= len(args) {
+				return usagef("--session には値が必要")
+			}
+			i++
+			explicitSession = args[i]
+		default:
+			if v, ok := strings.CutPrefix(args[i], "--session="); ok {
+				explicitSession = v
+				continue
+			}
+			rest = append(rest, args[i])
+		}
+	}
+	project, id, err := resolveProjectID(rest)
 	if err != nil {
 		return err
 	}
@@ -402,19 +427,28 @@ func cmdSessionLink(args []string) error {
 	if key == "" {
 		return fmt.Errorf("タスク %s/%s に worktree が記録されていません (start 済みか確認してください)", project, id)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
+
+	if strings.ContainsAny(explicitSession, `/\`) {
+		return usagef("--session に / や \\ は使えません: %q", explicitSession)
 	}
-	sessionID := resolveSessionByCwd(cwd)
+	sessionID := explicitSession
+	via := "明示 (--session)"
 	if sessionID == "" {
-		fmt.Printf("セッションを特定できませんでした (cwd: %s)。session-hook が未導入か、まだ発火していない可能性があります。\n", cwd)
-		fmt.Println("hook 導入: agent-tasks session-hook --print-config")
-		return nil
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		sessionID = resolveSessionByCwd(cwd)
+		via = "cwd 逆引き"
+		if sessionID == "" {
+			fmt.Printf("セッションを特定できませんでした (cwd: %s)。--session <id> で明示するか、session-hook を導入してください。\n", cwd)
+			fmt.Println("hook 導入: agent-tasks session-hook --print-config")
+			return nil
+		}
 	}
 	if err := writeSessionLink(key, sessionID, time.Now()); err != nil {
 		return err
 	}
-	fmt.Printf("linked %s → session %s\n", key, sessionID)
+	fmt.Printf("linked %s → session %s (%s)\n", key, sessionID, via)
 	return nil
 }

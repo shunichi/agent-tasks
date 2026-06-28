@@ -88,8 +88,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - ✅ 着手/完了日時 (`started_at`/`completed_at`) を記録 (start/done で。show が所要時間/経過を
   サマリ表示、doctor が日時の矛盾を検査。store の agent-tasks/0024)。
 - ✅ 同一セッションで start したタスクにも session 状態を紐づけ (`session-link`。hook が session_id
-  キーのマーカーも書き、start 時に cwd 逆引きで自セッションを特定して `<wt>.link.json` に記録。
-  list は worktree マーカーと link の新しい方を採用。store の agent-tasks/0027)。
+  キーのマーカーも書き、start 時に session_id を `--session` で明示 (Claude は self-id を知れる) または
+  cwd 逆引きで特定して `<wt>.link.json` に記録。list は worktree マーカーと link の新しい方を採用。
+  保管・突合は agent 中立 / 信号源・self-id 取得は agent 固有として SKILL に整理。store の agent-tasks/0027)。
 
 ## コミットメッセージ
 

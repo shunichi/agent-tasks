@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -163,6 +164,30 @@ func TestResolveSessionByCwd(t *testing.T) {
 	}
 	if got := resolveSessionByCwd("/nowhere"); got != "" {
 		t.Errorf("一致なしで %q, want \"\"", got)
+	}
+}
+
+// cmdSessionLink の --session 明示はパス区切りを弾く (cwd 逆引きより優先される経路の入力検証)。
+func TestCmdSessionLinkRejectsBadSession(t *testing.T) {
+	store := t.TempDir()
+	t.Setenv("AGENT_TASKS_STORE", store)
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(store, "proj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	task := "---\nid: \"0001\"\nproject: proj\nstatus: in-progress\nworktree: ../proj--0001\n---\n"
+	if err := os.WriteFile(filepath.Join(store, "proj", "0001-x.md"), []byte(task), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdSessionLink([]string{"proj", "0001", "--session", "a/b"}); err == nil {
+		t.Error("不正な --session 値を受理した")
+	}
+	// 正常な --session は link を書く。
+	if err := cmdSessionLink([]string{"proj", "0001", "--session", "sid-9"}); err != nil {
+		t.Fatalf("正常 --session: %v", err)
+	}
+	if l, ok := readSessionLink("proj--0001"); !ok || l.SessionID != "sid-9" {
+		t.Fatalf("link = %+v ok=%v, want sid-9", l, ok)
 	}
 }
 

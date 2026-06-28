@@ -1,17 +1,18 @@
-# agent-dashboard
+# agent-tasks
 
 エージェント (Claude / Codex / ...) に開発させるタスクを管理するための一式。
 **操作 (skill)** と **閲覧 (CLI)** を1リポジトリにまとめている。
 
-タスクデータは各コードリポジトリの**外**、`~/agent-tasks/` に置く。リポジトリ内に置かないのは、
-ブランチごとにタスク状態がずれるのを避けるため。
+タスクデータは各コードリポジトリの**外**、`~/agent-tasks-store/` に置く
+(repo `agent-tasks` = ツール、`agent-tasks-store` = タスクの中身、という役割分担)。
+リポジトリ内に置かないのは、ブランチごとにタスク状態がずれるのを避けるため。
 
 ## 構成
 
 ```
-agent-dashboard/
+agent-tasks/
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/完了/保留
-  bin/agent-tasks               # 閲覧 (人間用): ~/agent-tasks を横断する CLI
+  bin/agent-tasks               # 閲覧 (人間用): ~/agent-tasks-store を横断する CLI
 ```
 
 - `skills/` 直下に置くのは、Claude 以外のエージェント (Codex / Cursor / Gemini) からも
@@ -20,12 +21,12 @@ agent-dashboard/
 ## データの場所
 
 ```
-~/agent-tasks/
+~/agent-tasks-store/
   <project>/            # コードリポジトリ root の basename
     <NNN>-<slug>.md     # 1 タスク = 1 Markdown ファイル
 ```
 
-`AGENT_TASKS_DIR` で場所を変更可。データ形式の詳細は `~/agent-tasks/README.md` を参照。
+`AGENT_TASKS_STORE` で場所を変更可。データ形式の詳細は `~/agent-tasks-store/README.md` を参照。
 
 ## インストール
 

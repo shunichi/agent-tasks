@@ -1,19 +1,19 @@
 ---
 name: agent-tasks
-description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks) で管理する skill。タスクの登録・一覧・着手 (git worktree で並行)・完了・保留を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', 'タスクに着手', 'タスクを完了', '/agent-tasks create|list|start|done|block' など。"
+description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks-store) で管理する skill。タスクの登録・一覧・着手 (git worktree で並行)・完了・保留を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', 'タスクに着手', 'タスクを完了', '/agent-tasks create|list|start|done|block' など。"
 ---
 
 # agent-tasks skill
 
 エージェント (Claude / Codex / ...) に開発させるタスクを、**各コードリポジトリの外**にある
-中央ストア `~/agent-tasks/` で管理する。リポジトリ内に置かないのは、ブランチごとに
-タスク状態がずれるのを避けるため。閲覧用 CLI は `agent-tasks` (repo: `agent-dashboard`)。
+中央ストア `~/agent-tasks-store/` で管理する。リポジトリ内に置かないのは、ブランチごとに
+タスク状態がずれるのを避けるため。skill と閲覧用 CLI `agent-tasks` は repo `agent-tasks` に同梱。
 
 ## 共通ルール
 
 ### データの場所
 
-- ストアのルートは環境変数 `AGENT_TASKS_DIR`、未設定なら `~/agent-tasks`。
+- ストアのルートは環境変数 `AGENT_TASKS_STORE`、未設定なら `~/agent-tasks-store`。
 - タスクは `<root>/<project>/<NNN>-<slug>.md`。
 - **絶対にコードリポジトリの中に書かない。** 必ず上記ストアの下に書く。
 

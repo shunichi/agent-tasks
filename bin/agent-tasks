@@ -2,15 +2,15 @@
 #
 # agent-tasks — エージェント開発タスクの横断ビューア
 #
-# ~/agent-tasks/<project>/<NNN>-<slug>.md の frontmatter を読み、
+# ~/agent-tasks-store/<project>/<NNN>-<slug>.md の frontmatter を読み、
 # 全プロジェクト横断でタスクの進捗一覧を表示する。
 # エージェント (claude / codex / ...) を起動せずターミナルから進捗を見るためのツール。
 #
-# データの場所は AGENT_TASKS_DIR で上書きできる (既定: ~/agent-tasks)。
+# データの場所は AGENT_TASKS_STORE で上書きできる (既定: ~/agent-tasks-store)。
 #
 set -euo pipefail
 
-TASKS_DIR="${AGENT_TASKS_DIR:-$HOME/agent-tasks}"
+TASKS_DIR="${AGENT_TASKS_STORE:-$HOME/agent-tasks-store}"
 
 usage() {
   cat <<'EOF'
@@ -26,7 +26,7 @@ USAGE:
   agent-tasks -h | --help            このヘルプ
 
 ENV:
-  AGENT_TASKS_DIR    タスクデータの場所 (既定: ~/agent-tasks)
+  AGENT_TASKS_STORE    タスクデータの場所 (既定: ~/agent-tasks-store)
 EOF
 }
 

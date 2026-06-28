@@ -79,10 +79,17 @@ updated: 2026-06-28
 
 1. project キーを決める (上記)。
 2. `<root>/<project>/` がなければ作成する。
-3. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `0001`)。
-4. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
-5. `<root>/<project>/<NNNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は当日。
-6. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
+3. **採番直前にストアを最新化する** (`agent-tasks sync --no-push` か、ストアで `git pull --rebase`)。
+   別マシン/別セッションが先に採番した番号を取り込んでから決めることで、id 衝突を起きにくくする。
+4. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `0001`)。
+   - 採番は「既存最大 + 1」なので、**並行 create では同じ id を引く競合 (TOCTOU) があり得る。**
+     最新化 (手順 3) で大幅に減らせるが完全には防げないため、作成後に手順 7 で検査する。
+5. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
+6. `<root>/<project>/<NNNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は当日。
+7. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する。** 重複 id が出たら
+   (同じ id のファイルが他にある)、空いている最大連番 + 1 に振り直してファイル名と frontmatter `id:` の
+   両方を直し、再度 doctor が通ることを確認する。
+8. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
 
 ---
 

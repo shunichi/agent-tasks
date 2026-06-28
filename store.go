@@ -143,6 +143,61 @@ func loadTasks(dir string) ([]Task, error) {
 	return tasks, nil
 }
 
+// Duplicate は同一 (project, id) を共有する複数ファイルを表す検出結果。
+// 並行 create の採番競合 (TOCTOU) で同じ id のファイルが複数できた状態を拾う。
+type Duplicate struct {
+	Project string
+	ID      string
+	Paths   []string // 該当ファイルの絶対パス (loadTasks 由来なので project/id 昇順)
+}
+
+// Mismatch は frontmatter の id とファイル名先頭の連番 (NNNN) がずれているタスク。
+// 例: ファイル名 0016-foo.md だが frontmatter が id: "0015"。
+type Mismatch struct {
+	Project string
+	FileID  string // ファイル名先頭の連番
+	MetaID  string // frontmatter の id (loadTasks の補完後)
+	Path    string
+}
+
+// findDuplicateIDs は loadTasks の結果を (project, id) で集計し、同一キーが
+// 2 件以上あるものを返す。tasks は project/id 昇順前提なので結果も昇順になる。
+func findDuplicateIDs(tasks []Task) []Duplicate {
+	type key struct{ project, id string }
+	groups := map[key][]string{}
+	var order []key
+	for _, t := range tasks {
+		k := key{t.Project, t.ID}
+		if _, seen := groups[k]; !seen {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], t.Path)
+	}
+	var dups []Duplicate
+	for _, k := range order {
+		if paths := groups[k]; len(paths) > 1 {
+			dups = append(dups, Duplicate{Project: k.project, ID: k.id, Paths: paths})
+		}
+	}
+	return dups
+}
+
+// findIDMismatches は frontmatter の id とファイル名先頭の連番が一致しないタスクを返す。
+// ファイル名に連番が無い (leadingID が空) ファイルは対象外。
+func findIDMismatches(tasks []Task) []Mismatch {
+	var out []Mismatch
+	for _, t := range tasks {
+		fileID := leadingID(filepath.Base(t.Path))
+		if fileID == "" {
+			continue
+		}
+		if t.ID != fileID {
+			out = append(out, Mismatch{Project: t.Project, FileID: fileID, MetaID: t.ID, Path: t.Path})
+		}
+	}
+	return out
+}
+
 // parseTask は Markdown ファイル先頭の YAML frontmatter (フラットな key: value) を読む。
 func parseTask(path string) (Task, error) {
 	t := Task{Path: path}

@@ -24,6 +24,13 @@ func usagef(format string, a ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, a...)}
 }
 
+// silentExit はメッセージを出さずに指定コードで終了したいときに返す。
+// doctor がレポートを自前で stdout に出したあと、問題ありを終了コードで
+// 伝える (CI / prompt から使えるように) ために使う。
+type silentExit struct{ code int }
+
+func (e *silentExit) Error() string { return "" }
+
 func main() {
 	// --color はサブコマンド共通のグローバルフラグなので、コマンド判定より先に抜き取る。
 	mode, args, err := extractColorFlag(os.Args[1:])
@@ -32,6 +39,10 @@ func main() {
 		err = dispatch(args)
 	}
 	if err != nil {
+		var se *silentExit
+		if errors.As(err, &se) {
+			os.Exit(se.code)
+		}
 		var ue *usageError
 		if errors.As(err, &ue) {
 			fmt.Fprintf(os.Stderr, "%s\n\n", err)
@@ -96,6 +107,8 @@ func dispatch(args []string) error {
 		return cmdWorktreeInit(args)
 	case "scaffold-worktree":
 		return cmdScaffoldWorktree(args)
+	case "doctor":
+		return cmdDoctor(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -123,6 +136,8 @@ USAGE:
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
   agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create) を
                                      プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force)
+  agent-tasks doctor [--project <name>] id 重複と id/ファイル名の不一致を点検 (既定は全 project 横断。
+                                     問題があれば exit 1。CI / 着手前チェックに使う)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 
@@ -243,6 +258,70 @@ func cmdList(args []string) error {
 		fmt.Printf("%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
 	}
 	return nil
+}
+
+// cmdDoctor は id 重複と id/ファイル名不一致を点検する。既定は全 project 横断
+// (重複は project 単位の問題だが、まとめて点検したい)。--project で 1 project に絞れる。
+// 問題が 1 件でもあれば silentExit{1} を返し、CI / prompt から検出できるようにする。
+func cmdDoctor(args []string) error {
+	var filterProject string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--project":
+			if i+1 >= len(args) {
+				return usagef("--project requires a value")
+			}
+			i++
+			filterProject = args[i]
+		default:
+			return usagef("unknown option: %s", args[i])
+		}
+	}
+
+	dir := storeDir()
+	tasks, err := loadTasks(dir)
+	if err != nil {
+		return fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
+	}
+	if filterProject != "" {
+		tasks = slices.DeleteFunc(tasks, func(t Task) bool { return t.Project != filterProject })
+	}
+
+	dups := findDuplicateIDs(tasks)
+	mismatches := findIDMismatches(tasks)
+
+	c := newColors()
+	scope := "全 project"
+	if filterProject != "" {
+		scope = fmt.Sprintf("project: %s", filterProject)
+	}
+
+	if len(dups) == 0 && len(mismatches) == 0 {
+		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
+		return nil
+	}
+
+	if len(dups) > 0 {
+		fmt.Printf("%s重複 id (同じ project に同一 id のファイルが複数):%s\n", c.bold, c.reset)
+		for _, d := range dups {
+			fmt.Printf("  %s%s/%s%s\n", c.block, d.Project, d.ID, c.reset)
+			for _, p := range d.Paths {
+				fmt.Printf("    - %s\n", p)
+			}
+		}
+	}
+	if len(mismatches) > 0 {
+		if len(dups) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%sid とファイル名の不一致 (frontmatter id ≠ ファイル名先頭の連番):%s\n", c.bold, c.reset)
+		for _, m := range mismatches {
+			fmt.Printf("  %s%s%s  file=%s meta=%s  %s\n", c.block, m.Project, c.reset, m.FileID, m.MetaID, m.Path)
+		}
+	}
+
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d)\n", c.block, len(dups)+len(mismatches), c.reset, len(dups), len(mismatches))
+	return &silentExit{code: 1}
 }
 
 func cmdShow(args []string) error {

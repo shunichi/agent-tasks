@@ -5,8 +5,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -214,11 +216,12 @@ func cmdList(args []string) error {
 	if watch && isTTY(os.Stdout) {
 		return watchList(filterStatus, filterProject, showAll, allProjects, interval)
 	}
-	return runList(filterStatus, filterProject, showAll, allProjects)
+	return runList(os.Stdout, filterStatus, filterProject, showAll, allProjects)
 }
 
-// runList は一覧を 1 回読み込み・絞り込み・描画する。watch はこれをループで呼ぶ。
-func runList(filterStatus, filterProject string, showAll, allProjects bool) error {
+// runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
+// ちらつかない上書き再描画に使う。
+func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects bool) error {
 	// project スコープを決める。既定は現在 project (cwd の git root basename) のみ。
 	// --project 明示 / --all-projects / git 外 では横断 (effProject == "")。
 	current := currentProject()
@@ -255,12 +258,12 @@ func runList(filterStatus, filterProject string, showAll, allProjects bool) erro
 
 	if len(rows) == 0 {
 		if effProject != "" {
-			fmt.Printf("該当タスクなし (project: %s, dir: %s)\n", effProject, dir)
+			fmt.Fprintf(w, "該当タスクなし (project: %s, dir: %s)\n", effProject, dir)
 			if defaulted {
-				fmt.Println("横断するには --all-projects、別 project は --project <name>")
+				fmt.Fprintln(w, "横断するには --all-projects、別 project は --project <name>")
 			}
 		} else {
-			fmt.Printf("該当タスクなし (dir: %s)\n", dir)
+			fmt.Fprintf(w, "該当タスクなし (dir: %s)\n", dir)
 		}
 		return nil
 	}
@@ -298,7 +301,7 @@ func runList(filterStatus, filterProject string, showAll, allProjects bool) erro
 		cells = append(cells, cell{blockedTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
 		tbl.add(cells...)
 	}
-	tbl.render(os.Stdout, c)
+	tbl.render(w, c)
 
 	// サマリ
 	var parts []string
@@ -307,34 +310,42 @@ func runList(filterStatus, filterProject string, showAll, allProjects bool) erro
 			parts = append(parts, fmt.Sprintf("%s%s:%d%s", c.status(s), s, n, c.reset))
 		}
 	}
-	fmt.Printf("\n%stotal %d%s  %s\n", c.dim, len(rows), c.reset, strings.Join(parts, "  "))
+	fmt.Fprintf(w, "\n%stotal %d%s  %s\n", c.dim, len(rows), c.reset, strings.Join(parts, "  "))
 
 	// スコープの注記: 既定で現在 project に絞った / git 外で横断にフォールバックした旨を伝える。
 	switch {
 	case defaulted:
-		fmt.Printf("%s(project: %s のみ。横断は --all-projects)%s\n", c.dim, current, c.reset)
+		fmt.Fprintf(w, "%s(project: %s のみ。横断は --all-projects)%s\n", c.dim, current, c.reset)
 	case fellBack:
-		fmt.Printf("%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
+		fmt.Fprintf(w, "%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
 	}
 	return nil
 }
 
-// watchList は interval ごとに画面をクリアして runList を再描画する。Ctrl-C (SIGINT) で抜ける。
+// watchList は interval ごとに runList を再描画する。Ctrl-C (SIGINT) で抜ける。
 // 端末前提 (cmdList が TTY を確認済み)。別セッションのタスク更新を開きっぱなしで監視する用途。
+//
+// ちらつき対策: 画面全消去 (\033[2J) はせず、1 フレームをバッファに組み立ててから
+// writeFrame で「カーソルを左上へ戻して上書き」する。全消去だと消去〜再描画の間に空白
+// フレームが見えてチカチカするため。
 func watchList(filterStatus, filterProject string, showAll, allProjects bool, interval time.Duration) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
 
-	fmt.Print("\033[?25l")       // カーソルを隠す (ちらつき低減)
-	defer fmt.Print("\033[?25h") // 抜けるとき必ず戻す
+	fmt.Print("\033[?25l")               // カーソルを隠す (ちらつき低減)
+	defer fmt.Print("\033[?25h\033[?7h") // 抜けるとき: カーソルを戻し、行折り返しも戻す
 
 	draw := func() error {
 		c := newColors()
-		fmt.Print("\033[H\033[2J") // カーソルを左上へ + 画面クリア
-		fmt.Printf("%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
-		return runList(filterStatus, filterProject, showAll, allProjects)
+		if err := runList(&buf, filterStatus, filterProject, showAll, allProjects); err != nil {
+			return err
+		}
+		writeFrame(buf.String())
+		return nil
 	}
 
 	if err := draw(); err != nil {
@@ -353,6 +364,31 @@ func watchList(filterStatus, filterProject string, showAll, allProjects bool, in
 			}
 		}
 	}
+}
+
+// writeFrame は overwriteFrame の結果を端末へ書く。
+func writeFrame(frame string) {
+	os.Stdout.WriteString(overwriteFrame(frame))
+}
+
+// overwriteFrame は frame を画面全消去せずに上書き描画するための制御シーケンス付き文字列に
+// 変換する。カーソルを左上へ戻し、各行末で \033[K (行末までクリア) して前フレームの残りを消し、
+// 最後に \033[J (カーソル以下をクリア) で行数が減ったときの古い行を消す。全消去 (\033[2J) を
+// しないので消去〜再描画の間の空白フレームが出ず、ちらつかない。行折り返しを無効化 (\033[?7l)
+// して、幅を超える行が次行に回り込んで桁ずれするのを防ぐ。
+func overwriteFrame(frame string) string {
+	var b strings.Builder
+	b.WriteString("\033[?7l") // 自動折り返し OFF (長い行は端で切る)
+	b.WriteString("\033[H")   // カーソルを左上へ (クリアはしない)
+	for i, line := range strings.Split(strings.TrimRight(frame, "\n"), "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+		b.WriteString("\033[K") // この行の右側に残る前フレームの文字を消す
+	}
+	b.WriteString("\033[J") // カーソル以下 (行数が減った分) を消す
+	return b.String()
 }
 
 // cmdDoctor は id 重複と id/ファイル名不一致を点検する。既定は全 project 横断

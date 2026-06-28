@@ -80,8 +80,12 @@ agent-tasks --all                # done も含めて全件表示 (-a も可)
 agent-tasks --status in-progress # status で絞り込み
 agent-tasks --project family-app2
 agent-tasks show family-app2 0001 # 1 タスクの全文
+agent-tasks edit                 # ストアをエディタで開く (既定 code)
+agent-tasks edit family-app2 0001 # 1 タスクをエディタで開く
 agent-tasks where                # データディレクトリのパス
 ```
+
+`edit` のエディタは `AGENT_TASKS_EDITOR` > `VISUAL` > `EDITOR` の順、未設定なら `code`。
 
 ## 今後
 

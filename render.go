@@ -6,14 +6,42 @@ import (
 	"strings"
 )
 
-// colors は端末が TTY のときだけ ANSI カラーを返す。
+// colors は色を出すと決まったときだけ ANSI カラーを返す (出さないときは全フィールド空)。
 type colors struct {
 	reset, dim, bold                string
 	todo, prog, block, review, done string
 }
 
+// colorMode は --color フラグの値 (always|auto|never)。main が解決して設定する。
+// 既定 "auto" は従来どおり stdout が TTY のときだけ色を出す。
+var colorMode = "auto"
+
+// colorEnabled は色を出すかを決める。優先順位:
+//  1. --color フラグ (always / never) が最優先。
+//  2. auto のときは環境変数 NO_COLOR (無効) > FORCE_COLOR (有効) の順で見る。
+//  3. いずれも無ければ stdout が TTY のときだけ色を出す。
+//
+// NO_COLOR / FORCE_COLOR は「設定されていて値が空でない」ときに効く
+// (NO_COLOR の慣習は https://no-color.org/)。watch などパイプ経由で色を出したいときは
+// `--color=always` か FORCE_COLOR を使う。
+func colorEnabled(mode string) bool {
+	switch mode {
+	case "always":
+		return true
+	case "never":
+		return false
+	}
+	if v, ok := os.LookupEnv("NO_COLOR"); ok && v != "" {
+		return false
+	}
+	if v, ok := os.LookupEnv("FORCE_COLOR"); ok && v != "" {
+		return true
+	}
+	return isTTY(os.Stdout)
+}
+
 func newColors() colors {
-	if !isTTY(os.Stdout) {
+	if !colorEnabled(colorMode) {
 		return colors{}
 	}
 	return colors{

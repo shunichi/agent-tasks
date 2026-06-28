@@ -25,35 +25,11 @@ func usagef(format string, a ...any) error {
 }
 
 func main() {
-	args := os.Args[1:]
-	cmd := "list"
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		cmd = args[0]
-		args = args[1:]
-	}
-	// -h / --help はサブコマンド扱いされず引数として流れてくるので先に拾う
-	// (例: `agent-tasks -h`, `agent-tasks list -h`)。
-	if cmd == "help" || slices.Contains(args, "-h") || slices.Contains(args, "--help") {
-		usage(os.Stdout)
-		return
-	}
-
-	var err error
-	switch cmd {
-	case "list":
-		err = cmdList(args)
-	case "show":
-		err = cmdShow(args)
-	case "edit":
-		err = cmdEdit(args)
-	case "sync":
-		err = cmdSync(args)
-	case "where":
-		fmt.Println(storeDir())
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
-		usage(os.Stderr)
-		os.Exit(2)
+	// --color はサブコマンド共通のグローバルフラグなので、コマンド判定より先に抜き取る。
+	mode, args, err := extractColorFlag(os.Args[1:])
+	if err == nil {
+		colorMode = mode
+		err = dispatch(args)
 	}
 	if err != nil {
 		var ue *usageError
@@ -64,6 +40,66 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+}
+
+// extractColorFlag は引数列から --color を取り除き、その値 (always|auto|never) を返す。
+// 形式は --color=always と --color always の両対応。未指定なら auto。
+func extractColorFlag(args []string) (mode string, rest []string, err error) {
+	mode = "auto"
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--color":
+			if i+1 >= len(args) {
+				return "", nil, usagef("--color requires a value (always|auto|never)")
+			}
+			i++
+			mode = args[i]
+		case strings.HasPrefix(a, "--color="):
+			mode = strings.TrimPrefix(a, "--color=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	switch mode {
+	case "always", "auto", "never":
+		return mode, rest, nil
+	default:
+		return "", nil, usagef("--color must be always|auto|never (got %q)", mode)
+	}
+}
+
+func dispatch(args []string) error {
+	cmd := "list"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		cmd = args[0]
+		args = args[1:]
+	}
+	// -h / --help はサブコマンド扱いされず引数として流れてくるので先に拾う
+	// (例: `agent-tasks -h`, `agent-tasks list -h`)。
+	if cmd == "help" || slices.Contains(args, "-h") || slices.Contains(args, "--help") {
+		usage(os.Stdout)
+		return nil
+	}
+
+	switch cmd {
+	case "list":
+		return cmdList(args)
+	case "show":
+		return cmdShow(args)
+	case "edit":
+		return cmdEdit(args)
+	case "sync":
+		return cmdSync(args)
+	case "where":
+		fmt.Println(storeDir())
+		return nil
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
+		usage(os.Stderr)
+		os.Exit(2)
+		return nil
 	}
 }
 
@@ -82,9 +118,15 @@ USAGE:
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 
+OPTIONS:
+  --color always|auto|never          色出力の制御 (既定 auto = TTY のときだけ色)。
+                                      watch 経由で色を出すなら: watch --color agent-tasks --color=always
+
 ENV:
   AGENT_TASKS_STORE    タスクデータの場所 (既定: ~/agent-tasks-store)
   AGENT_TASKS_EDITOR   edit で使うエディタ (既定: code。VISUAL/EDITOR も参照)
+  NO_COLOR             設定 (非空) で色を無効化 (https://no-color.org/)
+  FORCE_COLOR          設定 (非空) で色を強制 (auto 時。--color=never が優先)
 `)
 }
 

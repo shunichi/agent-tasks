@@ -92,6 +92,8 @@ func dispatch(args []string) error {
 		return cmdEdit(args)
 	case "sync":
 		return cmdSync(args)
+	case "worktree-init":
+		return cmdWorktreeInit(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -115,6 +117,8 @@ USAGE:
   agent-tasks show [<project>] <id>  1タスクの全文を表示 (project 省略時は現在 project)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
+  agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
+                                     .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

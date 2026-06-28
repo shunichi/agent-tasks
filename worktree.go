@@ -1,0 +1,254 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// cmdWorktreeInit は start/spawn が `git worktree add` した直後に呼ぶ「作成後フック」。
+// メイン repo の .worktreeinclude にマッチする gitignored ファイルを新しい worktree に
+// コピーし、.worktree-post-create があれば worktree 内で実行する。両方とも無ければ no-op
+// なので、SKILL から無条件に呼んでよい。
+//
+// 冪等性: コピーは既存ファイルを上書きしない。post-create はマーカーで二重実行を防ぐ
+// (spawn の親と子の start が両方呼んでも 1 回だけ走る)。--force で再実行できる。
+func cmdWorktreeInit(args []string) error {
+	force := false
+	var dirArg string
+	for _, a := range args {
+		switch {
+		case a == "--force":
+			force = true
+		case strings.HasPrefix(a, "-"):
+			return usagef("unknown option: %s", a)
+		case dirArg == "":
+			dirArg = a
+		default:
+			return usagef("worktree-init は <worktree-dir> を1つだけ取る")
+		}
+	}
+	if dirArg == "" {
+		return usagef("worktree-init は <worktree-dir> が必要")
+	}
+
+	worktreeDir, err := filepath.Abs(dirArg)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Stat(worktreeDir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("worktree ディレクトリがありません: %s", worktreeDir)
+	}
+	mainRepo, err := mainRepoOf(worktreeDir)
+	if err != nil {
+		return fmt.Errorf("%s のメイン repo を特定できません (git worktree ですか): %w", worktreeDir, err)
+	}
+
+	copied, err := copyWorktreeIncludes(mainRepo, worktreeDir)
+	if err != nil {
+		return fmt.Errorf(".worktreeinclude のコピーに失敗: %w", err)
+	}
+	for _, rel := range copied {
+		fmt.Printf("copied: %s\n", rel)
+	}
+
+	ran, err := runPostCreate(mainRepo, worktreeDir, force)
+	if err != nil {
+		return fmt.Errorf(".worktree-post-create に失敗: %w", err)
+	}
+
+	if len(copied) == 0 && !ran {
+		fmt.Println("worktree-init: 適用なし (.worktreeinclude / .worktree-post-create が無いか実行済み)")
+	}
+	return nil
+}
+
+// mainRepoOf は worktree からメイン作業ツリーの root を返す。
+// git-common-dir はリンク worktree でもメイン repo の .git を指すので、その親が root。
+func mainRepoOf(worktreeDir string) (string, error) {
+	out, err := exec.Command("git", "-C", worktreeDir,
+		"rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return "", err
+	}
+	commonDir := strings.TrimSpace(string(out))
+	if commonDir == "" {
+		return "", errors.New("git-common-dir が空")
+	}
+	return filepath.Dir(commonDir), nil
+}
+
+// copyWorktreeIncludes はメイン repo の .worktreeinclude を読み、マッチする gitignored
+// ファイルを worktree へコピーする。コピーした相対パスを返す。
+//
+// .worktreeinclude は .gitignore 構文のサブセット (リテラルパス / 単純グロブ / ディレクトリ)
+// として扱い、各行を repo root 起点に展開する。tracked ファイルを複製しないよう
+// git check-ignore で「gitignore 対象」のものだけに絞る (Claude Code と同じ安全策)。
+// 既存の dest は上書きしない (冪等)。
+func copyWorktreeIncludes(mainRepo, worktreeDir string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(mainRepo, ".worktreeinclude"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []string
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(mainRepo, line))
+		for _, m := range matches {
+			info, err := os.Stat(m)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				filepath.WalkDir(m, func(p string, d fs.DirEntry, err error) error {
+					if err == nil && !d.IsDir() {
+						if rel, e := filepath.Rel(mainRepo, p); e == nil {
+							candidates = append(candidates, rel)
+						}
+					}
+					return nil
+				})
+			} else if rel, e := filepath.Rel(mainRepo, m); e == nil {
+				candidates = append(candidates, rel)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	ignored, err := filterIgnored(mainRepo, candidates)
+	if err != nil {
+		return nil, err
+	}
+
+	var copied []string
+	for _, rel := range ignored {
+		dst := filepath.Join(worktreeDir, rel)
+		if _, err := os.Stat(dst); err == nil {
+			continue // 既存は上書きしない
+		}
+		if err := copyFile(filepath.Join(mainRepo, rel), dst); err != nil {
+			return copied, err
+		}
+		copied = append(copied, rel)
+	}
+	return copied, nil
+}
+
+// filterIgnored は rels のうち git が gitignore 対象とみなすものだけを返す。
+// git check-ignore は「無視対象が1つも無い」とき exit 1 を返すが、これはエラーではない。
+func filterIgnored(mainRepo string, rels []string) ([]string, error) {
+	cmd := exec.Command("git", "-C", mainRepo, "check-ignore", "--stdin")
+	cmd.Stdin = strings.NewReader(strings.Join(rels, "\n") + "\n")
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return nil, nil // 該当なし
+		}
+		return nil, fmt.Errorf("git check-ignore: %w", err)
+	}
+	var res []string
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if l != "" {
+			res = append(res, l)
+		}
+	}
+	return res, nil
+}
+
+// copyFile は src を dst へコピーする (親ディレクトリ作成 + パーミッション保持)。
+func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// runPostCreate はメイン repo の .worktree-post-create を worktree 内で実行する。
+// 実行したら true。スクリプトが無い / 実行済み (マーカーあり, force でない) なら false。
+// 実行可能ビットがあれば直接実行 (shebang 尊重)、無ければ sh で実行する。
+func runPostCreate(mainRepo, worktreeDir string, force bool) (bool, error) {
+	hook := filepath.Join(mainRepo, ".worktree-post-create")
+	info, err := os.Stat(hook)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	marker := postCreateMarker(worktreeDir)
+	if !force && marker != "" {
+		if _, err := os.Stat(marker); err == nil {
+			fmt.Println("post-create: 実行済みのためスキップ (--force で再実行)")
+			return false, nil
+		}
+	}
+
+	var cmd *exec.Cmd
+	if info.Mode().Perm()&0o111 != 0 {
+		cmd = exec.Command(hook)
+	} else {
+		cmd = exec.Command("sh", hook)
+	}
+	cmd.Dir = worktreeDir
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(),
+		"AGENT_TASKS_WORKTREE="+worktreeDir,
+		"AGENT_TASKS_MAIN="+mainRepo,
+		"AGENT_TASKS_PROJECT="+filepath.Base(mainRepo),
+	)
+	fmt.Printf("post-create: %s を実行 (cwd: %s)\n", hook, worktreeDir)
+	if err := cmd.Run(); err != nil {
+		return true, err
+	}
+	if marker != "" {
+		os.WriteFile(marker, nil, 0o644)
+	}
+	return true, nil
+}
+
+// postCreateMarker は post-create 実行済みマーカーのパスを返す。worktree 固有の git dir
+// (main/.git/worktrees/<name>) 配下に置くので、作業ツリーを汚さない。特定不能なら空。
+func postCreateMarker(worktreeDir string) string {
+	out, err := exec.Command("git", "-C", worktreeDir, "rev-parse", "--absolute-git-dir").Output()
+	if err != nil {
+		return ""
+	}
+	gitDir := strings.TrimSpace(string(out))
+	if gitDir == "" {
+		return ""
+	}
+	return filepath.Join(gitDir, "agent-tasks-post-create-done")
+}

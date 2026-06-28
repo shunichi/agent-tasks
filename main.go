@@ -66,10 +66,10 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `agent-tasks — エージェント開発タスクの横断ビュー
 
 USAGE:
-  agent-tasks [list]                 全タスクを一覧 (既定)
+  agent-tasks [list]                 未完了タスクを一覧 (既定。done は非表示)
+  agent-tasks --all | -a             done も含めて全件表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project で絞り込み
-  agent-tasks --active               未完了のみ (done 以外)
   agent-tasks show <project> <id>    1タスクの全文を表示
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
@@ -81,7 +81,7 @@ ENV:
 
 func cmdList(args []string) error {
 	var filterStatus, filterProject string
-	activeOnly := false
+	showAll := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--status":
@@ -96,8 +96,10 @@ func cmdList(args []string) error {
 			}
 			i++
 			filterProject = args[i]
+		case "--all", "-a":
+			showAll = true
 		case "--active":
-			activeOnly = true
+			// 既定が「done 以外」になったので no-op。互換のため受け付ける。
 		default:
 			return usagef("unknown option: %s", args[i])
 		}
@@ -109,6 +111,9 @@ func cmdList(args []string) error {
 		return fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
 
+	// 既定では done を隠す。--all 指定時、または --status で明示的に絞り込んだ時は隠さない。
+	hideDone := !showAll && filterStatus == ""
+
 	var rows []Task
 	counts := map[string]int{}
 	for _, t := range tasks {
@@ -118,7 +123,7 @@ func cmdList(args []string) error {
 		if filterProject != "" && t.Project != filterProject {
 			continue
 		}
-		if activeOnly && t.Status == "done" {
+		if hideDone && t.Status == "done" {
 			continue
 		}
 		rows = append(rows, t)

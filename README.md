@@ -72,8 +72,8 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 ### 閲覧 (ターミナルから)
 
 ```sh
-agent-tasks                      # 全タスク一覧
-agent-tasks --active             # 未完了のみ (done 以外)
+agent-tasks                      # 未完了タスク一覧 (既定。done は非表示)
+agent-tasks --all                # done も含めて全件表示 (-a も可)
 agent-tasks --status in-progress # status で絞り込み
 agent-tasks --project family-app2
 agent-tasks show family-app2 0001 # 1 タスクの全文

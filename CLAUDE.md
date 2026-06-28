@@ -18,7 +18,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   store.go                      # タスクの model + ストア走査 + frontmatter パース
   render.go                     # 色付け + CJK 幅対応のテーブル描画
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
-  store_test.go worktree_test.go # テスト
+  scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
+  templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
+  *_test.go                     # テスト (store/worktree/scaffold)
   Makefile                      # build / install / link / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
@@ -66,11 +68,13 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   `--active` / `show` / `where`)。
 - ✅ `worktree-init` (作成後フック: `.worktreeinclude` コピー + `.worktree-post-create` 実行) を CLI 化し
   start/spawn に組み込み (store の agent-tasks/0014)。
+- ✅ `scaffold-worktree` (スタック別 worktree 設定の雛形展開。firebase/rails テンプレを embed) を CLI 化し
+  skill の `scaffold` 操作に (store の agent-tasks/0017)。テンプレ追加 = `templates/<stack>/` を足すだけ。
 - 💡 未着手の発展案:
   - `~/agent-tasks-store` 自体の git 化 (マシン間同期)。
   - skill 側にある `create` / `start` / `done` / `block` の一部を CLI サブコマンド化するか検討
     (今は手順書として skill が担当)。
-  - スタック別 (firebase/rails) worktree 設定スキャフォルダ skill (store の agent-tasks/0017)。
+  - worktree 設定テンプレの拡充 (next/django/go 等)。
   - Web ダッシュボード化 (このリポジトリ内で発展)。
   - blocked の理由・経過時間の可視化。
 

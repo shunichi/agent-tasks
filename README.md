@@ -66,6 +66,7 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 | 別 pane で着手 | 「別 pane で 0001 をやって」「/agent-tasks spawn 0001」(tmux の別 pane に新セッション) |
 | 完了 | 「0001 を完了」「/agent-tasks done 0001」 |
 | 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
+| worktree 設定の展開 | 「worktree 設定を入れて」「/agent-tasks scaffold」(firebase/rails を検出して雛形生成) |
 
 **並行開発**: 別々のエージェントセッションでそれぞれ別タスクを `start` すると、
 タスクごとに git worktree + ブランチが切られ、衝突なく同時に開発できる。
@@ -82,7 +83,11 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
   `AGENT_TASKS_WORKTREE` / `AGENT_TASKS_MAIN` / `AGENT_TASKS_PROJECT` が渡る。
 
 コピーは既存を上書きせず、post-create は worktree ごとに一度だけ実行する (冪等。`--force` で再実行)。
-スタック (firebase/rails) 別の設定を**自動生成する**スキャフォルダは別途予定 (本機構はそれを実行するだけ)。
+
+この 2 ファイルの雛形は **`agent-tasks scaffold-worktree [stack]`** でスタック別に生成できる
+(firebase / rails 同梱。stack 省略で自動検出、`--list` で一覧)。テンプレはバイナリに同梱しており、
+スタックを増やすには `templates/<stack>/{worktreeinclude,post-create}` を足すだけ。例えば firebase なら
+emulator ポートを worktree ごとに一意化する post-create が入る。
 
 ### 閲覧 (ターミナルから)
 
@@ -101,6 +106,7 @@ agent-tasks show webapp 1        # ID は短縮形でも可 (1 -> 0001)
 agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks sync --no-push       # commit まで (push しない)
 agent-tasks worktree-init ../foo--0001 # worktree 作成後フック (start/spawn が自動で呼ぶ)
+agent-tasks scaffold-worktree    # worktree 設定の雛形を生成 (stack 自動検出。--list/--dir/--force)
 agent-tasks where                # データディレクトリのパス
 ```
 

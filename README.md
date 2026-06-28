@@ -12,9 +12,14 @@
 ```
 agent-tasks/
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/完了/保留
-  bin/agent-tasks               # 閲覧 (人間用): ~/agent-tasks-store を横断する CLI
+  main.go store.go render.go    # 閲覧 (人間用) CLI 本体 (Go, 依存ゼロ)
+  store_test.go                 # テスト
+  Makefile                      # build / install / test
+  bin/agent-tasks               # ビルド成果物 (gitignore)
 ```
 
+- 閲覧 CLI は Go 製。機能追加していく前提で、frontmatter パース (`store.go`) /
+  表示 (`render.go`) / コマンド振り分け (`main.go`) に分けている。
 - `skills/` 直下に置くのは、Claude 以外のエージェント (Codex / Cursor / Gemini) からも
   標準位置として見つけやすくするため。
 
@@ -30,17 +35,24 @@ agent-tasks/
 
 ## インストール
 
-このリポジトリを単一の source として、skill と CLI をそれぞれ symlink する
-(`~/.local/bin` が PATH にある前提):
+`make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (`~/.claude/skills`)
+を symlink する (`~/.local/bin` が PATH にある前提):
 
 ```sh
-# skill を Claude Code に認識させる
-ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
-# CLI を PATH に通す
-ln -sf  "$(pwd)/bin/agent-tasks"    ~/.local/bin/agent-tasks
+make install
 ```
 
-symlink なので、このリポジトリを編集すれば即反映される。
+中身は次と等価:
+
+```sh
+go build -o bin/agent-tasks .                            # CLI をビルド
+ln -sf  "$(pwd)/bin/agent-tasks"    ~/.local/bin/agent-tasks
+ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
+```
+
+- skill は symlink なので編集すれば即反映。
+- CLI は Go バイナリなので、ソースを変えたら `make build` で再ビルドする
+  (symlink 先のバイナリが更新される)。
 
 ## 使い方
 

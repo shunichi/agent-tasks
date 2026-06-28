@@ -1,0 +1,2 @@
+# ビルド成果物 (go build -o bin/agent-tasks .)
+/bin/

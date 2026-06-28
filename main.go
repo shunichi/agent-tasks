@@ -76,8 +76,8 @@ USAGE:
   agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project を指定 (別 project も可)
-  agent-tasks show <project> <id>    1タスクの全文を表示
-  agent-tasks edit [<project> <id>]  ストア (引数なし) か1タスクをエディタで開く
+  agent-tasks show [<project>] <id>  1タスクの全文を表示 (project 省略時は現在 project)
+  agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
@@ -196,10 +196,11 @@ func cmdList(args []string) error {
 }
 
 func cmdShow(args []string) error {
-	if len(args) < 2 {
-		return usagef("show は <project> と <id> が必要")
+	project, id, err := resolveProjectID(args)
+	if err != nil {
+		return err
 	}
-	path, err := resolveTaskPath(args[0], args[1])
+	path, err := resolveTaskPath(project, id)
 	if err != nil {
 		return err
 	}
@@ -211,6 +212,27 @@ func cmdShow(args []string) error {
 	fmt.Printf("%s# %s%s\n", c.dim, path, c.reset)
 	os.Stdout.Write(data)
 	return nil
+}
+
+// resolveProjectID は show / edit の引数を (project, id) に解決する。
+//   - 1 引数: id とみなし、project は現在 project (cwd の git root basename) で補う。
+//   - 2 引数: <project> <id> の明示指定 (別 project も可)。
+//
+// git 外などで現在 project を判定できないときは、明示指定を促すエラーにする
+// (横断推測はしない)。
+func resolveProjectID(args []string) (project, id string, err error) {
+	switch len(args) {
+	case 1:
+		project = currentProject()
+		if project == "" {
+			return "", "", usagef("project を省略できるのは git リポジトリ内のみ。<project> <id> で指定してください")
+		}
+		return project, args[0], nil
+	case 2:
+		return args[0], args[1], nil
+	default:
+		return "", "", usagef("<id> (現在 project) か <project> <id> が必要")
+	}
 }
 
 // resolveTaskPath は <project>/<id>-*.md (なければ <id>.md) を1件解決する。
@@ -228,16 +250,18 @@ func resolveTaskPath(project, id string) (string, error) {
 	return matches[0], nil
 }
 
-// cmdEdit はストア (引数なし) か1タスク (<project> <id>) をエディタで開く。
+// cmdEdit はストア (引数なし) か1タスク (<id> / <project> <id>) をエディタで開く。
 func cmdEdit(args []string) error {
 	target := storeDir()
 	switch len(args) {
 	case 0:
 		// ストアのルートを開く
-	case 1:
-		return usagef("edit は引数なし (ストア) か <project> <id> が必要")
 	default:
-		path, err := resolveTaskPath(args[0], args[1])
+		project, id, err := resolveProjectID(args)
+		if err != nil {
+			return err
+		}
+		path, err := resolveTaskPath(project, id)
 		if err != nil {
 			return err
 		}

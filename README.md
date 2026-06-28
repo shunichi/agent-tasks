@@ -81,8 +81,10 @@ agent-tasks --all                # done も含めて表示 (-a も可)
 agent-tasks --status in-progress # status で絞り込み (既定どおり現在 project に絞られる)
 agent-tasks --project family-app2 # 別 project を指定
 agent-tasks show family-app2 0001 # 1 タスクの全文
+agent-tasks show 0001            # project 省略時は現在 project のタスク
 agent-tasks edit                 # ストアをエディタで開く (既定 code)
 agent-tasks edit family-app2 0001 # 1 タスクをエディタで開く
+agent-tasks edit 0001            # project 省略時は現在 project のタスク
 agent-tasks show family-app2 1     # ID は短縮形でも可 (1 -> 0001)
 agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks sync --no-push       # commit まで (push しない)
@@ -93,7 +95,9 @@ agent-tasks where                # データディレクトリのパス
 `--all-projects`、別 project を見たいときは `--project <name>` を使う。現在 project は cwd の
 git リポジトリから判定し (リンク worktree 内でもメイン repo 名に解決する)、git 外なら自動で横断にフォールバックする。
 
-`show` / `edit` の `<id>` は数値なら4桁ゼロ埋めに正規化して照合する。`1` でも `0001` でも同じタスクを指せる。
+`show` / `edit` は `<project>` を省略すると現在 project のタスクとして解決する (`show 0001`)。
+git 外などで現在 project を判定できないときは `<project> <id>` の明示指定を促す。
+`<id>` は数値なら4桁ゼロ埋めに正規化して照合する。`1` でも `0001` でも同じタスクを指せる。
 
 `sync` は `~/agent-tasks-store` (git repo) を `add -A` → コミット → `pull --rebase` → `push` する。
 コミットメッセージは変更されたタスクから自動生成する (例: `tasks: agent-tasks/0005 (in-progress)`)。

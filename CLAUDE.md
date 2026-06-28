@@ -13,7 +13,7 @@
 
 ```
 agent-tasks/                    ← このリポジトリ = ツール (github.com/shunichi/agent-tasks, private)
-  skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/完了/保留
+  skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/spawn/完了/保留
   main.go                       # 閲覧 CLI: コマンド振り分け + list/show/where
   store.go                      # タスクの model + ストア走査 + frontmatter パース
   render.go                     # 色付け + CJK 幅対応のテーブル描画

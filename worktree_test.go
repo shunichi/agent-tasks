@@ -8,6 +8,27 @@ import (
 	"testing"
 )
 
+func TestUnderRepo(t *testing.T) {
+	sep := string(filepath.Separator)
+	tests := []struct {
+		rel  string
+		want bool
+	}{
+		{"a", true},
+		{"a/b/c", true},
+		{".env", true},
+		{"", false},
+		{"..", false},
+		{".." + sep + "etc" + sep + "passwd", false}, // worktree の外へ脱出
+		{"/etc/passwd", false},                       // 絶対パス
+	}
+	for _, tt := range tests {
+		if got := underRepo(tt.rel); got != tt.want {
+			t.Errorf("underRepo(%q) = %v, want %v", tt.rel, got, tt.want)
+		}
+	}
+}
+
 // initRepo は temp に git リポジトリを作り、root を返す (テスト用)。
 func initRepo(t *testing.T) string {
 	t.Helper()

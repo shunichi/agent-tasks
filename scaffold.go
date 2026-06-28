@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -143,7 +144,7 @@ func scaffoldInto(stack, dir string, force bool) (written, skipped []string, err
 	for _, f := range scaffoldFiles {
 		data, err := templatesFS.ReadFile(path.Join("templates", stack, f.tmpl))
 		if err != nil {
-			if _, ok := err.(*fs.PathError); ok {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue // テンプレに無いファイルは飛ばす
 			}
 			return written, skipped, err

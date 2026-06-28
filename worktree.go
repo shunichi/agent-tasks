@@ -114,13 +114,13 @@ func copyWorktreeIncludes(mainRepo, worktreeDir string) ([]string, error) {
 			if info.IsDir() {
 				filepath.WalkDir(m, func(p string, d fs.DirEntry, err error) error {
 					if err == nil && !d.IsDir() {
-						if rel, e := filepath.Rel(mainRepo, p); e == nil {
+						if rel, e := filepath.Rel(mainRepo, p); e == nil && underRepo(rel) {
 							candidates = append(candidates, rel)
 						}
 					}
 					return nil
 				})
-			} else if rel, e := filepath.Rel(mainRepo, m); e == nil {
+			} else if rel, e := filepath.Rel(mainRepo, m); e == nil && underRepo(rel) {
 				candidates = append(candidates, rel)
 			}
 		}
@@ -146,6 +146,16 @@ func copyWorktreeIncludes(mainRepo, worktreeDir string) ([]string, error) {
 		copied = append(copied, rel)
 	}
 	return copied, nil
+}
+
+// underRepo は rel (mainRepo からの相対パス) が repo 配下に収まるかを返す。
+// .worktreeinclude に `../foo` や絶対パスが書かれても、コピー元が repo 外を指したり
+// コピー先 (worktreeDir/rel) が worktree の外へ出るのを防ぐためのガード。
+func underRepo(rel string) bool {
+	if rel == "" || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 // filterIgnored は rels のうち git が gitignore 対象とみなすものだけを返す。
@@ -233,8 +243,14 @@ func runPostCreate(mainRepo, worktreeDir string, force bool) (bool, error) {
 	if err := cmd.Run(); err != nil {
 		return true, err
 	}
+	// マーカーは二重実行ガード。書けない / git dir 特定不能だと冪等性が崩れ post-create が
+	// 毎回再実行されるので、黙らず警告する (副作用付き post-create の二重実行に気づけるように)。
 	if marker != "" {
-		os.WriteFile(marker, nil, 0o644)
+		if err := os.WriteFile(marker, nil, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: post-create 実行済みマーカーを書けませんでした (%s): %v — 次回も再実行されます\n", marker, err)
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "warning: worktree の git dir を特定できず post-create マーカーを記録できません — 次回も再実行されます")
 	}
 	return true, nil
 }

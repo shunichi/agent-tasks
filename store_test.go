@@ -58,6 +58,23 @@ func TestParseTaskNoFrontmatter(t *testing.T) {
 	}
 }
 
+func TestParseTaskBOM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.md")
+	// 先頭に UTF-8 BOM が付いた frontmatter。BOM を剥がして正しく読めること。
+	content := "\ufeff---\nid: \"0007\"\ntitle: BOM テスト\n---\n# 本文\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseTask(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "0007" || got.Title != "BOM テスト" {
+		t.Errorf("BOM 付き frontmatter を取りこぼした: %+v", got)
+	}
+}
+
 func TestLoadTasksSorted(t *testing.T) {
 	dir := t.TempDir()
 	write := func(proj, name, body string) {

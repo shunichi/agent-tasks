@@ -28,7 +28,7 @@ agent-tasks/
 ```
 ~/agent-tasks-store/
   <project>/            # コードリポジトリ root の basename
-    <NNN>-<slug>.md     # 1 タスク = 1 Markdown ファイル
+    <NNNN>-<slug>.md    # 1 タスク = 1 Markdown ファイル
 ```
 
 `AGENT_TASKS_STORE` で場所を変更可。データ形式の詳細は `~/agent-tasks-store/README.md` を参照。
@@ -62,9 +62,9 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 | --- | --- |
 | 登録 | 「〜というタスクを作って」「/agent-tasks create」 |
 | 一覧 | 「タスク一覧」「/agent-tasks list」 |
-| 着手 | 「タスク 001 に着手」「/agent-tasks start 001」(git worktree で並行開発) |
-| 完了 | 「001 を完了」「/agent-tasks done 001」 |
-| 保留 | 「001 を保留」「/agent-tasks block 001」 |
+| 着手 | 「タスク 0001 に着手」「/agent-tasks start 0001」(git worktree で並行開発) |
+| 完了 | 「0001 を完了」「/agent-tasks done 0001」 |
+| 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
 
 **並行開発**: 別々のエージェントセッションでそれぞれ別タスクを `start` すると、
 タスクごとに git worktree + ブランチが切られ、衝突なく同時に開発できる。
@@ -76,7 +76,7 @@ agent-tasks                      # 全タスク一覧
 agent-tasks --active             # 未完了のみ (done 以外)
 agent-tasks --status in-progress # status で絞り込み
 agent-tasks --project family-app2
-agent-tasks show family-app2 001 # 1 タスクの全文
+agent-tasks show family-app2 0001 # 1 タスクの全文
 agent-tasks where                # データディレクトリのパス
 ```
 

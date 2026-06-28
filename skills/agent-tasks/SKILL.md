@@ -14,7 +14,7 @@ description: "エージェント開発タスクをリポジトリ外の中央ス
 ### データの場所
 
 - ストアのルートは環境変数 `AGENT_TASKS_STORE`、未設定なら `~/agent-tasks-store`。
-- タスクは `<root>/<project>/<NNN>-<slug>.md`。
+- タスクは `<root>/<project>/<NNNN>-<slug>.md`。
 - **絶対にコードリポジトリの中に書かない。** 必ず上記ストアの下に書く。
 
 ### project キーの決め方
@@ -29,14 +29,14 @@ basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 ```markdown
 ---
-id: "001"
+id: "0001"
 project: family-app2
 title: ブックマークのドラッグ並び替え
 status: todo          # todo | in-progress | blocked | review | done
 agent:                # 着手したエージェント (claude / codex / ...)
 session:              # エージェントのセッション URL
-branch: task/001-bookmark-dnd
-worktree: ../family-app2--001
+branch: task/0001-bookmark-dnd
+worktree: ../family-app2--0001
 created: 2026-06-28
 updated: 2026-06-28
 ---
@@ -48,7 +48,7 @@ updated: 2026-06-28
 - 2026-06-28 登録
 ```
 
-- `id` は project ごとの連番 (3桁ゼロ埋め)。既存ファイルの最大 + 1。
+- `id` は project ごとの連番 (4桁ゼロ埋め)。既存ファイルの最大 + 1。
 - `slug` は内容を表す英語ケバブケース。
 - `status` を更新したら必ず `updated` を当日の日付に変え、`## 進捗ログ` に 1 行追記する。
 - 日付は `date +%F` で取得する (推測しない)。
@@ -59,9 +59,9 @@ updated: 2026-06-28
 
 - **create**: 「タスクを作る/追加/登録」「〜というタスク」
 - **list**: 「タスク一覧」「タスクの進捗」「何が残ってる」
-- **start**: 「〜に着手」「タスク 001 をやって」「start 001」
-- **done**: 「〜が完了」「done 001」
-- **block**: 「〜を保留」「block 001」
+- **start**: 「〜に着手」「タスク 0001 をやって」「start 0001」
+- **done**: 「〜が完了」「done 0001」
+- **block**: 「〜を保留」「block 0001」
 
 判断できなければユーザーに確認する。
 
@@ -71,9 +71,9 @@ updated: 2026-06-28
 
 1. project キーを決める (上記)。
 2. `<root>/<project>/` がなければ作成する。
-3. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `001`)。
+3. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `0001`)。
 4. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
-5. `<root>/<project>/<NNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は当日。
+5. `<root>/<project>/<NNNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は当日。
 6. 作成したパスを報告する。**コードリポジトリには一切コミットしない。**
 
 ---
@@ -96,16 +96,16 @@ updated: 2026-06-28
 2. **二重着手チェック**: `status` が `in-progress` で `session` が埋まっている場合、別セッションが作業中の可能性。ユーザーに確認し、明示的な指示がなければ中止する。
 3. worktree とブランチを作る。コードリポジトリの root で:
    ```sh
-   git worktree add ../<project>--<NNN> -b task/<NNN>-<slug>
+   git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>
    ```
    - 既定ブランチ (main) の最新から分岐する。必要なら事前に `git fetch` / 最新化する。
 4. タスクファイルの frontmatter を更新する:
    - `status: in-progress`
    - `agent: claude` (自分のエージェント名)
    - `session:` 自分のセッション URL が分かれば記録 (Claude Code なら会話フッタの `Claude-Session` URL)
-   - `branch: task/<NNN>-<slug>` / `worktree: ../<project>--<NNN>`
+   - `branch: task/<NNNN>-<slug>` / `worktree: ../<project>--<NNNN>`
    - `updated:` 当日、`## 進捗ログ` に「着手」を追記
-5. **以降の実装作業は作成した worktree (`../<project>--<NNN>`) の中で行う。** 元のチェックアウトは汚さない。
+5. **以降の実装作業は作成した worktree (`../<project>--<NNNN>`) の中で行う。** 元のチェックアウトは汚さない。
 6. プロジェクトの作法に従って実装する (`CLAUDE.md` / `AGENTS.md` を読む)。完了に近づいたら `done` へ。
 
 ---
@@ -119,7 +119,7 @@ updated: 2026-06-28
 5. タスクファイルの frontmatter を更新: `status` を `review` または `done`、`updated` を当日、`## 進捗ログ` に対応内容を追記。
 6. `done` まで来たら worktree を撤去する:
    ```sh
-   git worktree remove ../<project>--<NNN>
+   git worktree remove ../<project>--<NNNN>
    ```
    未コミットがある場合は撤去せず、ユーザーに知らせる。
 

@@ -8,9 +8,9 @@ import (
 
 func TestParseTask(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "001-foo.md")
+	path := filepath.Join(dir, "0001-foo.md")
 	content := `---
-id: "001"
+id: "0001"
 project: family-app2
 title: ブックマークのドラッグ並び替え
 status: in-progress
@@ -27,8 +27,8 @@ agent: claude
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "001" {
-		t.Errorf("ID = %q, want 001", got.ID)
+	if got.ID != "0001" {
+		t.Errorf("ID = %q, want 0001", got.ID)
 	}
 	if got.Project != "family-app2" {
 		t.Errorf("Project = %q, want family-app2", got.Project)
@@ -63,9 +63,9 @@ func TestLoadTasksSorted(t *testing.T) {
 		os.MkdirAll(d, 0o755)
 		os.WriteFile(filepath.Join(d, name), []byte(body), 0o644)
 	}
-	write("zeta", "002-b.md", "---\nid: \"002\"\nstatus: todo\n---\n")
-	write("zeta", "001-a.md", "---\nid: \"001\"\nstatus: todo\n---\n")
-	write("alpha", "001-a.md", "---\nid: \"001\"\nstatus: done\n---\n")
+	write("zeta", "0002-b.md", "---\nid: \"0002\"\nstatus: todo\n---\n")
+	write("zeta", "0001-a.md", "---\nid: \"0001\"\nstatus: todo\n---\n")
+	write("alpha", "0001-a.md", "---\nid: \"0001\"\nstatus: done\n---\n")
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("ignore me"), 0o644)
 
 	tasks, err := loadTasks(dir)
@@ -76,7 +76,7 @@ func TestLoadTasksSorted(t *testing.T) {
 		t.Fatalf("len = %d, want 3 (README.md must be ignored)", len(tasks))
 	}
 	// project 昇順 -> id 昇順
-	if tasks[0].Project != "alpha" || tasks[1].Project != "zeta" || tasks[1].ID != "001" {
+	if tasks[0].Project != "alpha" || tasks[1].Project != "zeta" || tasks[1].ID != "0001" {
 		t.Errorf("sort order wrong: %+v", tasks)
 	}
 }

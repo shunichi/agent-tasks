@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Task は 1 つのタスクファイル (~/agent-tasks-store/<project>/<NNN>-<slug>.md) を表す。
+// Task は 1 つのタスクファイル (~/agent-tasks-store/<project>/<NNNN>-<slug>.md) を表す。
 type Task struct {
 	ID       string
 	Project  string

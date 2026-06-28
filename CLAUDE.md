@@ -22,7 +22,7 @@ agent-tasks/                    ← このリポジトリ = ツール (github.co
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
 ~/agent-tasks-store/            ← データ (このリポジトリの外)
-  <project>/<NNN>-<slug>.md     # 1 タスク = 1 ファイル。project = コード repo root の basename
+  <project>/<NNNN>-<slug>.md    # 1 タスク = 1 ファイル。project = コード repo root の basename
 ```
 
 ## ツール / コマンド
@@ -43,7 +43,7 @@ agent-tasks/                    ← このリポジトリ = ツール (github.co
 - データの場所は環境変数 `AGENT_TASKS_STORE` (既定 `~/agent-tasks-store`)。CLI / skill 双方が参照する。
 - タスク frontmatter は `agent:` (claude/codex/...) と `session:` (URL) を分ける。
 - **並行開発**: `/agent-tasks start <id>` がタスクごとに
-  `git worktree add ../<project>--<NNN> -b task/<NNN>-<slug>` を作る。別セッションで start すれば
+  `git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>` を作る。別セッションで start すれば
   衝突なく同時進行。二重着手は status=in-progress + session でガード。
 
 ## Go の方針

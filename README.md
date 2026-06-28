@@ -75,16 +75,21 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 ### 閲覧 (ターミナルから)
 
 ```sh
-agent-tasks                      # 未完了タスク一覧 (既定。done は非表示)
-agent-tasks --all                # done も含めて全件表示 (-a も可)
-agent-tasks --status in-progress # status で絞り込み
-agent-tasks --project family-app2
+agent-tasks                      # 現在 project の未完了タスク一覧 (既定。done は非表示)
+agent-tasks --all-projects       # 全 project を横断して一覧
+agent-tasks --all                # done も含めて表示 (-a も可)
+agent-tasks --status in-progress # status で絞り込み (既定どおり現在 project に絞られる)
+agent-tasks --project family-app2 # 別 project を指定
 agent-tasks show family-app2 0001 # 1 タスクの全文
 agent-tasks edit                 # ストアをエディタで開く (既定 code)
 agent-tasks edit family-app2 0001 # 1 タスクをエディタで開く
 agent-tasks show family-app2 1     # ID は短縮形でも可 (1 -> 0001)
 agent-tasks where                # データディレクトリのパス
 ```
+
+既定では**現在のコードリポジトリ (project) のタスクだけ**を表示する。横断したいときは
+`--all-projects`、別 project を見たいときは `--project <name>` を使う。現在 project は cwd の
+git リポジトリから判定し (リンク worktree 内でもメイン repo 名に解決する)、git 外なら自動で横断にフォールバックする。
 
 `show` / `edit` の `<id>` は数値なら4桁ゼロ埋めに正規化して照合する。`1` でも `0001` でも同じタスクを指せる。
 

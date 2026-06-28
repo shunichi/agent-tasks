@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,9 +13,14 @@ import (
 )
 
 // session の状態は Claude Code の hook から書き込まれるマーカーで管理する。
-// hook が `agent-tasks session-hook` を呼ぶと、stdin の JSON (session_id 等) から
-// 状態を判定して 1 セッション 1 ファイルでマーカーを書く。list がそれを読んで
-// in-progress のセッションが「処理中 (working) か入力待ち (waiting) か」を表示する。
+// hook が `agent-tasks session-hook` を呼ぶと、stdin の JSON から状態を判定して
+// マーカーを書く。list がそれを読んで in-progress のセッションが「処理中 (working) か
+// 入力待ち (waiting) か」を表示する。
+//
+// マーカーの突合キーは **worktree** (= hook の cwd の git root basename、例 agent-tasks--0020)。
+// hook が渡す session_id (ローカル CLI の UUID) は frontmatter の session URL
+// (claude.ai の session_<id>) と一致しないため使えない。start/spawn が作る worktree
+// `../<project>--<NNNN>` は 1 タスク = 1 worktree = 1 セッションなので、これで確実に突合できる。
 //
 // マーカーはマシンローカルな揮発情報なので、git 同期されるストアの外に置く。
 
@@ -28,7 +34,8 @@ const (
 // sessionState はマーカーファイルの中身。
 type sessionState struct {
 	State   string `json:"state"`
-	Updated string `json:"updated"` // RFC3339
+	Updated string `json:"updated"`       // RFC3339
+	Cwd     string `json:"cwd,omitempty"` // 参考: hook 実行時の cwd
 }
 
 // sessionStateDir はマーカーの置き場を返す。ストアとは別 (マシンローカル)。
@@ -47,18 +54,34 @@ func sessionStateDir() string {
 	return filepath.Join(home, ".local", "state", "agent-tasks", "sessions")
 }
 
-// sessionIDFromURL は frontmatter の session 値からセッション ID を取り出す。
-// 形式は https://claude.ai/code/session_<id>。末尾セグメントの session_ プレフィックスを外す。
-// hook が渡す session_id と一致する想定。
-func sessionIDFromURL(u string) string {
-	u = strings.TrimSpace(u)
-	if u == "" {
+// worktreeKey は dir が属する git 作業ツリーの root basename を返す (例 agent-tasks--0020)。
+// dir が空ならプロセスの cwd を使う。git 管理外なら "" (= 突合キーにできない)。
+// リンク worktree 内では show-toplevel がその worktree 自身の root を返すので、
+// メイン repo ではなく `<project>--<NNNN>` になり、frontmatter の worktree と一致する。
+func worktreeKey(dir string) string {
+	if dir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			dir = wd
+		}
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
 		return ""
 	}
-	if i := strings.LastIndex(u, "/"); i >= 0 {
-		u = u[i+1:]
+	top := strings.TrimSpace(string(out))
+	if top == "" {
+		return ""
 	}
-	return strings.TrimPrefix(u, "session_")
+	return filepath.Base(top)
+}
+
+// taskSessionKey は task からマーカー突合キーを返す。worktree (frontmatter) の basename。
+// worktree 未記録なら "" (突合不能)。
+func taskSessionKey(t Task) string {
+	if t.Worktree == "" {
+		return ""
+	}
+	return filepath.Base(t.Worktree)
 }
 
 // sessionStateFor は hook イベント名 (と通知種別) から遷移後の状態を返す。
@@ -83,31 +106,31 @@ func sessionStateFor(event, notifType string) string {
 	return ""
 }
 
-// writeSessionState はセッション ID のマーカーを書く。
-func writeSessionState(id, state string, now time.Time) error {
-	if id == "" {
-		return fmt.Errorf("session id が空")
+// writeSessionState は突合キー key のマーカーを書く。
+func writeSessionState(key, state, cwd string, now time.Time) error {
+	if key == "" {
+		return fmt.Errorf("session key が空")
 	}
-	if strings.ContainsAny(id, `/\`) {
-		return fmt.Errorf("不正な session id: %q", id)
+	if strings.ContainsAny(key, `/\`) {
+		return fmt.Errorf("不正な session key: %q", key)
 	}
 	dir := sessionStateDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(sessionState{State: state, Updated: now.Format(time.RFC3339)})
+	data, err := json.Marshal(sessionState{State: state, Updated: now.Format(time.RFC3339), Cwd: cwd})
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, id+".json"), data, 0o644)
+	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0o644)
 }
 
-// readSessionState はセッション ID のマーカーを読む。無ければ ok=false。
-func readSessionState(id string) (sessionState, bool) {
-	if id == "" || strings.ContainsAny(id, `/\`) {
+// readSessionState は突合キー key のマーカーを読む。無ければ ok=false。
+func readSessionState(key string) (sessionState, bool) {
+	if key == "" || strings.ContainsAny(key, `/\`) {
 		return sessionState{}, false
 	}
-	data, err := os.ReadFile(filepath.Join(sessionStateDir(), id+".json"))
+	data, err := os.ReadFile(filepath.Join(sessionStateDir(), key+".json"))
 	if err != nil {
 		return sessionState{}, false
 	}
@@ -119,13 +142,12 @@ func readSessionState(id string) (sessionState, bool) {
 }
 
 // sessionCell は list の SESSION 列のセルを返す。in-progress 以外は空。
-// マーカーが無い (hook 未導入 or セッション不明) ときは "?"。
+// マーカーが無い (hook 未導入 or worktree 不明) ときは "?"。
 func sessionCell(t Task, c colors) cell {
 	if t.Status != "in-progress" {
 		return cell{"", ""}
 	}
-	id := sessionIDFromURL(t.Session)
-	st, ok := readSessionState(id)
+	st, ok := readSessionState(taskSessionKey(t))
 	if !ok {
 		return cell{"?", c.dim}
 	}
@@ -153,22 +175,24 @@ func cmdSessionHook(args []string) error {
 		return fmt.Errorf("hook 入力を読めません: %w", err)
 	}
 	var in struct {
-		SessionID        string `json:"session_id"`
 		HookEventName    string `json:"hook_event_name"`
 		NotificationType string `json:"notification_type"`
+		Cwd              string `json:"cwd"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return fmt.Errorf("hook 入力の JSON を解析できません: %w", err)
 	}
-	// 識別できない/状態に影響しない入力は黙って無視する (hook を失敗させない)。
-	if in.SessionID == "" {
-		return nil
-	}
+	// 状態に影響しないイベントは黙って無視する (hook を失敗させない)。
 	state := sessionStateFor(in.HookEventName, in.NotificationType)
 	if state == "" {
 		return nil
 	}
-	return writeSessionState(in.SessionID, state, time.Now())
+	// worktree を特定できない (git 管理外など) セッションは突合できないので書かない。
+	key := worktreeKey(in.Cwd)
+	if key == "" {
+		return nil
+	}
+	return writeSessionState(key, state, in.Cwd, time.Now())
 }
 
 // sessionHookConfig は ~/.claude/settings.json に貼る hooks スニペットを返す。

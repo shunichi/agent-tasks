@@ -1,26 +1,11 @@
 package main
 
 import (
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
-
-func TestSessionIDFromURL(t *testing.T) {
-	tests := []struct {
-		in, want string
-	}{
-		{"https://claude.ai/code/session_01ABC", "01ABC"},
-		{"session_01ABC", "01ABC"},
-		{"01ABC", "01ABC"},
-		{"  https://claude.ai/code/session_XYZ  ", "XYZ"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		if got := sessionIDFromURL(tt.in); got != tt.want {
-			t.Errorf("sessionIDFromURL(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
 
 func TestSessionStateFor(t *testing.T) {
 	tests := []struct {
@@ -46,6 +31,45 @@ func TestSessionStateFor(t *testing.T) {
 	}
 }
 
+func TestTaskSessionKey(t *testing.T) {
+	tests := []struct {
+		worktree, want string
+	}{
+		{"../agent-tasks--0020", "agent-tasks--0020"},
+		{"/abs/path/family-app2--0001", "family-app2--0001"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := taskSessionKey(Task{Worktree: tt.worktree})
+		if got != tt.want {
+			t.Errorf("taskSessionKey(%q) = %q, want %q", tt.worktree, got, tt.want)
+		}
+	}
+}
+
+func TestWorktreeKey(t *testing.T) {
+	// git 管理外は ""。
+	nonGit := t.TempDir()
+	if got := worktreeKey(nonGit); got != "" {
+		t.Errorf("git 外で worktreeKey = %q, want \"\"", got)
+	}
+
+	// git repo の root basename を返す。
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+		t.Skipf("git init 不可のためスキップ: %v (%s)", err, out)
+	}
+	// git は realpath を返すので、比較側も symlink 解決した basename にそろえる。
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		real = dir
+	}
+	want := filepath.Base(real)
+	if got := worktreeKey(dir); got != want {
+		t.Errorf("worktreeKey(%q) = %q, want %q", dir, got, want)
+	}
+}
+
 func TestWriteReadSessionState(t *testing.T) {
 	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
 	now := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
@@ -53,10 +77,10 @@ func TestWriteReadSessionState(t *testing.T) {
 	if _, ok := readSessionState("missing"); ok {
 		t.Fatal("存在しないマーカーが ok=true")
 	}
-	if err := writeSessionState("sess1", sessWaiting, now); err != nil {
+	if err := writeSessionState("agent-tasks--0020", sessWaiting, "/wt/agent-tasks--0020", now); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got, ok := readSessionState("sess1")
+	got, ok := readSessionState("agent-tasks--0020")
 	if !ok {
 		t.Fatal("書いたマーカーが読めない")
 	}
@@ -66,21 +90,24 @@ func TestWriteReadSessionState(t *testing.T) {
 	if got.Updated != "2026-06-29T12:00:00Z" {
 		t.Errorf("updated = %q", got.Updated)
 	}
+	if got.Cwd != "/wt/agent-tasks--0020" {
+		t.Errorf("cwd = %q", got.Cwd)
+	}
 	// 上書き
-	if err := writeSessionState("sess1", sessWorking, now); err != nil {
+	if err := writeSessionState("agent-tasks--0020", sessWorking, "", now); err != nil {
 		t.Fatalf("write 2: %v", err)
 	}
-	if got, _ := readSessionState("sess1"); got.State != sessWorking {
+	if got, _ := readSessionState("agent-tasks--0020"); got.State != sessWorking {
 		t.Errorf("上書き後 state = %q, want %q", got.State, sessWorking)
 	}
 }
 
-func TestWriteSessionStateRejectsBadID(t *testing.T) {
+func TestWriteSessionStateRejectsBadKey(t *testing.T) {
 	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
 	now := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
-	for _, id := range []string{"", "a/b", `a\b`} {
-		if err := writeSessionState(id, sessWaiting, now); err == nil {
-			t.Errorf("不正な id %q を受理した", id)
+	for _, key := range []string{"", "a/b", `a\b`} {
+		if err := writeSessionState(key, sessWaiting, "", now); err == nil {
+			t.Errorf("不正な key %q を受理した", key)
 		}
 	}
 }

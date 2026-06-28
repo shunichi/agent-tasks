@@ -2,9 +2,10 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -77,11 +78,11 @@ func loadTasks(dir string) ([]Task, error) {
 			tasks = append(tasks, t)
 		}
 	}
-	sort.Slice(tasks, func(i, j int) bool {
-		if tasks[i].Project != tasks[j].Project {
-			return tasks[i].Project < tasks[j].Project
-		}
-		return tasks[i].ID < tasks[j].ID
+	slices.SortFunc(tasks, func(a, b Task) int {
+		return cmp.Or(
+			cmp.Compare(a.Project, b.Project),
+			cmp.Compare(a.ID, b.ID),
+		)
 	})
 	return tasks, nil
 }

@@ -117,9 +117,8 @@ func writePadded(b *strings.Builder, text, color, reset string, width int, last 
 	if last {
 		return
 	}
-	pad := width - dispWidth(text) + gap
-	for ; pad > 0; pad-- {
-		b.WriteByte(' ')
+	if pad := width - dispWidth(text) + gap; pad > 0 {
+		b.WriteString(strings.Repeat(" ", pad))
 	}
 }
 

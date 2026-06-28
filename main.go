@@ -264,7 +264,7 @@ func cmdList(args []string) error {
 		if showBlocked {
 			cells = append(cells, blockedCell(t, c, now))
 		}
-		cells = append(cells, cell{blockedTitle(t), ""}, cell{t.Updated, c.dim})
+		cells = append(cells, cell{blockedTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
 		tbl.add(cells...)
 	}
 	tbl.render(os.Stdout, c)

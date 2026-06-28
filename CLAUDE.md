@@ -22,8 +22,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   session.go                    # session-hook + list の SESSION 列 (working/waiting/ended)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
+  timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
   templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
-  *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime)
+  *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime/timestamps)
   Makefile                      # build / install / link / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
@@ -84,6 +85,8 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - ✅ frontmatter の時刻系 (`created`/`updated`/`blocked_at`) を ISO8601 日時に統一
   (`date --iso-8601=seconds`。一覧は日付に丸めて表示、パーサは日付のみの旧データも両対応。
   store の agent-tasks/0021)。
+- ✅ 着手/完了日時 (`started_at`/`completed_at`) を記録 (start/done で。show が所要時間/経過を
+  サマリ表示、doctor が日時の矛盾を検査。store の agent-tasks/0024)。
 
 ## コミットメッセージ
 

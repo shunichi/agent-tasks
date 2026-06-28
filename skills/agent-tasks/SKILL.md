@@ -55,7 +55,7 @@ updated: 2026-06-28
 
 ## 操作の判定
 
-ユーザーの発言から操作を判定する。引数 (`create`/`list`/`start`/`done`/`block`) があればそれに従う。
+ユーザーの発言から操作を判定する。引数 (`create`/`list`/`start`/`done`/`block`/`sync`) があればそれに従う。
 
 - **create**: 「タスクを作る/追加/登録」「〜というタスク」
 - **list**: 「タスク一覧」「タスクの進捗」「何が残ってる」
@@ -63,6 +63,7 @@ updated: 2026-06-28
 - **spawn**: 「別 pane で着手」「新しいセッションで 0001 をやって」「spawn 0001」
 - **done**: 「〜が完了」「done 0001」
 - **block**: 「〜を保留」「block 0001」
+- **sync**: 「タスクを同期」「ストアを push/commit」「sync」
 
 判断できなければユーザーに確認する。
 
@@ -229,3 +230,21 @@ claude 'タスク <NNNN> に着手して'
 1. 対象タスクファイルを特定する。
 2. `status: blocked` に更新し、`updated` を当日に、`## 進捗ログ` に**保留理由** (何の判断/確認待ちか) を追記する。
 3. worktree は残す (再開できるように)。判断材料が揃ったら `start` で再開、または直接実装を続ける。
+
+---
+
+## sync — ストアの同期 (git commit & push)
+
+タスクファイルはコードリポジトリの外 (`~/agent-tasks-store`、git 管理 + GitHub private) にある。
+create/start/done/block でファイルを更新したあと、ストアを commit & push してマシン間で同期する。
+
+- **基本は CLI に任せる**: `agent-tasks sync` がストアで `add -A` → コミットメッセージ自動生成 →
+  `commit` → `pull --rebase` → `push` まで行う。push したくない時は `agent-tasks sync --no-push`
+  (commit で止める)。upstream 未設定なら初回 `push -u origin <branch>` で追跡を設定する。
+- コミットメッセージは変更ファイルから自動生成される (例: `tasks: agent-tasks/0005 (in-progress)`、
+  複数なら `tasks: update N tasks` + 本文に列挙)。
+- **いつ実行するか**: ユーザーが「同期」「push」と言ったとき、または create/done などストア更新を伴う
+  操作の区切りで「ストアを sync するか」を一言促す (勝手に push しない。明示の指示か確認の上で実行)。
+- `pull --rebase` でコンフリクトした場合や push が失敗した場合は CLI がエラーを返すので、
+  内容をユーザーに伝えてストア (`~/agent-tasks-store`) での手動解決を促す。
+- CLI が無い環境では手動: `cd ~/agent-tasks-store && git add -A && git commit && git pull --rebase && git push`。

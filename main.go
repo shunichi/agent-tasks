@@ -46,6 +46,8 @@ func main() {
 		err = cmdShow(args)
 	case "edit":
 		err = cmdEdit(args)
+	case "sync":
+		err = cmdSync(args)
 	case "where":
 		fmt.Println(storeDir())
 	default:
@@ -76,6 +78,7 @@ USAGE:
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks show <project> <id>    1タスクの全文を表示
   agent-tasks edit [<project> <id>]  ストア (引数なし) か1タスクをエディタで開く
+  agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 
@@ -260,4 +263,131 @@ func editorArgv() []string {
 		}
 	}
 	return []string{"code"}
+}
+
+// cmdSync はストア (storeDir) を git で add/commit/push してマシン間同期する。
+// 既定は push まで。--no-push なら commit で止める。push 前に pull --rebase して
+// 別マシンの更新を取り込む (依存ゼロ方針のため git は os/exec で呼ぶ)。
+func cmdSync(args []string) error {
+	push := true
+	for _, a := range args {
+		switch a {
+		case "--no-push":
+			push = false
+		case "--push":
+			push = true // 既定だが明示用に受け付ける
+		default:
+			return usagef("unknown option: %s", a)
+		}
+	}
+
+	dir := storeDir()
+	if out, err := git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || out != "true" {
+		return fmt.Errorf("%s は git リポジトリではありません (git init とリモート設定が必要)", dir)
+	}
+
+	if _, err := git(dir, "add", "-A"); err != nil {
+		return fmt.Errorf("git add に失敗しました: %w", err)
+	}
+
+	staged, err := git(dir, "diff", "--cached", "--name-status")
+	if err != nil {
+		return fmt.Errorf("git diff に失敗しました: %w", err)
+	}
+	if staged == "" {
+		fmt.Println("コミットする変更はありません")
+	} else {
+		msg := syncCommitMessage(dir, staged)
+		if out, err := git(dir, "commit", "-m", msg); err != nil {
+			return fmt.Errorf("git commit に失敗しました:\n%s", out)
+		}
+		fmt.Printf("commit: %s\n", firstLine(msg))
+	}
+
+	if !push {
+		return nil
+	}
+	if remotes, _ := git(dir, "remote"); remotes == "" {
+		fmt.Println("リモート未設定のため push をスキップしました")
+		return nil
+	}
+
+	branch, _ := git(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if _, err := git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
+		// upstream 未設定: 初回 push で追跡を設定する。
+		if out, err := git(dir, "push", "-u", "origin", branch); err != nil {
+			return fmt.Errorf("push に失敗しました:\n%s", out)
+		}
+		fmt.Printf("push 完了 (%s, upstream を設定)\n", branch)
+		return nil
+	}
+
+	// 別マシンの更新を取り込んでから push する。コンフリクト時は rebase を畳んで通知。
+	if out, err := git(dir, "pull", "--rebase"); err != nil {
+		git(dir, "rebase", "--abort")
+		return fmt.Errorf("pull --rebase に失敗しました。ストアで手動解決してください (%s):\n%s", dir, out)
+	}
+	if out, err := git(dir, "push"); err != nil {
+		return fmt.Errorf("push に失敗しました:\n%s", out)
+	}
+	fmt.Printf("push 完了 (%s)\n", branch)
+	return nil
+}
+
+// git は storeDir 等の dir で git を実行し、出力 (stdout+stderr) を trim して返す。
+func git(dir string, args ...string) (string, error) {
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// syncCommitMessage は git diff --cached --name-status からコミットメッセージを組む。
+// 例: "tasks: agent-tasks/0005 (in-progress)"、複数なら本文に列挙する。
+func syncCommitMessage(dir, nameStatus string) string {
+	var entries []string
+	for _, line := range strings.Split(nameStatus, "\n") {
+		code, path, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		project, file, ok := strings.Cut(path, "/")
+		if !ok || !strings.HasSuffix(file, ".md") {
+			continue // README.md などタスク以外は列挙しない
+		}
+		id := leadingID(file)
+		if id == "" {
+			continue
+		}
+		status := "updated"
+		if strings.HasPrefix(code, "D") {
+			status = "removed"
+		} else if t, err := parseTask(filepath.Join(dir, path)); err == nil && t.Status != "" {
+			status = t.Status
+		}
+		entries = append(entries, fmt.Sprintf("%s/%s (%s)", project, id, status))
+	}
+	switch len(entries) {
+	case 0:
+		return "tasks: sync store"
+	case 1:
+		return "tasks: " + entries[0]
+	default:
+		return fmt.Sprintf("tasks: update %d tasks\n\n- %s", len(entries), strings.Join(entries, "\n- "))
+	}
+}
+
+// leadingID はファイル名先頭の数字列 (タスク ID) を返す ("0005-foo.md" -> "0005")。
+func leadingID(name string) string {
+	i := 0
+	for i < len(name) && name[i] >= '0' && name[i] <= '9' {
+		i++
+	}
+	return name[:i]
+}
+
+// firstLine は文字列の最初の行を返す (コミットメッセージの件名表示用)。
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }

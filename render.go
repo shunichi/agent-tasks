@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -136,7 +137,7 @@ func (t *table) add(cells ...cell) {
 	t.rows = append(t.rows, cells)
 }
 
-func (t *table) render(w *os.File, c colors) {
+func (t *table) render(w io.Writer, c colors) {
 	n := len(t.headers)
 	widths := make([]int, n)
 	for i, h := range t.headers {

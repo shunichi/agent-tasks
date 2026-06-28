@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -160,5 +161,55 @@ func TestDispWidth(t *testing.T) {
 	}
 	if got := dispWidth("aあ"); got != 3 {
 		t.Errorf("dispWidth(aあ) = %d, want 3", got)
+	}
+}
+
+func TestLeadingID(t *testing.T) {
+	cases := map[string]string{
+		"0005-store-git-sync.md": "0005",
+		"12-foo.md":              "12",
+		"0001.md":                "0001",
+		"README.md":              "", // 数字始まりでない
+		"abc.md":                 "",
+	}
+	for in, want := range cases {
+		if got := leadingID(in); got != want {
+			t.Errorf("leadingID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSyncCommitMessage(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "0005-sync.md"),
+		[]byte("---\nid: \"0005\"\nstatus: in-progress\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 単一の変更 -> 件名にステータス込みで1件。
+	single := syncCommitMessage(dir, "M\tdemo/0005-sync.md")
+	if single != "tasks: demo/0005 (in-progress)" {
+		t.Errorf("single = %q", single)
+	}
+
+	// 削除はファイルを読まず removed 扱い。
+	del := syncCommitMessage(dir, "D\tdemo/0009-old.md")
+	if del != "tasks: demo/0009 (removed)" {
+		t.Errorf("deleted = %q", del)
+	}
+
+	// 複数 -> 件数を件名に、本文に列挙。タスク以外 (README) は無視。
+	multi := syncCommitMessage(dir, "M\tdemo/0005-sync.md\nD\tdemo/0009-old.md\nM\tREADME.md")
+	if !strings.HasPrefix(multi, "tasks: update 2 tasks\n\n- demo/0005 (in-progress)\n- demo/0009 (removed)") {
+		t.Errorf("multi = %q", multi)
+	}
+
+	// タスクファイルが無い変更のみ -> 汎用メッセージ。
+	if got := syncCommitMessage(dir, "M\tREADME.md"); got != "tasks: sync store" {
+		t.Errorf("generic = %q", got)
 	}
 }

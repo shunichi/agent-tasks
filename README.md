@@ -83,10 +83,16 @@ agent-tasks show family-app2 0001 # 1 タスクの全文
 agent-tasks edit                 # ストアをエディタで開く (既定 code)
 agent-tasks edit family-app2 0001 # 1 タスクをエディタで開く
 agent-tasks show family-app2 1     # ID は短縮形でも可 (1 -> 0001)
+agent-tasks sync                 # ストアを add/commit/push して同期
+agent-tasks sync --no-push       # commit まで (push しない)
 agent-tasks where                # データディレクトリのパス
 ```
 
 `show` / `edit` の `<id>` は数値なら4桁ゼロ埋めに正規化して照合する。`1` でも `0001` でも同じタスクを指せる。
+
+`sync` は `~/agent-tasks-store` (git repo) を `add -A` → コミット → `pull --rebase` → `push` する。
+コミットメッセージは変更されたタスクから自動生成する (例: `tasks: agent-tasks/0005 (in-progress)`)。
+リモート未設定なら push をスキップ、upstream 未設定なら初回 `push -u` で追跡を設定する。
 
 `edit` のエディタは `AGENT_TASKS_EDITOR` > `VISUAL` > `EDITOR` の順、未設定なら `code`。
 

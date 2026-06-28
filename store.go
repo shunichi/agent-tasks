@@ -25,6 +25,11 @@ type Task struct {
 	Created  string
 	Updated  string
 
+	// 着手・完了の日時 (ISO8601)。created/updated と違い「いつ始めて終わったか」を
+	// 正確に追う/所要期間 (リードタイム) を出すための専用フィールド。
+	StartedAt   string // status を in-progress にした日時。初回着手を保持 (再 start で上書きしない)
+	CompletedAt string // status を done にした日時。done→in-progress で再オープンするとクリア
+
 	// blocked のときだけ埋まる (start/done で blocked を抜けるとクリアされる)。
 	BlockedAt     string // 保留にした日時 (ISO8601。経過算出の基点。updated とは別)
 	BlockedReason string // 保留理由 (一覧表示用の構造化フィールド。履歴は進捗ログ)
@@ -259,6 +264,10 @@ func parseTask(path string) (Task, error) {
 			t.Created = val
 		case "updated":
 			t.Updated = val
+		case "started_at":
+			t.StartedAt = val
+		case "completed_at":
+			t.CompletedAt = val
 		case "blocked_at":
 			t.BlockedAt = val
 		case "blocked_reason":

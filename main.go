@@ -317,6 +317,7 @@ func cmdDoctor(args []string) error {
 
 	dups := findDuplicateIDs(tasks)
 	mismatches := findIDMismatches(tasks)
+	tsIssues := findTimestampIssues(tasks)
 
 	c := newColors()
 	scope := "全 project"
@@ -324,7 +325,8 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	if len(dups) == 0 && len(mismatches) == 0 {
+	total := len(dups) + len(mismatches) + len(tsIssues)
+	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
 	}
@@ -347,8 +349,18 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s%s  file=%s meta=%s  %s\n", c.block, m.Project, c.reset, m.FileID, m.MetaID, m.Path)
 		}
 	}
+	if len(tsIssues) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%s着手/完了日時の矛盾 (started_at / completed_at):%s\n", c.bold, c.reset)
+		for _, ts := range tsIssues {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, ts.Project, ts.ID, c.reset, ts.Detail, ts.Path)
+		}
+	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d)\n", c.block, len(dups)+len(mismatches), c.reset, len(dups), len(mismatches))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues))
 	return &silentExit{code: 1}
 }
 
@@ -368,6 +380,15 @@ func cmdShow(args []string) error {
 	c := newColors()
 	fmt.Printf("%s# %s%s\n", c.dim, path, c.reset)
 	os.Stdout.Write(data)
+	// 着手/完了が記録されていれば、所要時間 (または経過) の要約を末尾に添える。
+	if t, err := parseTask(path); err == nil {
+		if footer := timestampSummary(t, time.Now(), c); footer != "" {
+			if len(data) > 0 && data[len(data)-1] != '\n' {
+				fmt.Println()
+			}
+			fmt.Println(footer)
+		}
+	}
 	return nil
 }
 

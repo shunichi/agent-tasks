@@ -180,7 +180,14 @@ watch --color agent-tasks --color=always   # watch で色付き監視
 環境変数も尊重する: `NO_COLOR` (非空) で無効化、`FORCE_COLOR` (非空) で強制。
 優先順位は `--color` フラグ > `NO_COLOR` > `FORCE_COLOR` > 端末判定。
 
+### 日時フィールド
+
+frontmatter の時刻系 (`created` / `updated` / `blocked_at`) は **ISO8601 日時** (ローカルオフセット
+込み。例 `2026-06-28T14:30:00+09:00`) で持つ。skill は `date --iso-8601=seconds` で記録する。
+一覧の `UPDATED` 列は情報過多にならないよう**日付だけ**に丸めて表示し、時刻まで見たいときは `show`
+で全文を見る。パーサは日付のみ (`2026-06-28`) の旧データも読めるので、移行は後方互換。
+
 ## 今後
 
 - Web ダッシュボード化 (このリポジトリ内で発展させる)
-- frontmatter の日付フィールド (`created`/`updated`) を日時に統一 (store の agent-tasks/0021)
+- blocked の経過に加え、相対表示の一覧オプションなど表示の作り込み

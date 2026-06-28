@@ -21,8 +21,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + list の SESSION 列 (working/waiting/ended)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
+  datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
-  *_test.go                     # テスト (store/worktree/scaffold/session/blocked)
+  *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime)
   Makefile                      # build / install / link / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
@@ -78,9 +79,11 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
     (今は手順書として skill が担当)。
   - worktree 設定テンプレの拡充 (next/django/go 等)。
   - Web ダッシュボード化 (このリポジトリ内で発展)。
-  - frontmatter の日付 (`created`/`updated`) を日時に統一 (store の agent-tasks/0021)。
 - ✅ blocked の理由・経過時間の可視化 (`blocked_at`/`blocked_reason` + list の BLOCKED 列。
   store の agent-tasks/0003)。
+- ✅ frontmatter の時刻系 (`created`/`updated`/`blocked_at`) を ISO8601 日時に統一
+  (`date --iso-8601=seconds`。一覧は日付に丸めて表示、パーサは日付のみの旧データも両対応。
+  store の agent-tasks/0021)。
 
 ## コミットメッセージ
 

@@ -108,6 +108,15 @@ git リポジトリのメイン repo 名)。全 project を横断したいとき
 2. コマンドが無ければ `<root>/**/*.md` の frontmatter を読み、project / id / status / title を表にして表示する。
    この場合も既定は現在 project (root の basename) のみに絞り、横断したいときだけ全件を出す。
 
+### セッション状態 (working / waiting)
+
+hook を導入していると、in-progress 行に `SESSION` 列が出て各セッションが **working** (処理中) /
+**waiting** (入力・許可待ち) / **ended** (終了) を示す (`?` はマーカー未取得)。並行 pane の
+「どれが自分の応答待ちか」を一覧で把握できる。導入は `agent-tasks session-hook --print-config` の
+スニペットを `~/.claude/settings.json` に 1 度追加するだけ (各セッションが状態変化時に
+`agent-tasks session-hook` を呼びマーカーを更新する)。`tmux capture-pane` が alt-screen で当てに
+ならない問題 (spawn の起動確認参照) を、hook 由来の確実なシグナルで補う位置づけ。
+
 ---
 
 ## start — 着手 (git worktree で並行開発)

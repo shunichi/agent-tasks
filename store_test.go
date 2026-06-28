@@ -205,6 +205,60 @@ func TestLeadingID(t *testing.T) {
 	}
 }
 
+func TestFindDuplicateIDs(t *testing.T) {
+	dir := t.TempDir()
+	write := func(proj, name, body string) {
+		d := filepath.Join(dir, proj)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, name), []byte(body), 0o644)
+	}
+	// webapp/0015 が 2 ファイルで重複。webapp/0001 と other/0015 は単独。
+	write("webapp", "0015-foo.md", "---\nid: \"0015\"\nstatus: todo\n---\n")
+	write("webapp", "0015-bar.md", "---\nid: \"0015\"\nstatus: todo\n---\n")
+	write("webapp", "0001-a.md", "---\nid: \"0001\"\nstatus: todo\n---\n")
+	write("other", "0015-x.md", "---\nid: \"0015\"\nstatus: todo\n---\n")
+
+	tasks, err := loadTasks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dups := findDuplicateIDs(tasks)
+	if len(dups) != 1 {
+		t.Fatalf("len(dups) = %d, want 1 (%+v)", len(dups), dups)
+	}
+	if dups[0].Project != "webapp" || dups[0].ID != "0015" {
+		t.Errorf("dup = %s/%s, want webapp/0015", dups[0].Project, dups[0].ID)
+	}
+	if len(dups[0].Paths) != 2 {
+		t.Errorf("paths = %v, want 2 files", dups[0].Paths)
+	}
+}
+
+func TestFindIDMismatches(t *testing.T) {
+	dir := t.TempDir()
+	write := func(proj, name, body string) {
+		d := filepath.Join(dir, proj)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, name), []byte(body), 0o644)
+	}
+	// ファイル名 0016 だが frontmatter は 0015 -> 不一致。
+	write("webapp", "0016-foo.md", "---\nid: \"0015\"\nstatus: todo\n---\n")
+	// 一致 -> 検出されない。
+	write("webapp", "0001-ok.md", "---\nid: \"0001\"\nstatus: todo\n---\n")
+
+	tasks, err := loadTasks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := findIDMismatches(tasks)
+	if len(ms) != 1 {
+		t.Fatalf("len(mismatches) = %d, want 1 (%+v)", len(ms), ms)
+	}
+	if ms[0].FileID != "0016" || ms[0].MetaID != "0015" {
+		t.Errorf("mismatch = file=%s meta=%s, want file=0016 meta=0015", ms[0].FileID, ms[0].MetaID)
+	}
+}
+
 func TestSyncCommitMessage(t *testing.T) {
 	dir := t.TempDir()
 	proj := filepath.Join(dir, "demo")

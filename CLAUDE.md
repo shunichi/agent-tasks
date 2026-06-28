@@ -14,8 +14,8 @@
 ```
 agent-tasks/                    ← このリポジトリ = ツール (操作 skill + 閲覧 CLI)
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/spawn/完了/保留
-  main.go                       # 閲覧 CLI: コマンド振り分け + list/show/edit/sync/where
-  store.go                      # タスクの model + ストア走査 + frontmatter パース
+  main.go                       # 閲覧 CLI: コマンド振り分け + list/show/edit/sync/doctor/where
+  store.go                      # タスクの model + ストア走査 + frontmatter パース + doctor 集計
   render.go                     # 色付け + CJK 幅対応のテーブル描画
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)

@@ -19,8 +19,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   render.go                     # 色付け + CJK 幅対応のテーブル描画
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
+  session.go                    # session-hook + list の SESSION 列 (working/waiting/ended)
+  blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
-  *_test.go                     # テスト (store/worktree/scaffold)
+  *_test.go                     # テスト (store/worktree/scaffold/session/blocked)
   Makefile                      # build / install / link / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
@@ -76,7 +78,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
     (今は手順書として skill が担当)。
   - worktree 設定テンプレの拡充 (next/django/go 等)。
   - Web ダッシュボード化 (このリポジトリ内で発展)。
-  - blocked の理由・経過時間の可視化。
+  - frontmatter の日付 (`created`/`updated`) を日時に統一 (store の agent-tasks/0021)。
+- ✅ blocked の理由・経過時間の可視化 (`blocked_at`/`blocked_reason` + list の BLOCKED 列。
+  store の agent-tasks/0003)。
 
 ## コミットメッセージ
 

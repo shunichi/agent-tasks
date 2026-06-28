@@ -150,6 +150,29 @@ func writePadded(b *strings.Builder, text, color, reset string, width int, last 
 	}
 }
 
+// truncateDisp は表示幅が max を超える場合に末尾を "…" で丸める (CJK 幅対応)。
+// max 以内ならそのまま返す。max が小さすぎる (1 以下) ときは "…" を返す。
+func truncateDisp(s string, max int) string {
+	if dispWidth(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	w := 0
+	for i, r := range s {
+		rw := 1
+		if isWide(r) {
+			rw = 2
+		}
+		if w+rw > max-1 { // 末尾の "…" (幅1) の分を空ける
+			return s[:i] + "…"
+		}
+		w += rw
+	}
+	return s
+}
+
 // dispWidth は端末上の表示幅を返す。CJK / 全角は 2 と数える。
 func dispWidth(s string) int {
 	w := 0

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // usageError は使い方の誤り (未知オプション/引数不足など) を表す。
@@ -234,14 +235,22 @@ func cmdList(args []string) error {
 	}
 
 	c := newColors()
-	// in-progress があるときだけ SESSION カラム (working/waiting/ended) を出す。
-	// hook 未導入だと in-progress でもマーカーが無く "?" 表示になる。
+	now := time.Now()
+	// 任意カラムは該当 status の行があるときだけ STATUS の右に出す:
+	//   SESSION (in-progress: working/waiting/ended。hook 未導入だと "?")
+	//   BLOCKED (blocked: 保留からの経過。長期放置は警告色。blocked_at 未記録だと "?")
 	showSession := slices.ContainsFunc(rows, func(t Task) bool { return t.Status == "in-progress" })
+	showBlocked := slices.ContainsFunc(rows, func(t Task) bool { return t.Status == "blocked" })
 
-	headers := []string{"PROJECT", "ID", "STATUS", "TITLE", "UPDATED"}
+	headers := []string{"PROJECT", "ID", "STATUS"}
 	if showSession {
-		headers = slices.Insert(headers, 3, "SESSION") // STATUS の右
+		headers = append(headers, "SESSION")
 	}
+	if showBlocked {
+		headers = append(headers, "BLOCKED")
+	}
+	headers = append(headers, "TITLE", "UPDATED")
+
 	tbl := newTable(headers...)
 	for _, t := range rows {
 		cells := []cell{
@@ -252,7 +261,10 @@ func cmdList(args []string) error {
 		if showSession {
 			cells = append(cells, sessionCell(t, c))
 		}
-		cells = append(cells, cell{t.Title, ""}, cell{t.Updated, c.dim})
+		if showBlocked {
+			cells = append(cells, blockedCell(t, c, now))
+		}
+		cells = append(cells, cell{blockedTitle(t), ""}, cell{t.Updated, c.dim})
 		tbl.add(cells...)
 	}
 	tbl.render(os.Stdout, c)

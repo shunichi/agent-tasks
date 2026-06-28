@@ -25,6 +25,10 @@ type Task struct {
 	Created  string
 	Updated  string
 
+	// blocked のときだけ埋まる (start/done で blocked を抜けるとクリアされる)。
+	BlockedAt     string // 保留にした日時 (ISO8601。経過算出の基点。updated とは別)
+	BlockedReason string // 保留理由 (一覧表示用の構造化フィールド。履歴は進捗ログ)
+
 	Path string // ファイルの絶対パス
 }
 
@@ -255,6 +259,10 @@ func parseTask(path string) (Task, error) {
 			t.Created = val
 		case "updated":
 			t.Updated = val
+		case "blocked_at":
+			t.BlockedAt = val
+		case "blocked_reason":
+			t.BlockedReason = val
 		}
 	}
 	return t, sc.Err()

@@ -170,9 +170,12 @@ func cmdSessionHook(args []string) error {
 		fmt.Print(sessionHookConfig())
 		return nil
 	}
-	raw, err := io.ReadAll(os.Stdin)
+	// hook は失敗させない方針 (非ゼロ終了で Claude Code のセッションを乱さない)。
+	// 入力エラー/不正 JSON は警告だけ出して no-op で抜ける。入力は防御的に上限を設ける。
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
 	if err != nil {
-		return fmt.Errorf("hook 入力を読めません: %w", err)
+		fmt.Fprintf(os.Stderr, "agent-tasks session-hook: 入力を読めません: %v\n", err)
+		return nil
 	}
 	var in struct {
 		HookEventName    string `json:"hook_event_name"`
@@ -180,7 +183,8 @@ func cmdSessionHook(args []string) error {
 		Cwd              string `json:"cwd"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return fmt.Errorf("hook 入力の JSON を解析できません: %w", err)
+		fmt.Fprintf(os.Stderr, "agent-tasks session-hook: JSON を解析できません: %v\n", err)
+		return nil
 	}
 	// 状態に影響しないイベントは黙って無視する (hook を失敗させない)。
 	state := sessionStateFor(in.HookEventName, in.NotificationType)

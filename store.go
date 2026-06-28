@@ -275,6 +275,9 @@ func parseTask(path string) (Task, error) {
 		line := sc.Text()
 		if first {
 			first = false
+			// 先頭行に UTF-8 BOM が付いていると "---" 判定が外れて frontmatter を
+			// 丸ごと取りこぼす (タスクが一覧から消える)。BOM を剥がしてから判定する。
+			line = strings.TrimPrefix(line, "\ufeff")
 			if strings.TrimSpace(line) == "---" {
 				inFrontmatter = true
 				continue

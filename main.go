@@ -336,21 +336,21 @@ func watchList(filterStatus, filterProject string, showAll, allProjects bool, in
 	fmt.Print("\033[?25l")               // カーソルを隠す (ちらつき低減)
 	defer fmt.Print("\033[?25h\033[?7h") // 抜けるとき: カーソルを戻し、行折り返しも戻す
 
-	draw := func() error {
+	// draw はエラーで抜けない。読み取り失敗 (ストアが一時的に読めない等) もフレーム内に
+	// 出して監視を続ける。watchList を err で抜けさせると main が os.Exit(1) し、defer の
+	// カーソル/折り返し復帰が走らず端末が壊れたまま残るため (os.Exit は defer を実行しない)。
+	draw := func() {
 		c := newColors()
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
 		if err := runList(&buf, filterStatus, filterProject, showAll, allProjects); err != nil {
-			return err
+			fmt.Fprintf(&buf, "%serror: %v%s\n", c.block, err, c.reset)
 		}
 		writeFrame(buf.String())
-		return nil
 	}
 
-	if err := draw(); err != nil {
-		return err
-	}
+	draw()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -359,9 +359,7 @@ func watchList(filterStatus, filterProject string, showAll, allProjects bool, in
 			fmt.Println()
 			return nil
 		case <-ticker.C:
-			if err := draw(); err != nil {
-				return err
-			}
+			draw()
 		}
 	}
 }
@@ -576,8 +574,8 @@ func editorArgv() []string {
 // cmdStatus はストアの未 sync 状態 (uncommitted / unpushed) を 1 行で表示する。
 // 未同期があれば exit 1 (prompt / スクリプトで「sync が要るか」を終了コードで判別できる)。
 func cmdStatus(args []string) error {
-	for _, a := range args {
-		return usagef("unknown option: %s", a)
+	if len(args) > 0 {
+		return usagef("status は引数を取りません: %s", args[0])
 	}
 	dir := storeDir()
 	st, err := loadSyncStatus(dir)

@@ -35,3 +35,28 @@ func blockedTitle(t Task) string {
 	}
 	return t.Title + "  (" + truncateDisp(t.BlockedReason, 50) + ")"
 }
+
+// BlockedIssue は blocked_at / blocked_reason と status の食い違いを表す doctor の検出結果。
+type BlockedIssue struct {
+	Project string
+	ID      string
+	Detail  string
+	Path    string
+}
+
+// findBlockedIssues は block の記録/クリア漏れを拾う (記録・クリアは skill 任せなので、
+// CLI 側の検査がその防御線になる):
+//   - status≠blocked なのに blocked_at / blocked_reason が残っている (start/done でのクリア漏れ)
+//   - status=blocked なのに blocked_at が無い (block での記録漏れ。list で経過が "?" になる)
+func findBlockedIssues(tasks []Task) []BlockedIssue {
+	var out []BlockedIssue
+	for _, t := range tasks {
+		switch {
+		case t.Status != "blocked" && (t.BlockedAt != "" || t.BlockedReason != ""):
+			out = append(out, BlockedIssue{t.Project, t.ID, "blocked ではないのに blocked_at/blocked_reason が残っている (クリア漏れ)", t.Path})
+		case t.Status == "blocked" && t.BlockedAt == "":
+			out = append(out, BlockedIssue{t.Project, t.ID, "status=blocked なのに blocked_at が無い (記録漏れ)", t.Path})
+		}
+	}
+	return out
+}

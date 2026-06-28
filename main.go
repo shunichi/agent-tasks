@@ -408,17 +408,21 @@ func cmdDoctor(args []string) error {
 	}
 
 	dir := storeDir()
-	tasks, err := loadTasks(dir)
+	tasks, failures, err := loadTasksReport(dir)
 	if err != nil {
 		return fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
 	if filterProject != "" {
 		tasks = slices.DeleteFunc(tasks, func(t Task) bool { return t.Project != filterProject })
+		failures = slices.DeleteFunc(failures, func(f LoadFailure) bool {
+			return filepath.Base(filepath.Dir(f.Path)) != filterProject
+		})
 	}
 
 	dups := findDuplicateIDs(tasks)
 	mismatches := findIDMismatches(tasks)
 	tsIssues := findTimestampIssues(tasks)
+	blockedIssues := findBlockedIssues(tasks)
 
 	c := newColors()
 	scope := "全 project"
@@ -426,7 +430,7 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	total := len(dups) + len(mismatches) + len(tsIssues)
+	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(failures)
 	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
@@ -459,9 +463,27 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, ts.Project, ts.ID, c.reset, ts.Detail, ts.Path)
 		}
 	}
+	if len(blockedIssues) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%sblocked の記録/クリア漏れ (blocked_at / blocked_reason):%s\n", c.bold, c.reset)
+		for _, bi := range blockedIssues {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, bi.Project, bi.ID, c.reset, bi.Detail, bi.Path)
+		}
+	}
+	if len(failures) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%s読めなかったファイル (一覧から無言で落ちる):%s\n", c.bold, c.reset)
+		for _, f := range failures {
+			fmt.Printf("  %s%s%s  %v\n", c.block, f.Path, c.reset, f.Err)
+		}
+	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d)\n",
-		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / 読込失敗 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(failures))
 	return &silentExit{code: 1}
 }
 

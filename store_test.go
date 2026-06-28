@@ -105,6 +105,52 @@ func TestEditorArgv(t *testing.T) {
 	}
 }
 
+func TestNormalizeID(t *testing.T) {
+	cases := map[string]string{
+		"5":     "0005", // 短縮形を4桁ゼロ埋めに
+		"05":    "0005", // 中途半端なゼロ埋めも揃える
+		"0005":  "0005", // 既存形式はそのまま
+		"0":     "0000",
+		"12345": "12345", // 4桁を超えても切り詰めない
+		"foo":   "foo",   // 非数値はそのまま
+		"":      "",      // 空も素通し
+		"-5":    "-5",    // 負数は照合しない (そのまま返す)
+	}
+	for in, want := range cases {
+		if got := normalizeID(in); got != want {
+			t.Errorf("normalizeID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveTaskPathShortID(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_TASKS_STORE", dir)
+	proj := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(proj, "0005-flexible.md")
+	if err := os.WriteFile(want, []byte("---\nid: \"0005\"\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"5", "05", "0005"} {
+		got, err := resolveTaskPath("demo", id)
+		if err != nil {
+			t.Errorf("resolveTaskPath(demo, %q) error: %v", id, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("resolveTaskPath(demo, %q) = %q, want %q", id, got, want)
+		}
+	}
+
+	if _, err := resolveTaskPath("demo", "9"); err == nil {
+		t.Error("存在しない id 9 はエラーになるべき")
+	}
+}
+
 func TestDispWidth(t *testing.T) {
 	if got := dispWidth("abc"); got != 3 {
 		t.Errorf("dispWidth(abc) = %d, want 3", got)

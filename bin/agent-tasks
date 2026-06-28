@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+#
+# agent-tasks — エージェント開発タスクの横断ビューア
+#
+# ~/agent-tasks/<project>/<NNN>-<slug>.md の frontmatter を読み、
+# 全プロジェクト横断でタスクの進捗一覧を表示する。
+# エージェント (claude / codex / ...) を起動せずターミナルから進捗を見るためのツール。
+#
+# データの場所は AGENT_TASKS_DIR で上書きできる (既定: ~/agent-tasks)。
+#
+set -euo pipefail
+
+TASKS_DIR="${AGENT_TASKS_DIR:-$HOME/agent-tasks}"
+
+usage() {
+  cat <<'EOF'
+agent-tasks — エージェント開発タスクの横断ビュー
+
+USAGE:
+  agent-tasks [list]                 全タスクを一覧 (既定)
+  agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
+  agent-tasks --project <name>       project で絞り込み
+  agent-tasks --active               未完了のみ (done 以外)
+  agent-tasks show <project> <id>    1タスクの全文を表示
+  agent-tasks where                  データディレクトリのパスを表示
+  agent-tasks -h | --help            このヘルプ
+
+ENV:
+  AGENT_TASKS_DIR    タスクデータの場所 (既定: ~/agent-tasks)
+EOF
+}
+
+# frontmatter から 1 フィールドを取り出す: fm <key> <file>
+fm() {
+  awk -v k="$1" '
+    NR==1 && $0=="---" { inf=1; next }
+    inf && $0=="---" { exit }
+    inf {
+      idx = index($0, ":")
+      if (idx > 0) {
+        key = substr($0, 1, idx-1)
+        val = substr($0, idx+1)
+        gsub(/^[ \t]+|[ \t]+$/, "", key)
+        gsub(/^[ \t]+|[ \t]+$/, "", val)
+        gsub(/^["'\''"]|["'\''"]$/, "", val)
+        if (key == k) { print val; exit }
+      }
+    }
+  ' "$2"
+}
+
+# 色 (tty のときだけ)
+if [ -t 1 ]; then
+  C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
+  C_TODO=$'\033[37m'; C_PROG=$'\033[36m'; C_BLOCK=$'\033[31m'
+  C_REVIEW=$'\033[35m'; C_DONE=$'\033[32m'
+else
+  C_RESET=; C_DIM=; C_BOLD=; C_TODO=; C_PROG=; C_BLOCK=; C_REVIEW=; C_DONE=
+fi
+
+status_color() {
+  case "$1" in
+    in-progress) printf '%s' "$C_PROG" ;;
+    blocked)     printf '%s' "$C_BLOCK" ;;
+    review)      printf '%s' "$C_REVIEW" ;;
+    done)        printf '%s' "$C_DONE" ;;
+    *)           printf '%s' "$C_TODO" ;;
+  esac
+}
+
+cmd_list() {
+  local filter_status="" filter_project="" active_only=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --status)  filter_status="${2:-}"; shift 2 ;;
+      --project) filter_project="${2:-}"; shift 2 ;;
+      --active)  active_only=1; shift ;;
+      *) echo "unknown option: $1" >&2; usage; exit 2 ;;
+    esac
+  done
+
+  if [ ! -d "$TASKS_DIR" ]; then
+    echo "タスクディレクトリがありません: $TASKS_DIR" >&2
+    exit 1
+  fi
+
+  # 集計用
+  declare -A counts=()
+  local total=0
+  # 行を一時バッファに溜めて column で整形
+  local rows="" had=0
+
+  # ファイルを project/id 順で
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    local project id status title updated
+    project="$(fm project "$f")"; [ -n "$project" ] || project="$(basename "$(dirname "$f")")"
+    id="$(fm id "$f")"; [ -n "$id" ] || id="$(basename "$f" .md)"
+    status="$(fm status "$f")"; [ -n "$status" ] || status="todo"
+    title="$(fm title "$f")"; [ -n "$title" ] || title="(no title)"
+    updated="$(fm updated "$f")"
+
+    [ -n "$filter_status" ] && [ "$status" != "$filter_status" ] && continue
+    [ -n "$filter_project" ] && [ "$project" != "$filter_project" ] && continue
+    [ "$active_only" -eq 1 ] && [ "$status" = "done" ] && continue
+
+    counts[$status]=$(( ${counts[$status]:-0} + 1 ))
+    total=$(( total + 1 ))
+    had=1
+
+    local sc; sc="$(status_color "$status")"
+    rows+="${C_DIM}${project}${C_RESET}\t${id}\t${sc}${status}${C_RESET}\t${title}\t${C_DIM}${updated}${C_RESET}\n"
+  done < <(find "$TASKS_DIR" -mindepth 2 -name '*.md' -type f 2>/dev/null | sort)
+
+  if [ "$had" -eq 0 ]; then
+    echo "該当タスクなし (dir: $TASKS_DIR)"
+    return 0
+  fi
+
+  {
+    printf "${C_BOLD}PROJECT\tID\tSTATUS\tTITLE\tUPDATED${C_RESET}\n"
+    printf "%b" "$rows"
+  } | column -t -s $'\t'
+
+  # サマリ
+  local summary=""
+  for s in todo in-progress review blocked done; do
+    [ -n "${counts[$s]:-}" ] && summary+="$(status_color "$s")${s}:${counts[$s]}${C_RESET}  "
+  done
+  echo
+  printf "%b\n" "${C_DIM}total ${total}${C_RESET}  ${summary}"
+}
+
+cmd_show() {
+  local project="${1:-}" id="${2:-}"
+  if [ -z "$project" ] || [ -z "$id" ]; then
+    echo "usage: agent-tasks show <project> <id>" >&2; exit 2
+  fi
+  local f
+  f="$(find "$TASKS_DIR/$project" -name "${id}-*.md" -type f 2>/dev/null | head -1)"
+  [ -z "$f" ] && f="$(find "$TASKS_DIR/$project" -name "${id}.md" -type f 2>/dev/null | head -1)"
+  if [ -z "$f" ] || [ ! -f "$f" ]; then
+    echo "見つかりません: $project / $id" >&2; exit 1
+  fi
+  echo "${C_DIM}# $f${C_RESET}"
+  cat "$f"
+}
+
+main() {
+  local sub="${1:-list}"
+  case "$sub" in
+    list)            shift || true; cmd_list "$@" ;;
+    --status|--project|--active) cmd_list "$@" ;;
+    show)            shift; cmd_show "$@" ;;
+    where)           echo "$TASKS_DIR" ;;
+    -h|--help|help)  usage ;;
+    *) echo "unknown command: $sub" >&2; usage; exit 2 ;;
+  esac
+}
+
+main "$@"

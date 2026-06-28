@@ -69,12 +69,17 @@ updated: 2026-06-28
 
 ## create — タスク登録
 
+> **登録のみ。着手はしない。** create はタスクファイルを作るだけで完結する。
+> ユーザーが明示的に「着手」「start」「やって」「直して」等と言わない限り、
+> 実装・修正・worktree 作成・コミットには一切進まない。複数タスクをまとめて登録しても同じ
+> (1 件も着手しない)。着手したい場合は別途 `start` を指示してもらう。
+
 1. project キーを決める (上記)。
 2. `<root>/<project>/` がなければ作成する。
 3. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `0001`)。
 4. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
 5. `<root>/<project>/<NNNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は当日。
-6. 作成したパスを報告する。**コードリポジトリには一切コミットしない。**
+6. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
 
 ---
 
@@ -94,19 +99,23 @@ updated: 2026-06-28
 
 1. 対象タスクファイルを特定する (project + id)。
 2. **二重着手チェック**: `status` が `in-progress` で `session` が埋まっている場合、別セッションが作業中の可能性。ユーザーに確認し、明示的な指示がなければ中止する。
-3. worktree とブランチを作る。コードリポジトリの root で:
+3. **コンフリクトチェック**: 同じ project に他の `in-progress` タスクがあるか調べる (`agent-tasks --project <project> --status in-progress`、無ければ各ファイルの frontmatter を見る)。
+   - 各 in-progress タスクの要件・進捗ログから「触る予定のファイル/領域」を読み取り、本タスクの想定変更と重なりそうか判断する。
+   - 重なりそうなら **着手前にユーザーへ伝える**: どのタスク (id/branch) と、どのファイル/領域で衝突しそうかを具体的に示し、(a) 先に片方を終えてから進める / (b) 承知の上で並行する のどちらにするか確認する。明示の指示があるまで worktree は作らない。
+   - 重なりが無さそうなら、その旨を一言添えてそのまま進める。
+4. worktree とブランチを作る。コードリポジトリの root で:
    ```sh
    git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>
    ```
    - 既定ブランチ (main) の最新から分岐する。必要なら事前に `git fetch` / 最新化する。
-4. タスクファイルの frontmatter を更新する:
+5. タスクファイルの frontmatter を更新する:
    - `status: in-progress`
    - `agent: claude` (自分のエージェント名)
    - `session:` 自分のセッション URL が分かれば記録 (Claude Code なら会話フッタの `Claude-Session` URL)
    - `branch: task/<NNNN>-<slug>` / `worktree: ../<project>--<NNNN>`
    - `updated:` 当日、`## 進捗ログ` に「着手」を追記
-5. **以降の実装作業は作成した worktree (`../<project>--<NNNN>`) の中で行う。** 元のチェックアウトは汚さない。
-6. プロジェクトの作法に従って実装する (`CLAUDE.md` / `AGENTS.md` を読む)。完了に近づいたら `done` へ。
+6. **以降の実装作業は作成した worktree (`../<project>--<NNNN>`) の中で行う。** 元のチェックアウトは汚さない。
+7. プロジェクトの作法に従って実装する (`CLAUDE.md` / `AGENTS.md` を読む)。完了に近づいたら `done` へ。
 
 ---
 

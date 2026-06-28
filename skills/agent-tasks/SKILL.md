@@ -30,13 +30,13 @@ basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```markdown
 ---
 id: "0001"
-project: family-app2
+project: webapp
 title: ブックマークのドラッグ並び替え
 status: todo          # todo | in-progress | blocked | review | done
 agent:                # 着手したエージェント (claude / codex / ...)
 session:              # エージェントのセッション URL
 branch: task/0001-bookmark-dnd
-worktree: ../family-app2--0001
+worktree: ../webapp--0001
 created: 2026-06-28
 updated: 2026-06-28
 ---
@@ -235,7 +235,7 @@ claude 'タスク <NNNN> に着手して'
 
 ## sync — ストアの同期 (git commit & push)
 
-タスクファイルはコードリポジトリの外 (`~/agent-tasks-store`、git 管理 + GitHub private) にある。
+タスクファイルはコードリポジトリの外 (`~/agent-tasks-store`、git 管理) にある。
 create/start/done/block でファイルを更新したあと、ストアを commit & push してマシン間で同期する。
 
 - **基本は CLI に任せる**: `agent-tasks sync` がストアで `add -A` → コミットメッセージ自動生成 →

@@ -13,7 +13,7 @@ func TestParseTask(t *testing.T) {
 	path := filepath.Join(dir, "0001-foo.md")
 	content := `---
 id: "0001"
-project: family-app2
+project: webapp
 title: ブックマークのドラッグ並び替え
 status: in-progress
 agent: claude
@@ -32,8 +32,8 @@ agent: claude
 	if got.ID != "0001" {
 		t.Errorf("ID = %q, want 0001", got.ID)
 	}
-	if got.Project != "family-app2" {
-		t.Errorf("Project = %q, want family-app2", got.Project)
+	if got.Project != "webapp" {
+		t.Errorf("Project = %q, want webapp", got.Project)
 	}
 	if got.Title != "ブックマークのドラッグ並び替え" {
 		t.Errorf("Title = %q", got.Title)
@@ -161,10 +161,10 @@ func TestResolveListScope(t *testing.T) {
 		wantProj    string
 		wantCross   bool
 	}{
-		{"既定は現在 project", "", false, "family-app2", "family-app2", false},
-		{"--all-projects で横断", "", true, "family-app2", "", true},
-		{"--project 明示は別 project でも従う", "other", false, "family-app2", "other", false},
-		{"--project は --all-projects より優先", "other", true, "family-app2", "other", false},
+		{"既定は現在 project", "", false, "webapp", "webapp", false},
+		{"--all-projects で横断", "", true, "webapp", "", true},
+		{"--project 明示は別 project でも従う", "other", false, "webapp", "other", false},
+		{"--project は --all-projects より優先", "other", true, "webapp", "other", false},
 		{"git 外は横断にフォールバック", "", false, "", "", true},
 		{"git 外でも --project は効く", "other", false, "", "other", false},
 	}

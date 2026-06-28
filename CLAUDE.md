@@ -12,7 +12,7 @@
 ## 構成
 
 ```
-agent-tasks/                    ← このリポジトリ = ツール (github.com/shunichi/agent-tasks, private)
+agent-tasks/                    ← このリポジトリ = ツール (操作 skill + 閲覧 CLI)
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/spawn/完了/保留
   main.go                       # 閲覧 CLI: コマンド振り分け + list/show/where
   store.go                      # タスクの model + ストア走査 + frontmatter パース
@@ -59,7 +59,6 @@ agent-tasks/                    ← このリポジトリ = ツール (github.co
 
 - ✅ skill + Go CLI 実装・テスト緑・GitHub に push 済み (`list` / `--status` / `--project` /
   `--active` / `show` / `where`)。
-- ⏳ 旧 repo `agent-dashboard` (GitHub, private, 中身は trivial) の削除はユーザーが後で対応予定。
 - 💡 未着手の発展案:
   - `~/agent-tasks-store` 自体の git 化 (マシン間同期)。
   - skill 側にある `create` / `start` / `done` / `block` の一部を CLI サブコマンド化するか検討

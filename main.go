@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -134,6 +137,7 @@ USAGE:
   agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project を指定 (別 project も可)
+  agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
   agent-tasks show [<project>] <id>  1タスクの全文を表示 (project 省略時は現在 project)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
@@ -167,6 +171,8 @@ func cmdList(args []string) error {
 	var filterStatus, filterProject string
 	showAll := false
 	allProjects := false
+	watch := false
+	interval := 2 * time.Second
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--status":
@@ -185,6 +191,18 @@ func cmdList(args []string) error {
 			showAll = true
 		case "--all-projects":
 			allProjects = true
+		case "--watch", "-w":
+			watch = true
+		case "--interval":
+			if i+1 >= len(args) {
+				return usagef("--interval requires a value (秒)")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 {
+				return usagef("--interval must be a positive integer (秒): %q", args[i])
+			}
+			interval = time.Duration(n) * time.Second
 		case "--active":
 			// 既定が「done 以外」になったので no-op。互換のため受け付ける。
 		default:
@@ -192,6 +210,15 @@ func cmdList(args []string) error {
 		}
 	}
 
+	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
+	if watch && isTTY(os.Stdout) {
+		return watchList(filterStatus, filterProject, showAll, allProjects, interval)
+	}
+	return runList(filterStatus, filterProject, showAll, allProjects)
+}
+
+// runList は一覧を 1 回読み込み・絞り込み・描画する。watch はこれをループで呼ぶ。
+func runList(filterStatus, filterProject string, showAll, allProjects bool) error {
 	// project スコープを決める。既定は現在 project (cwd の git root basename) のみ。
 	// --project 明示 / --all-projects / git 外 では横断 (effProject == "")。
 	current := currentProject()
@@ -290,6 +317,42 @@ func cmdList(args []string) error {
 		fmt.Printf("%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
 	}
 	return nil
+}
+
+// watchList は interval ごとに画面をクリアして runList を再描画する。Ctrl-C (SIGINT) で抜ける。
+// 端末前提 (cmdList が TTY を確認済み)。別セッションのタスク更新を開きっぱなしで監視する用途。
+func watchList(filterStatus, filterProject string, showAll, allProjects bool, interval time.Duration) error {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sig)
+
+	fmt.Print("\033[?25l")       // カーソルを隠す (ちらつき低減)
+	defer fmt.Print("\033[?25h") // 抜けるとき必ず戻す
+
+	draw := func() error {
+		c := newColors()
+		fmt.Print("\033[H\033[2J") // カーソルを左上へ + 画面クリア
+		fmt.Printf("%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
+			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
+		return runList(filterStatus, filterProject, showAll, allProjects)
+	}
+
+	if err := draw(); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sig:
+			fmt.Println()
+			return nil
+		case <-ticker.C:
+			if err := draw(); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 // cmdDoctor は id 重複と id/ファイル名不一致を点検する。既定は全 project 横断

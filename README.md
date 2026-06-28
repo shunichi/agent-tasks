@@ -155,6 +155,17 @@ agent-tasks session-hook --print-config   # 貼り付け用スニペットを表
 にマッピングされる。`watch` と組み合わせると「どの pane が応答待ちか」を常時モニタできる
 (`watch --color agent-tasks --color=always --all-projects --status in-progress`)。
 
+### blocked タスクの可視化 (理由・経過)
+
+`list` は `blocked` のタスクがあると `BLOCKED` 列を出し、**保留からの経過時間** (`3d` / `5h` /
+`12m`) を表示する。長く放置された blocked (既定 7 日超) は警告色で目立たせるので、止まったまま
+忘れられたタスクに気づける。保留理由は `TITLE` に括弧書きで添える (長い理由は折り返さず丸める)。
+
+経過は `updated` ではなく専用の **`blocked_at`** (保留にした日時) から測る。`updated` はあらゆる
+status 更新で動くため、「保留してからの経過」とはずれるから。理由は **`blocked_reason`** に持つ。
+どちらも `block` 操作で frontmatter に記録され、`start` / `done` で blocked を抜けるとクリアされる
+(`blocked_at` 未記録の古い blocked は `?` 表示)。`agent-tasks --status blocked` で一覧できる。
+
 ### 色出力
 
 既定 (`--color=auto`) は stdout が端末のときだけ色を付ける。`watch` などパイプ経由では
@@ -172,4 +183,4 @@ watch --color agent-tasks --color=always   # watch で色付き監視
 ## 今後
 
 - Web ダッシュボード化 (このリポジトリ内で発展させる)
-- blocked タスクの理由・経過時間の可視化など
+- frontmatter の日付フィールド (`created`/`updated`) を日時に統一 (store の agent-tasks/0021)

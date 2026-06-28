@@ -109,6 +109,8 @@ func dispatch(args []string) error {
 		return cmdScaffoldWorktree(args)
 	case "doctor":
 		return cmdDoctor(args)
+	case "session-hook":
+		return cmdSessionHook(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -138,6 +140,8 @@ USAGE:
                                      プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force)
   agent-tasks doctor [--project <name>] id 重複と id/ファイル名の不一致を点検 (既定は全 project 横断。
                                      問題があれば exit 1。CI / 着手前チェックに使う)
+  agent-tasks session-hook [--print-config]  Claude Code の hook から呼ぶ。stdin の JSON を読んで
+                                     セッションの working/waiting を記録する (--print-config で設定例を出力)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 
@@ -150,6 +154,7 @@ ENV:
   AGENT_TASKS_EDITOR   edit で使うエディタ (既定: code。VISUAL/EDITOR も参照)
   NO_COLOR             設定 (非空) で色を無効化 (https://no-color.org/)
   FORCE_COLOR          設定 (非空) で色を強制 (auto 時。--color=never が優先)
+  AGENT_TASKS_STATE_DIR  session マーカーの置き場 (既定: ~/.local/state/agent-tasks/sessions)
 `)
 }
 
@@ -229,15 +234,26 @@ func cmdList(args []string) error {
 	}
 
 	c := newColors()
-	tbl := newTable("PROJECT", "ID", "STATUS", "TITLE", "UPDATED")
+	// in-progress があるときだけ SESSION カラム (working/waiting/ended) を出す。
+	// hook 未導入だと in-progress でもマーカーが無く "?" 表示になる。
+	showSession := slices.ContainsFunc(rows, func(t Task) bool { return t.Status == "in-progress" })
+
+	headers := []string{"PROJECT", "ID", "STATUS", "TITLE", "UPDATED"}
+	if showSession {
+		headers = slices.Insert(headers, 3, "SESSION") // STATUS の右
+	}
+	tbl := newTable(headers...)
 	for _, t := range rows {
-		tbl.add(
-			cell{t.Project, c.dim},
-			cell{t.ID, ""},
-			cell{t.Status, c.status(t.Status)},
-			cell{t.Title, ""},
-			cell{t.Updated, c.dim},
-		)
+		cells := []cell{
+			{t.Project, c.dim},
+			{t.ID, ""},
+			{t.Status, c.status(t.Status)},
+		}
+		if showSession {
+			cells = append(cells, sessionCell(t, c))
+		}
+		cells = append(cells, cell{t.Title, ""}, cell{t.Updated, c.dim})
+		tbl.add(cells...)
 	}
 	tbl.render(os.Stdout, c)
 

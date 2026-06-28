@@ -14,10 +14,11 @@
 ```
 agent-tasks/                    ← このリポジトリ = ツール (操作 skill + 閲覧 CLI)
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/着手/spawn/完了/保留
-  main.go                       # 閲覧 CLI: コマンド振り分け + list/show/where
+  main.go                       # 閲覧 CLI: コマンド振り分け + list/show/edit/sync/where
   store.go                      # タスクの model + ストア走査 + frontmatter パース
   render.go                     # 色付け + CJK 幅対応のテーブル描画
-  store_test.go                 # テスト
+  worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
+  store_test.go worktree_test.go # テスト
   Makefile                      # build / install / link / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
@@ -45,6 +46,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - **並行開発**: `/agent-tasks start <id>` がタスクごとに
   `git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>` を作る。別セッションで start すれば
   衝突なく同時進行。二重着手は status=in-progress + session でガード。
+- **worktree 作成後フック**: start/spawn は worktree 作成後に `agent-tasks worktree-init <dir>` を呼ぶ。
+  コードリポジトリ root の `.worktreeinclude` (gitignored ファイルをコピー。Claude Code 互換) と
+  `.worktree-post-create` (worktree 内で実行するセットアップスクリプト) を参照する汎用機構。
+  スタック固有 (firebase/rails) の設定**生成**は別タスク (store の agent-tasks/0017) で、本機構は実行のみ。
 
 ## Go の方針
 
@@ -59,10 +64,13 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 
 - ✅ skill + Go CLI 実装・テスト緑・GitHub に push 済み (`list` / `--status` / `--project` /
   `--active` / `show` / `where`)。
+- ✅ `worktree-init` (作成後フック: `.worktreeinclude` コピー + `.worktree-post-create` 実行) を CLI 化し
+  start/spawn に組み込み (store の agent-tasks/0014)。
 - 💡 未着手の発展案:
   - `~/agent-tasks-store` 自体の git 化 (マシン間同期)。
   - skill 側にある `create` / `start` / `done` / `block` の一部を CLI サブコマンド化するか検討
     (今は手順書として skill が担当)。
+  - スタック別 (firebase/rails) worktree 設定スキャフォルダ skill (store の agent-tasks/0017)。
   - Web ダッシュボード化 (このリポジトリ内で発展)。
   - blocked の理由・経過時間の可視化。
 

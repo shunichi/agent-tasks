@@ -120,6 +120,13 @@ git リポジトリのメイン repo 名)。全 project を横断したいとき
    - **既に同じ worktree/branch が存在する場合は作成をスキップする** (`git worktree list` に
      `../<project>--<NNNN>` があれば再作成しない)。`spawn` から起動された子セッションは worktree が
      既に在る状態で start するため、ここでエラーにせず frontmatter 更新 (手順 5) へ進む。
+   - worktree を用意したら**作成後フック**を流して環境を整える (冪等。設定が無ければ no-op なので
+     無条件に呼んでよい)。`.worktreeinclude` の gitignored ファイル (`.env` 等) をコピーし、
+     `.worktree-post-create` (依存インストール・ポート分離など) を worktree 内で実行する:
+     ```sh
+     agent-tasks worktree-init ../<project>--<NNNN>
+     ```
+     CLI が無い環境では手動で `.env` 等をコピーし、必要なセットアップ (依存インストール等) を worktree 内で行う。
 5. タスクファイルの frontmatter を更新する:
    - `status: in-progress`
    - `agent: claude` (自分のエージェント名)
@@ -156,7 +163,10 @@ git リポジトリのメイン repo 名)。全 project を横断したいとき
 5. worktree を用意する (**冪等**。frontmatter はここでは触らない — 子の start に任せる):
    ```sh
    git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>   # 既存ならスキップ
+   agent-tasks worktree-init ../<project>--<NNNN>                # 作成後フック (子が開く前に環境を整える)
    ```
+   作成後フックを親側で流しておくと、子セッションが整った環境で開ける。マーカーで冪等なので、
+   子の start が再度呼んでも post-create は二重実行されない。
 6. worktree の**絶対パス**を求め、その場所でシェルを持つ pane を開いて子セッションを起動する。
    **開いた pane の id を必ず取得し (`-P -F '#{pane_id}'`)、`send-keys` はその id を明示ターゲットにする**
    (target 省略だと別 pane に送られる事故が起きる):
@@ -207,6 +217,37 @@ git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>   # 未作成なら
 cd ../<project>--<NNNN>
 claude 'タスク <NNNN> に着手して'
 ```
+
+---
+
+## 作成後フック (worktree-init) の設定
+
+worktree は新規チェックアウトなので `.env` も `node_modules` も無い。`agent-tasks worktree-init` は
+**コードリポジトリ root に置いた次の 2 ファイル**を見て環境を整える (両方とも任意。無ければ no-op)。
+プロジェクトごとに用意しておけば start/spawn が自動で流す。
+
+- **`.worktreeinclude`** — worktree にコピーする gitignored ファイル。`.gitignore` 構文のサブセット
+  (リテラルパス / `*` グロブ / ディレクトリ)。Claude Code の `--worktree` と同名・互換なので、既に
+  置いてあればそのまま使われる。tracked ファイルは安全のためコピーされない。例:
+  ```
+  .env
+  .env.local
+  config/secrets.json
+  ```
+- **`.worktree-post-create`** — worktree 内 (cwd = その worktree) で実行されるスクリプト。依存インストール、
+  ポート分離用 `.env.local` 生成、DB 準備などを書く。実行ビットがあれば直接 (shebang 尊重)、無ければ `sh`
+  で実行。環境変数 `AGENT_TASKS_WORKTREE` / `AGENT_TASKS_MAIN` / `AGENT_TASKS_PROJECT` が渡る。例:
+  ```sh
+  #!/bin/sh
+  pnpm install                       # or: bundle install && bin/rails db:prepare
+  # ポート分離: worktree 名から一意なオフセットを作って .env.local に書く等
+  ```
+
+冪等性: コピーは既存ファイルを上書きしない。post-create は worktree ごとのマーカーで一度だけ実行される
+(`agent-tasks worktree-init <dir> --force` で再実行)。
+
+> スタック (firebase / rails) ごとの推奨設定を**自動生成する**スキャフォルダは別タスク (0017) で予定。
+> ここ (0014) はその設定を**実行するだけ**の汎用機構。
 
 ---
 

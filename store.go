@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -37,6 +38,48 @@ func storeDir() string {
 		return "agent-tasks-store"
 	}
 	return filepath.Join(home, "agent-tasks-store")
+}
+
+// currentProject は cwd の git リポジトリから project キーを返す。git 外なら空文字。
+// list の既定フィルタ (現在 project のみ表示) のための seam。
+//
+// project キーは「メイン作業ツリー root の basename」。show-toplevel ではなく
+// git-common-dir の親を使うのは、リンク worktree (start が作る ../<project>--<NNNN>)
+// の中で実行されても、その basename (<project>--<NNNN>) ではなくメイン repo 名
+// (<project>) を返すため。タスク登録時に記録される project キーと一致させる。
+func currentProject() string {
+	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	commonDir := strings.TrimSpace(string(out))
+	if commonDir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(commonDir) {
+		if wd, err := os.Getwd(); err == nil {
+			commonDir = filepath.Join(wd, commonDir)
+		}
+	}
+	// commonDir はメイン作業ツリーの .git を指す。その親 = メイン repo root。
+	return filepath.Base(filepath.Dir(commonDir))
+}
+
+// resolveListScope は list の project フィルタ対象と横断フラグを決める。
+// 優先順位: --project 明示 > --all-projects > 既定 (現在 project)。
+// 現在 project が空 (git 外で判定不能) のときは横断にフォールバックする。
+// project が "" を返したときは横断 (全 project) を意味する。
+func resolveListScope(filterProject string, allProjects bool, current string) (project string, cross bool) {
+	switch {
+	case filterProject != "":
+		return filterProject, false // 別 project の明示指定も許す
+	case allProjects:
+		return "", true
+	case current == "":
+		return "", true // git 外: 判定不能なので横断
+	default:
+		return current, false // 既定: 現在 project のみ
+	}
 }
 
 // normalizeID は入力 ID を照合用に正規化する。数値なら4桁ゼロ埋めにそろえ

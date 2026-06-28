@@ -1,2 +1,4 @@
 # ビルド成果物 (go build -o bin/agent-tasks .)
 /bin/
+# 素の `go build .` が吐くルート直下のバイナリ (モジュール名と同名)
+/agent-tasks

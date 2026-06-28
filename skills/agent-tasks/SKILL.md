@@ -86,11 +86,18 @@ updated: 2026-06-28
 
 ## list — 一覧
 
+**既定は現在の project のみ、横断は明示。** `agent-tasks` は引数なしだと
+**現在のコードリポジトリ (project) のタスクだけ**を表示する (現在 project = cwd の
+git リポジトリのメイン repo 名)。全 project を横断したいときだけ `--all-projects` を付ける。
+
 1. `agent-tasks` コマンドがあればそれを使う (`command -v agent-tasks`):
-   - 全件: `agent-tasks`
-   - 未完了: `agent-tasks --active`
-   - 当 project のみ: `agent-tasks --project <project>`
+   - 現在 project のみ (既定): `agent-tasks`
+   - 全 project を横断: `agent-tasks --all-projects`
+   - 別 project を指定: `agent-tasks --project <project>`
+   - done も含める: `--all` / `-a` を併用
+   - git リポジトリ外で実行した場合は判定不能なので自動で横断にフォールバックする。
 2. コマンドが無ければ `<root>/**/*.md` の frontmatter を読み、project / id / status / title を表にして表示する。
+   この場合も既定は現在 project (root の basename) のみに絞り、横断したいときだけ全件を出す。
 
 ---
 

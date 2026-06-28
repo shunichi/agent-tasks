@@ -69,10 +69,11 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `agent-tasks — エージェント開発タスクの横断ビュー
 
 USAGE:
-  agent-tasks [list]                 未完了タスクを一覧 (既定。done は非表示)
-  agent-tasks --all | -a             done も含めて全件表示
+  agent-tasks [list]                 現在 project の未完了タスクを一覧 (既定。done は非表示)
+  agent-tasks --all-projects         全 project を横断して一覧
+  agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
-  agent-tasks --project <name>       project で絞り込み
+  agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks show <project> <id>    1タスクの全文を表示
   agent-tasks edit [<project> <id>]  ストア (引数なし) か1タスクをエディタで開く
   agent-tasks where                  データディレクトリのパスを表示
@@ -87,6 +88,7 @@ ENV:
 func cmdList(args []string) error {
 	var filterStatus, filterProject string
 	showAll := false
+	allProjects := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--status":
@@ -103,12 +105,23 @@ func cmdList(args []string) error {
 			filterProject = args[i]
 		case "--all", "-a":
 			showAll = true
+		case "--all-projects":
+			allProjects = true
 		case "--active":
 			// 既定が「done 以外」になったので no-op。互換のため受け付ける。
 		default:
 			return usagef("unknown option: %s", args[i])
 		}
 	}
+
+	// project スコープを決める。既定は現在 project (cwd の git root basename) のみ。
+	// --project 明示 / --all-projects / git 外 では横断 (effProject == "")。
+	current := currentProject()
+	effProject, _ := resolveListScope(filterProject, allProjects, current)
+	// 既定 (明示なし) で現在 project に絞れたか。フッターの案内に使う。
+	defaulted := filterProject == "" && !allProjects && current != ""
+	// 既定で横断にフォールバックしたか (git 外)。
+	fellBack := filterProject == "" && !allProjects && current == ""
 
 	dir := storeDir()
 	tasks, err := loadTasks(dir)
@@ -125,7 +138,7 @@ func cmdList(args []string) error {
 		if filterStatus != "" && t.Status != filterStatus {
 			continue
 		}
-		if filterProject != "" && t.Project != filterProject {
+		if effProject != "" && t.Project != effProject {
 			continue
 		}
 		if hideDone && t.Status == "done" {
@@ -136,7 +149,14 @@ func cmdList(args []string) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Printf("該当タスクなし (dir: %s)\n", dir)
+		if effProject != "" {
+			fmt.Printf("該当タスクなし (project: %s, dir: %s)\n", effProject, dir)
+			if defaulted {
+				fmt.Println("横断するには --all-projects、別 project は --project <name>")
+			}
+		} else {
+			fmt.Printf("該当タスクなし (dir: %s)\n", dir)
+		}
 		return nil
 	}
 
@@ -161,6 +181,14 @@ func cmdList(args []string) error {
 		}
 	}
 	fmt.Printf("\n%stotal %d%s  %s\n", c.dim, len(rows), c.reset, strings.Join(parts, "  "))
+
+	// スコープの注記: 既定で現在 project に絞った / git 外で横断にフォールバックした旨を伝える。
+	switch {
+	case defaulted:
+		fmt.Printf("%s(project: %s のみ。横断は --all-projects)%s\n", c.dim, current, c.reset)
+	case fellBack:
+		fmt.Printf("%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
+	}
 	return nil
 }
 

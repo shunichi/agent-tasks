@@ -151,6 +151,32 @@ func TestResolveTaskPathShortID(t *testing.T) {
 	}
 }
 
+func TestResolveListScope(t *testing.T) {
+	cases := []struct {
+		name        string
+		filterProj  string
+		allProjects bool
+		current     string
+		wantProj    string
+		wantCross   bool
+	}{
+		{"既定は現在 project", "", false, "family-app2", "family-app2", false},
+		{"--all-projects で横断", "", true, "family-app2", "", true},
+		{"--project 明示は別 project でも従う", "other", false, "family-app2", "other", false},
+		{"--project は --all-projects より優先", "other", true, "family-app2", "other", false},
+		{"git 外は横断にフォールバック", "", false, "", "", true},
+		{"git 外でも --project は効く", "other", false, "", "other", false},
+	}
+	for _, tc := range cases {
+		gotProj, gotCross := resolveListScope(tc.filterProj, tc.allProjects, tc.current)
+		if gotProj != tc.wantProj || gotCross != tc.wantCross {
+			t.Errorf("%s: resolveListScope(%q, %v, %q) = (%q, %v), want (%q, %v)",
+				tc.name, tc.filterProj, tc.allProjects, tc.current,
+				gotProj, gotCross, tc.wantProj, tc.wantCross)
+		}
+	}
+}
+
 func TestDispWidth(t *testing.T) {
 	if got := dispWidth("abc"); got != 3 {
 		t.Errorf("dispWidth(abc) = %d, want 3", got)

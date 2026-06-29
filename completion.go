@@ -208,7 +208,7 @@ func bashCompletionScript() string {
 	statuses := strings.Join(completionStatusValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --color --help"
+	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -278,7 +278,8 @@ _agent_tasks() {
     local flags="--color --help"
     case "$sub" in
         list)              flags="%[4]s" ;;
-        show|edit)         flags="--color --help" ;;
+        show)              flags="--json --color --help" ;;
+        edit)              flags="--color --help" ;;
         doctor)            flags="--project --color --help" ;;
         sync)              flags="--no-push --push --color --help" ;;
         scaffold-worktree) flags="--list --dir --force --color --help" ;;
@@ -364,6 +365,7 @@ _agent_tasks() {
                 '--watch[自動更新]' '-w[自動更新]' \
                 '--interval[更新間隔(秒)]' \
                 '--active[着手中のみ]' \
+                '--json[JSON 出力]' \
                 '--color[色出力]' '--help[ヘルプ]'
         else
             _describe -t commands 'agent-tasks command' subcommands
@@ -381,12 +383,17 @@ _agent_tasks() {
                 '(--watch -w)'{--watch,-w}'[自動更新]' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \
+                '--json[JSON 出力]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         show|edit)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
-                _values 'option' '--color[色出力]' '--help[ヘルプ]'
+                if [[ $sub == show ]]; then
+                    _values 'option' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
+                else
+                    _values 'option' '--color[色出力]' '--help[ヘルプ]'
+                fi
             else
                 # サブコマンド以降の位置引数を集める (フラグと値を除く)。
                 # C 言語形式の for (( )) は zsh の補完文脈で表示を壊すため foreach を使う。

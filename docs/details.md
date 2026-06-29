@@ -12,8 +12,11 @@ agent-tasks --status in-progress # status で絞り込み (既定どおり現在
 agent-tasks --project webapp     # 別 project を指定
 agent-tasks --watch              # 一覧を自動更新表示 (-w。--interval <秒> で間隔、既定 2。Ctrl-C で終了)
 agent-tasks -w --status in-progress # in-progress を常時モニタ (他の絞り込みと併用可)
+agent-tasks --json               # 一覧を JSON 配列で出力 (既存フィルタと併用可。skill/スクリプト向け)
+agent-tasks --json --status todo --all-projects # フィルタと併用
 agent-tasks show webapp 0001     # 1 タスクの全文
 agent-tasks show 0001            # project 省略時は現在 project のタスク
+agent-tasks show 0001 --json     # 1 タスクを JSON オブジェクトで出力
 agent-tasks edit                 # ストアをエディタで開く (既定 code)
 agent-tasks edit webapp 0001     # 1 タスクをエディタで開く
 agent-tasks edit 0001            # project 省略時は現在 project のタスク
@@ -252,4 +255,26 @@ done/review で記録する (skill 側の手順)。`show` は末尾に PR 一覧
 prs:
   - https://github.com/owner/repo/pull/31
   - https://github.com/owner/repo/pull/33
+```
+
+## JSON 出力 (`--json`)
+
+`agent-tasks --json` は一覧を **JSON 配列**で、`agent-tasks show <id> --json` は 1 タスクを
+**JSON オブジェクト**で出力する。人間向けのテーブル (色付け・CJK 幅揃え・title 切り詰め・日時の丸め)
+ではなく、skill / スクリプトが扱える「計算済みの正準ビュー」を渡すのが目的 (frontmatter 直読みでの
+二重実装を避ける)。
+
+- 既存フィルタ (`--status` / `--project` / `--all` / `--all-projects`) と併用できる。該当なしは `[]`。
+- 各要素は frontmatter の生値 (id / project / title(切り詰めない) / status / agent / session / branch /
+  worktree / created / updated / started_at / completed_at / blocked_at / blocked_reason / prs) に、
+  CLI が計算する付加情報を加えたもの:
+  - `session_state` — **in-progress のみ**。`working` / `waiting` / `ended`、マーカーが無ければ `unknown`。
+  - `blocked_for` — **blocked のみ**。`blocked_at` からの経過 (例 `3d`)。
+- 時刻は ISO8601 のまま (丸めない)。色・幅揃えは無効。空のフィールドは省略する
+  (id/project/title/status/created/updated は常に出す)。title 内の `< > &` はエスケープしない。
+
+```sh
+agent-tasks --json --status in-progress          # 着手中タスクを JSON で
+agent-tasks --json --all-projects | jq 'length'  # 全 project のタスク数
+agent-tasks show 0042 --json | jq -r '.prs[]'    # 1 タスクの PR URL を列挙
 ```

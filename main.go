@@ -150,7 +150,8 @@ USAGE:
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
-  agent-tasks show [<project>] <id>  1タスクの全文を表示 (project 省略時は現在 project)
+  agent-tasks --json                 一覧を JSON 配列で出力 (機械可読。既存フィルタと併用可)
+  agent-tasks show [<project>] <id> [--json]  1タスクの全文を表示 (--json で機械可読オブジェクト)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
                                      (未同期があれば exit 1。sync が要るかの確認に使う)
@@ -200,6 +201,7 @@ func cmdList(args []string) error {
 	showAll := false
 	allProjects := false
 	watch := false
+	jsonOut := false
 	interval := 2 * time.Second
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -233,9 +235,20 @@ func cmdList(args []string) error {
 			interval = time.Duration(n) * time.Second
 		case "--active":
 			// 既定が「done 以外」になったので no-op。互換のため受け付ける。
+		case "--json":
+			jsonOut = true
 		default:
 			return usagef("unknown option: %s", args[i])
 		}
+	}
+
+	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。
+	if jsonOut {
+		rows, _, _, err := selectTasks(filterStatus, filterProject, showAll, allProjects)
+		if err != nil {
+			return err
+		}
+		return writeTasksJSON(os.Stdout, rows, time.Now())
 	}
 
 	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
@@ -245,29 +258,21 @@ func cmdList(args []string) error {
 	return runList(os.Stdout, filterStatus, filterProject, showAll, allProjects)
 }
 
-// runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
-// ちらつかない上書き再描画に使う。
-func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects bool) error {
-	// project スコープを決める。既定は現在 project (cwd の git root basename) のみ。
-	// --project 明示 / --all-projects / git 外 では横断 (effProject == "")。
-	current := currentProject()
-	effProject, _ := resolveListScope(filterProject, allProjects, current)
-	// 既定 (明示なし) で現在 project に絞れたか。フッターの案内に使う。
-	defaulted := filterProject == "" && !allProjects && current != ""
-	// 既定で横断にフォールバックしたか (git 外)。
-	fellBack := filterProject == "" && !allProjects && current == ""
+// selectTasks はストアを読み、list のスコープ/フラグで絞り込んだ行を返す
+// (テーブル出力と JSON 出力で共有)。effProject は実効 project スコープ
+// (空文字 = 横断)、current は現在 project (フッター注記の判定に使う)。
+func selectTasks(filterStatus, filterProject string, showAll, allProjects bool) (rows []Task, effProject, current string, err error) {
+	current = currentProject()
+	effProject, _ = resolveListScope(filterProject, allProjects, current)
 
 	dir := storeDir()
 	tasks, err := loadTasks(dir)
 	if err != nil {
-		return fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
+		return nil, effProject, current, fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
 
 	// 既定では done を隠す。--all 指定時、または --status で明示的に絞り込んだ時は隠さない。
 	hideDone := !showAll && filterStatus == ""
-
-	var rows []Task
-	counts := map[string]int{}
 	for _, t := range tasks {
 		if filterStatus != "" && t.Status != filterStatus {
 			continue
@@ -279,6 +284,25 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 			continue
 		}
 		rows = append(rows, t)
+	}
+	return rows, effProject, current, nil
+}
+
+// runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
+// ちらつかない上書き再描画に使う。
+func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects bool) error {
+	rows, effProject, current, err := selectTasks(filterStatus, filterProject, showAll, allProjects)
+	if err != nil {
+		return err
+	}
+	dir := storeDir()
+	// 既定 (明示なし) で現在 project に絞れたか。フッターの案内に使う。
+	defaulted := filterProject == "" && !allProjects && current != ""
+	// 既定で横断にフォールバックしたか (git 外)。
+	fellBack := filterProject == "" && !allProjects && current == ""
+
+	counts := map[string]int{}
+	for _, t := range rows {
 		counts[t.Status]++
 	}
 
@@ -524,13 +548,30 @@ func cmdDoctor(args []string) error {
 }
 
 func cmdShow(args []string) error {
-	project, id, err := resolveProjectID(args)
+	// --json は機械可読出力。位置引数 (project/id) と分離してから解決する。
+	jsonOut := false
+	rest := args[:0:0]
+	for _, a := range args {
+		if a == "--json" {
+			jsonOut = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	project, id, err := resolveProjectID(rest)
 	if err != nil {
 		return err
 	}
 	path, err := resolveTaskPath(project, id)
 	if err != nil {
 		return err
+	}
+	if jsonOut {
+		t, err := parseTask(path)
+		if err != nil {
+			return err
+		}
+		return writeTaskJSON(os.Stdout, t, time.Now())
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

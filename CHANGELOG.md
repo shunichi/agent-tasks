@@ -12,6 +12,8 @@
 
 ### Added
 
+- `list --recent [N]`: 最近完了したタスク (done かつ `completed_at` あり) を完了日時降順で上位 N 件
+  (既定 10) 表示する。`COMPLETED` 列付き。`--all-projects` / `--json` と併用可。
 - `version` サブコマンド (`--version` / `-V`): ビルド元の commit SHA + commit 日時 + CalVer を表示する。
   `go build` が埋め込む VCS 情報を実行時に読むので手動 bump 不要 (タグ運用なしの継続的 main 向け)。
 - GitHub Actions による CI (`.github/workflows/ci.yml`): `push` (main) と `pull_request` で

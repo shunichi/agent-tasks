@@ -196,14 +196,34 @@ func TestResolveListScope(t *testing.T) {
 }
 
 func TestDispWidth(t *testing.T) {
-	if got := dispWidth("abc"); got != 3 {
-		t.Errorf("dispWidth(abc) = %d, want 3", got)
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"abc", 3},
+		{"あ", 2},   // 全角
+		{"aあ", 3},  // 半角 + 全角
+		{"✅", 2},   // 絵文字 (自前実装では幅1に誤計算していた)
+		{"💡a", 3},  // 絵文字 + 半角
+		{"ｱ", 1},   // 半角カタカナ
+		{"á", 1},  // 結合文字 (アクセント) は幅0
+		{"a​b", 2}, // ゼロ幅スペースは幅0
 	}
-	if got := dispWidth("あ"); got != 2 {
-		t.Errorf("dispWidth(あ) = %d, want 2", got)
+	for _, c := range cases {
+		if got := dispWidth(c.in); got != c.want {
+			t.Errorf("dispWidth(%q) = %d, want %d", c.in, got, c.want)
+		}
 	}
-	if got := dispWidth("aあ"); got != 3 {
-		t.Errorf("dispWidth(aあ) = %d, want 3", got)
+}
+
+func TestTruncateDispEmoji(t *testing.T) {
+	// 絵文字 (幅2) を含む文字列の truncate。max=4 なら "💡" (2) + "…" (1) で収まる範囲まで。
+	if got := truncateDisp("💡💡💡", 4); dispWidth(got) > 4 {
+		t.Errorf("truncateDisp(💡💡💡, 4) = %q (width %d > 4)", got, dispWidth(got))
+	}
+	// max 以内ならそのまま。
+	if got := truncateDisp("あい", 4); got != "あい" {
+		t.Errorf("truncateDisp(あい, 4) = %q, want あい", got)
 	}
 }
 

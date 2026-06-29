@@ -19,7 +19,7 @@ make install
 ```
 
 - skill は symlink なので編集すれば即反映。
-- CLI は Go バイナリ (依存ゼロ) なので、ソースを変えたら `make build` で再ビルドする。
+- CLI は Go バイナリ (依存は最小限) なので、ソースを変えたら `make build` で再ビルドする。
 
 ## 使い方
 

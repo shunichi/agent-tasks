@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // colors は色を出すと決まったときだけ ANSI カラーを返す (出さないときは全フィールド空)。
@@ -200,8 +202,9 @@ func writePadded(b *strings.Builder, text, color, reset string, width int, last 
 	}
 }
 
-// truncateDisp は表示幅が max を超える場合に末尾を "…" で丸める (CJK 幅対応)。
+// truncateDisp は表示幅が max を超える場合に末尾を "…" で丸める (CJK / 絵文字幅対応)。
 // max 以内ならそのまま返す。max が小さすぎる (1 以下) ときは "…" を返す。
+// 文字幅は go-runewidth に委譲する (絵文字 2 / 結合・ゼロ幅 0 などを正しく数える)。
 func truncateDisp(s string, max int) string {
 	if dispWidth(s) <= max {
 		return s
@@ -211,10 +214,7 @@ func truncateDisp(s string, max int) string {
 	}
 	w := 0
 	for i, r := range s {
-		rw := 1
-		if isWide(r) {
-			rw = 2
-		}
+		rw := runewidth.RuneWidth(r)
 		if w+rw > max-1 { // 末尾の "…" (幅1) の分を空ける
 			return s[:i] + "…"
 		}
@@ -223,34 +223,8 @@ func truncateDisp(s string, max int) string {
 	return s
 }
 
-// dispWidth は端末上の表示幅を返す。CJK / 全角は 2 と数える。
+// dispWidth は端末上の表示幅を返す (go-runewidth に委譲)。CJK / 全角・絵文字は 2、
+// 結合文字・ゼロ幅文字は 0 と数える。表計算 (列幅・パディング) の単一の幅基準。
 func dispWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		if isWide(r) {
-			w += 2
-		} else {
-			w++
-		}
-	}
-	return w
-}
-
-func isWide(r rune) bool {
-	switch {
-	case r >= 0x1100 && r <= 0x115F, // Hangul Jamo
-		r >= 0x2E80 && r <= 0x303E, // CJK Radicals .. Kangxi
-		r >= 0x3041 && r <= 0x33FF, // Hiragana .. CJK symbols
-		r >= 0x3400 && r <= 0x4DBF, // CJK Ext A
-		r >= 0x4E00 && r <= 0x9FFF, // CJK Unified
-		r >= 0xA000 && r <= 0xA4CF, // Yi
-		r >= 0xAC00 && r <= 0xD7A3, // Hangul Syllables
-		r >= 0xF900 && r <= 0xFAFF, // CJK Compatibility
-		r >= 0xFE30 && r <= 0xFE4F, // CJK Compatibility Forms
-		r >= 0xFF00 && r <= 0xFF60, // Fullwidth Forms
-		r >= 0xFFE0 && r <= 0xFFE6,
-		r >= 0x20000 && r <= 0x3FFFD: // CJK Ext B+
-		return true
-	}
-	return false
+	return runewidth.StringWidth(s)
 }

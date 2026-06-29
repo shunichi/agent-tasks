@@ -82,7 +82,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 ## Go の方針
 
 - ターゲットは **Go 1.26** (`go.mod` 準拠)。`modern-go-guidelines` プラグインの `use-modern-go` に従う。
-- **依存ゼロ** (標準ライブラリのみ)。frontmatter パースも自前 (`store.go`)。ビルドが常に通ることを優先。
+- **依存は最小限**。原則は標準ライブラリ (frontmatter パースも自前 = `store.go`) だが、自前で持つと
+  保守コストや正確性で不利なもの (例: 端末表示幅 = `github.com/mattn/go-runewidth`) は**少数の確立した
+  ライブラリ**を採用してよい。依存を増やすときは「自前維持より明確に得か」を確認し、小さく枯れた
+  ライブラリを選ぶ。ビルドが常に通ることを優先。(旧「依存ゼロ」方針から変更。)
 - 採用済みのモダンイディオム例: `slices.SortFunc` + `cmp.Or`/`cmp.Compare`、`strings.Cut`、`strings.Repeat`、
   `t.TempDir()`。`sort.Slice` や手動ループに戻さない。
 - 機能追加は `store.go` (データ) / `render.go` (表示) / `main.go` (コマンド) の分担を保つ。

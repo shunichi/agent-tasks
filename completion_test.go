@@ -133,6 +133,40 @@ func TestPrintTaskIDs(t *testing.T) {
 	}
 }
 
+// printTaskIDsWithTitle は "<id>\t<title>" 形式で id 昇順に出す (frontmatter の title を読む)。
+func TestPrintTaskIDsWithTitle(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, "webapp")
+	if err := os.Mkdir(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(proj, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("0002-b.md", "---\nid: \"0002\"\ntitle: 二番目\n---\n")
+	write("0001-a.md", "---\nid: \"0001\"\ntitle: 最初のタスク\n---\n")
+	t.Setenv("AGENT_TASKS_STORE", dir)
+	var buf bytes.Buffer
+	printTaskIDsWithTitle(&buf, "webapp")
+	if got, want := buf.String(), "0001\t最初のタスク\n0002\t二番目\n"; got != want {
+		t.Errorf("printTaskIDsWithTitle = %q, want %q", got, want)
+	}
+}
+
+// 生成スクリプトが新しい位置引数補完を呼ぶこと: bash は project 名+id、zsh は --with-title。
+func TestCompletionScriptsReferencePositionalValues(t *testing.T) {
+	bash := bashCompletionScript()
+	if !strings.Contains(bash, "completion-values ids --project") {
+		t.Error("bash 補完が project 指定の id 補完 (第2引数) を呼んでいない")
+	}
+	zsh := zshCompletionScript()
+	if !strings.Contains(zsh, "--with-title") {
+		t.Error("zsh 補完が --with-title (タイトル付き id) を使っていない")
+	}
+}
+
 // cmdCompletionValues の引数検証 (kind 必須・未知 kind・余分な引数)。
 func TestCmdCompletionValuesArgs(t *testing.T) {
 	if err := cmdCompletionValues(nil); err == nil {

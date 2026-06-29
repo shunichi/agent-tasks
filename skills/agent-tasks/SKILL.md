@@ -126,13 +126,16 @@ updated: "2026-06-28T14:30:00+09:00"
    「最大連番 + 1」を原子的に確保し、予約用の空ファイルを作ってそのパスを stdout に返す。
    ローカル並行 create で同じ id を引く競合 (TOCTOU) を確実に防げる。
    ```sh
-   path=$(agent-tasks alloc-id --slug <slug> --pull)   # project 省略時は現在 project。--pull で採番前にストア最新化
+   path=$(agent-tasks alloc-id --slug <slug>)   # project 省略時は現在 project
    ```
-   - `--pull` は採番前にストアを `git pull --rebase` する (別マシンが先に採番した番号を取り込む)。
+   - ストアにアクセスするのは**基本 1 マシン**という前提なので、採番前の pull は不要 (`--pull` は付けない)。
+     ストア側に未コミット変更があると `--pull` の `git pull --rebase` が失敗してノイズになるため、
+     既定では使わない。同期は別途 `sync` が担う。複数マシンでストアを共有する場合だけ、必要に応じて
+     手動で `git pull --rebase` するか `--pull` を付ける (フラグ自体は残っている)。
    - 返ってきた `path` (= `<root>/<project>/<NNNN>-<slug>.md`) に**中身を書き込む**。id はファイル名先頭の連番。
-   - **CLI が無い環境のフォールバック**: ストアを最新化 (`git pull --rebase`) してから既存
-     `<root>/<project>/*.md` の最大連番 + 1 を自分で採番し、`<root>/<project>/<NNNN>-<slug>.md` を作る
-     (この経路は並行時に id 衝突があり得るので、手順 5 の doctor 検査を必ず行う)。
+   - **CLI が無い環境のフォールバック**: 既存 `<root>/<project>/*.md` の最大連番 + 1 を自分で採番し、
+     `<root>/<project>/<NNNN>-<slug>.md` を作る (この経路は並行時に id 衝突があり得るので、手順 5 の
+     doctor 検査を必ず行う)。
 4. 予約ファイルに上記形式の中身を書き込む。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、
    `created`/`updated` は現在の日時 (`date --iso-8601=seconds`)。`branch`/`worktree` はファイル名の id・slug に合わせる。
 5. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する** (alloc-id 利用時も、

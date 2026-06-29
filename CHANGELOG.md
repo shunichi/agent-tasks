@@ -40,6 +40,12 @@
 - blocked タスクの理由・経過の可視化 (`list` の BLOCKED 列)。
 - `started_at` / `completed_at` によるリードタイム表示。
 
+### Changed
+
+- skill の create が `alloc-id` を `--pull` 無しで呼ぶようにした (ストアは基本 1 マシン前提)。
+  ストア側に未コミット変更があると `--pull` の `git pull --rebase` が失敗してノイズが出ていたのを回避。
+  CLI の `--pull` フラグ自体は残す (複数マシン共有時に手動で使える)。
+
 ### Fixed
 
 - `TestColorEnabled` がターミナルから直接 `go test` すると失敗していた問題を修正

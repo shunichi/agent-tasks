@@ -8,6 +8,40 @@ import (
 	"time"
 )
 
+func TestAtomicWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "m.json")
+
+	// 新規作成 + perm。
+	if err := atomicWriteFile(path, []byte("first"), 0o644); err != nil {
+		t.Fatalf("write1: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "first" {
+		t.Errorf("content = %q, want first", b)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o644 {
+		t.Errorf("perm = %v, want 0644", fi.Mode().Perm())
+	}
+
+	// 上書き。
+	if err := atomicWriteFile(path, []byte("second"), 0o644); err != nil {
+		t.Fatalf("write2: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "second" {
+		t.Errorf("content = %q, want second", b)
+	}
+
+	// 一時ファイルを残さない (rename 済み / 後始末済み)。
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || entries[0].Name() != "m.json" {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("dir に余分なファイル: %v", names)
+	}
+}
+
 func TestSessionStateFor(t *testing.T) {
 	tests := []struct {
 		event, notif, want string

@@ -37,6 +37,7 @@ var completionSubcommands = []completionSubcommand{
 	{"statusline", "実行中タスクを status line に表示"},
 	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
 	{"where", "データディレクトリのパスを表示"},
+	{"version", "ビルド元の commit + CalVer を表示"},
 	{"completion", "シェル補完スクリプトを出力"},
 	{"help", "ヘルプを表示"},
 }

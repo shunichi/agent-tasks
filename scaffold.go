@@ -34,13 +34,15 @@ var scaffoldFiles = []scaffoldFile{
 // これらは worktree-init (作成後フック) が参照する設定で、本コマンドは「設定を置くだけ」。
 func cmdScaffoldWorktree(args []string) error {
 	var stack, dir string
-	force, list := false, false
+	force, list, printOnly := false, false, false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--force":
 			force = true
 		case a == "--list":
 			list = true
+		case a == "--print" || a == "--dry-run":
+			printOnly = true
 		case a == "--dir":
 			if i+1 >= len(args) {
 				return usagef("--dir requires a value")
@@ -67,6 +69,22 @@ func cmdScaffoldWorktree(args []string) error {
 			fmt.Printf("  %s\n", s)
 		}
 		return nil
+	}
+
+	// --print/--dry-run は書き出さず stdout にプレビューするだけなので、書き込み先ディレクトリや
+	// git リポジトリを必要としない。スタックは明示指定があればそれ、無ければ cwd から自動検出する。
+	if printOnly {
+		if stack == "" {
+			stack = detectStack(".")
+			if stack == "" {
+				return fmt.Errorf("スタックを自動検出できませんでした。<stack> を指定してください (利用可能: %s)",
+					strings.Join(stacks, ", "))
+			}
+		}
+		if !slices.Contains(stacks, stack) {
+			return fmt.Errorf("未知のスタック %q (利用可能: %s)", stack, strings.Join(stacks, ", "))
+		}
+		return scaffoldPrint(stack)
 	}
 
 	if dir == "" {
@@ -103,6 +121,28 @@ func cmdScaffoldWorktree(args []string) error {
 		fmt.Println("\n次の手順:")
 		fmt.Println("  1. 生成された .worktreeinclude / .worktree-post-create を確認・調整する")
 		fmt.Println("  2. コミットする (以降 start/spawn が worktree 作成時に自動適用)")
+	}
+	return nil
+}
+
+// scaffoldPrint は stack のテンプレを書き出さず、ファイルごとに区切り見出しを付けて stdout に出す。
+// 適用前に中身を確認・比較したいとき (--print / --dry-run) に使う。書き込み先を必要としないので
+// git リポジトリ外でも実行できる。
+func scaffoldPrint(stack string) error {
+	for _, f := range scaffoldFiles {
+		data, err := templatesFS.ReadFile(path.Join("templates", stack, f.tmpl))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // テンプレに無いファイルは飛ばす
+			}
+			return err
+		}
+		fmt.Printf("===== %s (mode %o) =====\n", f.dst, f.mode.Perm())
+		os.Stdout.Write(data)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			fmt.Println()
+		}
+		fmt.Println()
 	}
 	return nil
 }

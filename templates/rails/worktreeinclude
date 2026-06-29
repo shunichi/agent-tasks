@@ -1,8 +1,15 @@
 # agent-tasks worktree-init がコピーする gitignored ファイル (Rails テンプレ)。
-# .gitignore 構文。プロジェクトに合わせて調整してください。
+# .gitignore 構文 (リテラルパス / 単純グロブ / ディレクトリ)。プロジェクトに合わせて調整してください。
 #
-# 注意: .env.local はコピーしない。post-create が worktree ごとに
-# 一意なポート等で生成するため。
+# 注意: tracked ファイルはコピーされない (安全策)。worktree ごとに変える値
+# (DB 名 / host / ポート / Redis DB 番号など) は tracked の database.yml 等から ENV を参照させ、
+# worktree 固有値を post-create が dotenv に書き込む方針 (post-create 参照)。
+#
+# .env.local について:
+#   コピー「しない」のが基本。worktree ごとに一意な値を post-create が生成するため。
+#   ただし .env.local が実際に読まれるかは dotenv のロード方式に依存する (post-create の
+#   DOTENV_TARGET の説明参照)。`require: 'dotenv/load'` 構成では .env しか読まれないので、
+#   その場合 post-create は .env へ追記する側に倒す。
 
 .env
 config/master.key

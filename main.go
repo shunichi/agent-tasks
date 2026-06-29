@@ -99,6 +99,10 @@ func dispatch(args []string) error {
 		usage(os.Stdout)
 		return nil
 	}
+	// -h と同様、--version / -V もサブコマンド扱いされず引数として流れてくるので先に拾う。
+	if cmd == "version" || slices.Contains(args, "--version") || slices.Contains(args, "-V") {
+		return cmdVersion(nil)
+	}
 
 	switch cmd {
 	case "list":
@@ -181,6 +185,7 @@ USAGE:
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
   agent-tasks where                  データディレクトリのパスを表示
+  agent-tasks version | --version | -V  ビルド元の commit + CalVer を表示 (タグ運用なし)
   agent-tasks help | -h | --help     このヘルプ
 
 OPTIONS:

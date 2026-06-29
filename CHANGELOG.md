@@ -4,12 +4,16 @@
 
 タグによるバージョニングは行わず、`Unreleased` セクションに追記していく運用。機能追加・破壊的変更・
 利用者に影響する修正があったときに、その変更を含む PR で `Unreleased` に1行追記する
-(内部リファクタの細かい話は不要)。
+(内部リファクタの細かい話は不要)。ビルドの版はこの CHANGELOG の節ではなく、ビルド元 commit で識別する
+(`agent-tasks version` が commit + CalVer を表示)。この CHANGELOG は「何が変わったか」、version は
+「どの commit 時点か」という補完関係。
 
 ## [Unreleased]
 
 ### Added
 
+- `version` サブコマンド (`--version` / `-V`): ビルド元の commit SHA + commit 日時 + CalVer を表示する。
+  `go build` が埋め込む VCS 情報を実行時に読むので手動 bump 不要 (タグ運用なしの継続的 main 向け)。
 - GitHub Actions による CI (`.github/workflows/ci.yml`): `push` (main) と `pull_request` で
   gofmt (未整形チェック) / `go vet` / `go build` / `go test` を実行する。Go バージョンは
   go.mod 連動。README に CI バッジを追加。

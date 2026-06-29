@@ -73,6 +73,18 @@ func TestCompletionScriptsReferenceDynamicValues(t *testing.T) {
 	}
 }
 
+// zsh の位置引数補完は C 言語形式の for (( )) を使わない (補完文脈で表示を壊し、
+// "i=2" のようなゴミが入力に混じる回帰があった)。foreach 形式を使うこと。
+func TestZshScriptAvoidsCStyleForInPositional(t *testing.T) {
+	zsh := zshCompletionScript()
+	if strings.Contains(zsh, "for (( i = 3") {
+		t.Error("zsh の位置引数補完に C 言語形式の for (( i = 3 ...) が残っている (表示が壊れる)")
+	}
+	if !strings.Contains(zsh, "for w in ${words[3,CURRENT-1]}") {
+		t.Error("zsh の位置引数補完が foreach (for w in ...) になっていない")
+	}
+}
+
 // zsh はサブコマンド無しでも値を取る大域フラグ (--project 等) の直後で値を補完できること。
 // (回帰: 以前は no-sub 経路で _describe にフォールバックし project 値が出なかった。)
 func TestZshScriptCompletesTopLevelFlagValues(t *testing.T) {

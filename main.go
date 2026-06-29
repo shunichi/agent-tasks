@@ -443,6 +443,7 @@ func cmdDoctor(args []string) error {
 	mismatches := findIDMismatches(tasks)
 	tsIssues := findTimestampIssues(tasks)
 	blockedIssues := findBlockedIssues(tasks)
+	prIssues := findPRIssues(tasks)
 
 	c := newColors()
 	scope := "全 project"
@@ -450,7 +451,7 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(failures)
+	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(failures)
 	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
@@ -492,8 +493,17 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, bi.Project, bi.ID, c.reset, bi.Detail, bi.Path)
 		}
 	}
-	if len(failures) > 0 {
+	if len(prIssues) > 0 {
 		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%sPR URL の形式 (prs:):%s\n", c.bold, c.reset)
+		for _, pi := range prIssues {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, pi.Project, pi.ID, c.reset, pi.Detail, pi.Path)
+		}
+	}
+	if len(failures) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s読めなかったファイル (一覧から無言で落ちる):%s\n", c.bold, c.reset)
@@ -502,8 +512,8 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / 読込失敗 %d)\n",
-		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(failures))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / 読込失敗 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(failures))
 	return &silentExit{code: 1}
 }
 
@@ -523,13 +533,22 @@ func cmdShow(args []string) error {
 	c := newColors()
 	fmt.Printf("%s# %s%s\n", c.dim, path, c.reset)
 	os.Stdout.Write(data)
-	// 着手/完了が記録されていれば、所要時間 (または経過) の要約を末尾に添える。
+	// PR 一覧と、着手/完了が記録されていれば所要時間 (または経過) の要約を末尾に添える。
 	if t, err := parseTask(path); err == nil {
-		if footer := timestampSummary(t, time.Now(), c); footer != "" {
+		var footers []string
+		if s := prSummary(t, c); s != "" {
+			footers = append(footers, s)
+		}
+		if s := timestampSummary(t, time.Now(), c); s != "" {
+			footers = append(footers, s)
+		}
+		if len(footers) > 0 {
 			if len(data) > 0 && data[len(data)-1] != '\n' {
 				fmt.Println()
 			}
-			fmt.Println(footer)
+			for _, f := range footers {
+				fmt.Println(f)
+			}
 		}
 	}
 	return nil

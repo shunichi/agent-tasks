@@ -26,3 +26,8 @@
 - bash / zsh のシェル補完 (`completion`)。
 - blocked タスクの理由・経過の可視化 (`list` の BLOCKED 列)。
 - `started_at` / `completed_at` によるリードタイム表示。
+
+### Fixed
+
+- zsh 補完で、サブコマンド無しの `agent-tasks --project <TAB>` が project 値を補完せず
+  サブコマンド一覧を出していた問題を修正 (値を取る大域フラグの直後を先に処理する)。

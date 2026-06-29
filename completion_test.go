@@ -73,6 +73,20 @@ func TestCompletionScriptsReferenceDynamicValues(t *testing.T) {
 	}
 }
 
+// zsh はサブコマンド無しでも値を取る大域フラグ (--project 等) の直後で値を補完できること。
+// (回帰: 以前は no-sub 経路で _describe にフォールバックし project 値が出なかった。)
+func TestZshScriptCompletesTopLevelFlagValues(t *testing.T) {
+	zsh := zshCompletionScript()
+	for _, want := range []string{
+		"--project) _agent_tasks_projects",
+		"case ${words[CURRENT-1]} in",
+	} {
+		if !strings.Contains(zsh, want) {
+			t.Errorf("zsh 補完に大域フラグ値の処理 %q が無い", want)
+		}
+	}
+}
+
 // printProjects はストア配下のディレクトリ名を昇順で出し、隠しディレクトリ (.git) を除く。
 func TestPrintProjects(t *testing.T) {
 	dir := t.TempDir()

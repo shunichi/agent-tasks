@@ -269,6 +269,14 @@ _agent_tasks() {
     subcommands=(
 %[1]s    )
 
+    # 値を取る大域フラグの直後は、サブコマンドの有無に関わらず値を補完する
+    # (例: サブコマンド無しの "agent-tasks --project <TAB>")。bash 版の $prev 処理に対応。
+    case ${words[CURRENT-1]} in
+        --project) _agent_tasks_projects; return ;;
+        --status)  compadd %[2]s; return ;;
+        --color)   compadd %[3]s; return ;;
+    esac
+
     # プログラム名の次にある最初の非フラグ語をサブコマンドとみなす。
     local sub="" i
     for (( i = 2; i < CURRENT; i++ )); do

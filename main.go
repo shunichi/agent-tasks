@@ -708,7 +708,7 @@ func editorArgv() []string {
 
 // cmdSync はストア (storeDir) を git で add/commit/push してマシン間同期する。
 // 既定は push まで。--no-push なら commit で止める。push 前に pull --rebase して
-// 別マシンの更新を取り込む (依存ゼロ方針のため git は os/exec で呼ぶ)。
+// 別マシンの更新を取り込む (git ライブラリは増やさず os/exec で呼ぶ)。
 // cmdStatus はストアの未 sync 状態 (uncommitted / unpushed) を 1 行で表示する。
 // 未同期があれば exit 1 (prompt / スクリプトで「sync が要るか」を終了コードで判別できる)。
 func cmdStatus(args []string) error {

@@ -29,8 +29,17 @@ agent-tasks doctor --project webapp # 1 project だけ点検
 agent-tasks session-hook --print-config # セッション状態表示用 hook の設定例を出力
 agent-tasks statusline --print-config # 実行中タスクを出す status line の設定例を出力
 agent-tasks completion bash      # bash 補完スクリプトを stdout 出力 (zsh も可)
+agent-tasks alloc-id --slug foo  # タスク id を原子的に採番し予約ファイルを作成、絶対パスを stdout 出力
+agent-tasks alloc-id --slug foo --project webapp --pull # project 指定 + 採番前にストアを pull --rebase
 agent-tasks where                # データディレクトリのパス
 ```
+
+`alloc-id` は skill の create が使う採番機構。project ごとのロックファイル (`.alloc.lock`) を取った上で
+「既存最大連番 + 1」を確保し、予約用の空ファイル `<NNNN>-<slug>.md` を作ってその絶対パスを stdout に
+1 行返す。skill はそのファイルに中身 (frontmatter + 本文) を書き込むだけでよい。ロックでローカル並行
+セッション間の id 衝突 (TOCTOU) を確実に防ぐ。別マシン間の衝突は git の性質上残るため、`doctor` の
+重複検査をフォールバックとして併用する (`--pull` で採番前にストアを最新化すれば軽減できる)。
+`--slug` は英小文字・数字・ハイフンのみ。project 省略時は現在 project。
 
 既定では**現在のコードリポジトリ (project) のタスクだけ**を表示する。横断したいときは
 `--all-projects`、別 project を見たいときは `--project <name>` を使う。現在 project は cwd の

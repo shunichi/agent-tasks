@@ -29,6 +29,7 @@ var completionSubcommands = []completionSubcommand{
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"statusline", "実行中タスクを status line に表示"},
+	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
 	{"where", "データディレクトリのパスを表示"},
 	{"completion", "シェル補完スクリプトを出力"},
 	{"help", "ヘルプを表示"},
@@ -121,6 +122,7 @@ _agent_tasks() {
         session-hook)      flags="--print-config --color --help" ;;
         session-link)      flags="--session --project --color --help" ;;
         statusline)        flags="--print-config --color --help" ;;
+        alloc-id)          flags="--slug --project --pull --color --help" ;;
         completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
     esac
     if [[ "$cur" == -* ]]; then
@@ -222,6 +224,13 @@ _agent_tasks() {
             _arguments \
                 '--session[session_id を明示]:id:' \
                 '--project[project を指定]:project:' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        alloc-id)
+            _arguments \
+                '--slug[内容を表すケバブケース]:slug:' \
+                '--project[project を指定]:project:' \
+                '--pull[採番前にストアを pull --rebase]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         *)

@@ -20,6 +20,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
+  statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
@@ -91,6 +92,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   キーのマーカーも書き、start 時に session_id を `--session` で明示 (Claude は self-id を知れる) または
   cwd 逆引きで特定して `<wt>.link.json` に記録。list は worktree マーカーと link の新しい方を採用。
   保管・突合は agent 中立 / 信号源・self-id 取得は agent 固有として SKILL に整理。store の agent-tasks/0027)。
+- ✅ 実行中タスクの status line 表示 (`agent-tasks statusline`。Claude Code の status line から stdin の
+  JSON を読み、session_id を 0027 の link で逆引き (補助で cwd の worktree キー) して「この pane が実行中の
+  タスク」を 1 行表示。SESSION 列 (俯瞰) の裏返しで各 pane 自身に出す。`--print-config` で設定例。
+  store の agent-tasks/0037)。
 
 ## コミットメッセージ
 

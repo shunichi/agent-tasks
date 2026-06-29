@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-06-30
+
 ### Changed
 
 - 表示幅計算 (テーブルの列幅・truncate) を自前の East Asian Width テーブルから

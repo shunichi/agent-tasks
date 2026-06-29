@@ -36,6 +36,8 @@
 
 ### Fixed
 
+- `TestColorEnabled` がターミナルから直接 `go test` すると失敗していた問題を修正
+  (テストが実 stdout の TTY 状態に依存していた。TTY 判定を差し替え可能にして決定的にした)。
 - zsh 補完の `show`/`edit`/`session-link` で、位置引数の補完時に `i=2` のようなゴミが入力に
   混入する問題を修正 (補完文脈で表示を壊す C 言語形式の `for (( ))` を foreach に置換)。
 - zsh 補完で、サブコマンド無しの `agent-tasks --project <TAB>` が project 値を補完せず

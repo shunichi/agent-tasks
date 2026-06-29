@@ -12,7 +12,7 @@ import (
 // commit / 日時 / dirty をバイナリへ自動埋め込みするので (runtime/debug.ReadBuildInfo)、
 // ldflags も VERSION 定数も要らない。人間可読のため commit 日時から CalVer を併記する。
 //
-// CHANGELOG (Unreleased の running list) は「何が変わったか」、version は「どの commit
+// CHANGELOG (main マージ日の日付セクション) は「いつ何が変わったか」、version は「どの commit
 // 時点のビルドか」を示す補完関係。skill も同じ repo から出るので version は CLI/skill 一式の版。
 
 const progName = "agent-tasks"

@@ -49,8 +49,17 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 
 ## CHANGELOG
 
-利用者目線の変更 (機能追加・破壊的変更・影響のある修正) を伴う PR では、`CHANGELOG.md` の
-`Unreleased` セクションに 1 行追記する (タグ運用はせず Unreleased のみ。内部リファクタの細かい話は不要)。
+利用者目線の変更 (機能追加・破壊的変更・影響のある修正) を伴う変更は、`CHANGELOG.md` の
+**main マージ日の日付セクション (`## YYYY-MM-DD`)** に 1 行追記する (タグ運用なし。内部リファクタの
+細かい話は不要)。`## [Unreleased]` は使わない。
+
+- 日付は **main へマージした日** (ISO `YYYY-MM-DD`)。**マージは Claude Code が行うので、この追記も
+  マージ時 (done フローの一部) に Claude Code が行う**。
+- その日の日付セクションが無ければ、新しい日付を**一番上**に作る (新しい順)。同じ日に複数入れるときは
+  同じセクションの Added/Changed/Fixed に足す。
+- 実装中 (PR 作成時) に書いてよい。当日マージ前提なのでその日の日付でよい (日跨ぎは稀)。
+- ビルドの版は commit ベース (`agent-tasks version` の commit + CalVer)。CHANGELOG=「いつ何が」、
+  version=「どの commit 時点か」の補完関係。
 
 ## 設計上の決めごと (踏襲する)
 

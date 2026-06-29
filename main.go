@@ -121,6 +121,8 @@ func dispatch(args []string) error {
 		return cmdSessionHook(args)
 	case "session-link":
 		return cmdSessionLink(args)
+	case "statusline":
+		return cmdStatusline(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -158,6 +160,8 @@ USAGE:
   agent-tasks session-link [<project>] <id> [--session <id>]  現在のセッションをタスクに紐づける
                                      (start 手順が呼ぶ)。同一セッション start でも SESSION 状態が出る。
                                      --session で自分の session_id を明示 (省略時は cwd 逆引き)
+  agent-tasks statusline [--print-config]  Claude Code の status line から呼ぶ。stdin の JSON を読んで
+                                     この pane が実行中のタスクを 1 行表示 (--print-config で設定例を出力)
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

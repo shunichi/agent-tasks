@@ -45,6 +45,12 @@ func newColors() colors {
 	if !colorEnabled(colorMode) {
 		return colors{}
 	}
+	return palette()
+}
+
+// palette は色付きの colors を返す (有効/無効の判定抜き)。
+// statusline のように「TTY でなくても色を出したい」用途が colorEnabled を介さず使う。
+func palette() colors {
 	return colors{
 		reset:  "\033[0m",
 		dim:    "\033[2m",

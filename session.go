@@ -223,6 +223,38 @@ func writeSessionLink(key, sessionID string, now time.Time) error {
 	return atomicWriteFile(filepath.Join(dir, key+".link.json"), data, 0o644)
 }
 
+// worktreeKeyForSession は session_id に紐づく worktree キー (<project>--<NNNN>) を逆引きする。
+// session-link が書く <key>.link.json を走査し、SessionID が一致するもののうち最も新しい
+// (Updated が後の) キーを返す。statusline が「このセッションが実行中のタスク」を引くのに使う
+// (通常フローではセッションの cwd はメインリポなので worktree キーを cwd から取れない)。
+// 一致が無ければ ok=false。
+func worktreeKeyForSession(sessionID string) (string, bool) {
+	if sessionID == "" {
+		return "", false
+	}
+	entries, err := os.ReadDir(sessionStateDir())
+	if err != nil {
+		return "", false
+	}
+	var bestKey string
+	var bestUpdated time.Time
+	for _, e := range entries {
+		name := e.Name()
+		key, ok := strings.CutSuffix(name, ".link.json")
+		if !ok {
+			continue
+		}
+		link, ok := readSessionLink(key)
+		if !ok || link.SessionID != sessionID {
+			continue
+		}
+		if t := parseSessionTime(link.Updated); bestKey == "" || t.After(bestUpdated) {
+			bestKey, bestUpdated = key, t
+		}
+	}
+	return bestKey, bestKey != ""
+}
+
 // readSessionLink は worktree キー key のセッション対応を読む。無ければ ok=false。
 func readSessionLink(key string) (sessionLink, bool) {
 	if key == "" || strings.ContainsAny(key, `/\`) {

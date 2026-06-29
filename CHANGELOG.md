@@ -11,7 +11,9 @@
 ### Added
 
 - シェル補完の動的補完: `--project` の値 (ストアの project 一覧) と `show`/`edit`/`session-link` の
-  id 引数 (現在 project のタスク id) をタブ補完できる。内部コマンド `completion-values` が候補を列挙する。
+  位置引数 `[<project>] <id>` をタブ補完できる (第1引数=project名+現在projectのid、第2引数=その
+  projectのid)。zsh では id 候補にタスクのタイトルを併記する。内部コマンド `completion-values` が
+  候補を列挙する。
 - タスクに PR URL を記録する `prs:` フィールド (YAML リスト。1 タスクに複数 PR 可)。`show` が末尾に
   PR 一覧を表示し、`doctor` が URL 形式を点検する。PR は `session:` ではなく `prs:` に入れる。
 - `alloc-id` サブコマンド: タスク id を project ごとのロック下で原子的に採番し、予約ファイルを
@@ -26,3 +28,8 @@
 - bash / zsh のシェル補完 (`completion`)。
 - blocked タスクの理由・経過の可視化 (`list` の BLOCKED 列)。
 - `started_at` / `completed_at` によるリードタイム表示。
+
+### Fixed
+
+- zsh 補完で、サブコマンド無しの `agent-tasks --project <TAB>` が project 値を補完せず
+  サブコマンド一覧を出していた問題を修正 (値を取る大域フラグの直後を先に処理する)。

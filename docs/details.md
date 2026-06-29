@@ -185,11 +185,20 @@ agent-tasks completion zsh > "${fpath[1]}/_agent_tasks"
 `make install-completions` でも配置できる (bash は `~/.local/share/bash-completion/completions/`、
 zsh は `~/.local/share/zsh/site-functions/` に書き出す。`PREFIX` でルートを変更可)。
 
-**動的補完の仕組み**: `--project` の値と id 引数は、生成スクリプトが内部コマンド
-`agent-tasks completion-values <projects|ids>` を呼んで候補を列挙する (1 行 1 候補のプレーン出力)。
-`projects` はストア配下のディレクトリ名、`ids` は現在 project (または `--project` 指定) のタスク id を
-返す。id はファイル名先頭の連番から取るので frontmatter を読まず速い。ストアが無い/読めないなどは
-**空を返してエラーにしない**ので、補完が壊れない (スクリプト側も `2>/dev/null` でガード)。
+**動的補完の仕組み**: 生成スクリプトが内部コマンド `agent-tasks completion-values <projects|ids>` を
+呼んで候補を列挙する (1 行 1 候補のプレーン出力)。`projects` はストア配下のディレクトリ名、`ids` は
+現在 project (または `--project` 指定) のタスク id を返す。ストアが無い/読めないなどは**空を返して
+エラーにしない**ので、補完が壊れない (スクリプト側も `2>/dev/null` でガード)。
+
+補完できる箇所:
+
+- `--project <値>` — どのサブコマンドでも (サブコマンド無しの `agent-tasks --project <TAB>` を含む)。
+- `show` / `edit` / `session-link` の位置引数 `[<project>] <id>`:
+  - 第1引数では **project 名と現在 project の id の両方**を候補にする (`show <id>` と `show <project> <id>`
+    の両形式に対応)。
+  - 第2引数 (`show <project> <TAB>`) では、その **project のタスク id** を候補にする。
+- zsh では id 候補に**タスクのタイトルを説明として併記**する (内部的に `completion-values ids --with-title`
+  を使い `"<id>\t<title>"` を受け取る。挿入されるのは id のみ)。タイトル取得時のみ frontmatter を読む。
 
 ## blocked タスクの可視化 (理由・経過)
 

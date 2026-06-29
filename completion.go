@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -96,6 +97,7 @@ func cmdCompletionValues(args []string) error {
 		return nil
 	case "ids":
 		project := ""
+		withTitle := false
 		for i := 0; i < len(rest); i++ {
 			switch rest[i] {
 			case "--project":
@@ -104,6 +106,9 @@ func cmdCompletionValues(args []string) error {
 				}
 				i++
 				project = rest[i]
+			case "--with-title":
+				// 各 id にタブ区切りでタイトルを添える (zsh の説明付き補完用)。
+				withTitle = true
 			default:
 				return usagef("completion-values ids: unexpected argument %q", rest[i])
 			}
@@ -112,7 +117,11 @@ func cmdCompletionValues(args []string) error {
 			project = currentProject()
 		}
 		if project != "" {
-			printTaskIDs(os.Stdout, project)
+			if withTitle {
+				printTaskIDsWithTitle(os.Stdout, project)
+			} else {
+				printTaskIDs(os.Stdout, project)
+			}
 		}
 		return nil
 	default:
@@ -163,6 +172,37 @@ func printTaskIDs(w io.Writer, project string) {
 	}
 }
 
+// printTaskIDsWithTitle は project 配下のタスクを id 昇順で "<id>\t<title>" 形式で出力する。
+// タイトルを得るため frontmatter を読む (printTaskIDs より重いが、zsh の説明付き補完用)。
+// 読めないファイルは飛ばし、project ディレクトリが無い/読めないときは静かに何も出さない。
+func printTaskIDsWithTitle(w io.Writer, project string) {
+	projDir := filepath.Join(storeDir(), project)
+	entries, err := os.ReadDir(projDir)
+	if err != nil {
+		return
+	}
+	type row struct{ id, title string }
+	var rows []row
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		t, err := parseTask(filepath.Join(projDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		id := cmp.Or(t.ID, leadingID(e.Name()))
+		if id == "" {
+			continue
+		}
+		rows = append(rows, row{id, t.Title})
+	}
+	slices.SortFunc(rows, func(a, b row) int { return cmp.Compare(a.id, b.id) })
+	for _, r := range rows {
+		fmt.Fprintf(w, "%s\t%s\n", r.id, r.title)
+	}
+}
+
 func bashCompletionScript() string {
 	subs := strings.Join(subcommandNames(), " ")
 	statuses := strings.Join(completionStatusValues, " ")
@@ -205,12 +245,31 @@ _agent_tasks() {
         return
     fi
 
-    # 位置引数 (id) を取るサブコマンドは、非フラグ語を現在 project の id で補完する。
-    # 値を取るフラグ (--project は上で処理済み、--session は自由入力) の直後は除く。
+    # 位置引数 ([<project>] <id>) を取るサブコマンドの補完。
+    #   第1引数: project 名 または現在 project の id
+    #   第2引数: 第1引数を project とみなしてその id
+    # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
         show|edit|session-link)
             if [[ "$cur" != -* && "$prev" != "--session" ]]; then
-                COMPREPLY=( $(compgen -W "$(agent-tasks completion-values ids 2>/dev/null)" -- "$cur") )
+                # サブコマンド後の位置引数を数える (フラグとその値を除く)。
+                local -a pos=()
+                local j skip=0
+                for (( j=1; j < cword; j++ )); do
+                    local w="${COMP_WORDS[j]}"
+                    if (( skip )); then skip=0; continue; fi
+                    case "$w" in
+                        "$sub")                       ;;  # サブコマンド自身
+                        --project|--session|--color)  skip=1 ;;  # フラグ値をスキップ
+                        -*)                           ;;
+                        *)                            pos+=("$w") ;;
+                    esac
+                done
+                if (( ${#pos[@]} == 0 )); then
+                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null) $(agent-tasks completion-values ids 2>/dev/null)" -- "$cur") )
+                else
+                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values ids --project "${pos[0]}" 2>/dev/null)" -- "$cur") )
+                fi
                 return
             fi
             ;;
@@ -249,8 +308,9 @@ func zshCompletionScript() string {
 
 	return fmt.Sprintf(`#compdef agent-tasks
 # zsh completion for agent-tasks
-# 有効化: agent-tasks completion zsh > "${fpath[1]}/_agent_tasks" して再ログイン、
-#         または .zshrc に: source <(agent-tasks completion zsh)
+# 有効化: fpath の通ったディレクトリに置いて再ログイン
+#   agent-tasks completion zsh > ~/.local/share/zsh/site-functions/_agent_tasks
+#   (そのディレクトリを compinit より前に fpath へ追加しておく)
 
 # 動的補完のヘルパ: agent-tasks を呼んで候補を列挙する (失敗時は空 = 補完を壊さない)。
 (( $+functions[_agent_tasks_projects] )) || _agent_tasks_projects() {
@@ -258,16 +318,32 @@ func zshCompletionScript() string {
     ps=(${(f)"$(agent-tasks completion-values projects 2>/dev/null)"})
     compadd -a ps
 }
+# _agent_tasks_ids [<project>]: project (省略時は現在 project) のタスク id を、
+# タイトルを説明に添えて補完する ("0001  タイトル" と表示し、挿入されるのは id のみ)。
 (( $+functions[_agent_tasks_ids] )) || _agent_tasks_ids() {
-    local -a ids
-    ids=(${(f)"$(agent-tasks completion-values ids 2>/dev/null)"})
-    compadd -a ids
+    local proj=$1
+    local -a lines ids descs
+    lines=(${(f)"$(agent-tasks completion-values ids ${proj:+--project $proj} --with-title 2>/dev/null)"})
+    local l
+    for l in $lines; do
+        ids+=${l%%$'\t'*}
+        descs+="${l%%$'\t'*}  ${l#*$'\t'}"
+    done
+    (( ${#ids} )) && compadd -d descs -- $ids
 }
 
 _agent_tasks() {
     local -a subcommands
     subcommands=(
 %[1]s    )
+
+    # 値を取る大域フラグの直後は、サブコマンドの有無に関わらず値を補完する
+    # (例: サブコマンド無しの "agent-tasks --project <TAB>")。bash 版の $prev 処理に対応。
+    case ${words[CURRENT-1]} in
+        --project) _agent_tasks_projects; return ;;
+        --status)  compadd %[2]s; return ;;
+        --color)   compadd %[3]s; return ;;
+    esac
 
     # プログラム名の次にある最初の非フラグ語をサブコマンドとみなす。
     local sub="" i
@@ -308,9 +384,25 @@ _agent_tasks() {
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         show|edit)
-            _arguments \
-                '--color[色出力]:mode:(%[3]s)' \
-                '*:task:_agent_tasks_ids'
+            # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
+            if [[ ${words[CURRENT]} == -* ]]; then
+                _values 'option' '--color[色出力]' '--help[ヘルプ]'
+            else
+                local -a pos; local i
+                for (( i = 3; i < CURRENT; i++ )); do
+                    case ${words[i]} in
+                        --color) (( i++ )) ;;
+                        -*) ;;
+                        *) pos+=${words[i]} ;;
+                    esac
+                done
+                if (( ${#pos} == 0 )); then
+                    _agent_tasks_projects   # 第1引数: project 名 …
+                    _agent_tasks_ids        # … または現在 project の id
+                else
+                    _agent_tasks_ids ${pos[1]}  # 第2引数: pos[1] の project の id
+                fi
+            fi
             ;;
         completion)
             _values 'shell' %[4]s
@@ -344,11 +436,28 @@ _agent_tasks() {
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         session-link)
-            _arguments \
-                '--session[session_id を明示]:id:' \
-                '--project[project を指定]:project:_agent_tasks_projects' \
-                '--color[色出力]:mode:(%[3]s)' \
-                '*:task:_agent_tasks_ids'
+            # [<project>] <id> の位置引数 + フラグ (--session/--project)。
+            if [[ ${words[CURRENT]} == -* ]]; then
+                _values 'option' \
+                    '--session[session_id を明示]' \
+                    '--project[project を指定]' \
+                    '--color[色出力]' '--help[ヘルプ]'
+            else
+                local -a pos; local i
+                for (( i = 3; i < CURRENT; i++ )); do
+                    case ${words[i]} in
+                        --session|--project|--color) (( i++ )) ;;
+                        -*) ;;
+                        *) pos+=${words[i]} ;;
+                    esac
+                done
+                if (( ${#pos} == 0 )); then
+                    _agent_tasks_projects
+                    _agent_tasks_ids
+                else
+                    _agent_tasks_ids ${pos[1]}
+                fi
+            fi
             ;;
         alloc-id)
             _arguments \

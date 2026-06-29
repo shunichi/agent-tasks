@@ -38,8 +38,13 @@ func colorEnabled(mode string) bool {
 	if v, ok := os.LookupEnv("FORCE_COLOR"); ok && v != "" {
 		return true
 	}
-	return isTTY(os.Stdout)
+	return isStdoutTTY()
 }
+
+// isStdoutTTY は auto モードの最終判定 (stdout が端末か) を返す。変数にしておくことで
+// テストから差し替えられ、実 stdout の TTY 状態 (ターミナル実行か CI/パイプ経由か) に
+// テスト結果が左右されないようにする。
+var isStdoutTTY = func() bool { return isTTY(os.Stdout) }
 
 func newColors() colors {
 	if !colorEnabled(colorMode) {

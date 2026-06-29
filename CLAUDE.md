@@ -68,44 +68,6 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - 機能追加は `store.go` (データ) / `render.go` (表示) / `main.go` (コマンド) の分担を保つ。
   サブコマンドは `main.go` の `switch` に足す。
 
-## 現状と残タスク (2026-06-28 時点)
-
-- ✅ skill + Go CLI 実装・テスト緑・GitHub に push 済み (`list` / `--status` / `--project` /
-  `--active` / `show` / `where`)。
-- ✅ `worktree-init` (作成後フック: `.worktreeinclude` コピー + `.worktree-post-create` 実行) を CLI 化し
-  start/spawn に組み込み (store の agent-tasks/0014)。
-- ✅ `scaffold-worktree` (スタック別 worktree 設定の雛形展開。firebase/rails テンプレを embed) を CLI 化し
-  skill の `scaffold` 操作に (store の agent-tasks/0017)。テンプレ追加 = `templates/<stack>/` を足すだけ。
-- 💡 未着手の発展案:
-  - `~/agent-tasks-store` 自体の git 化 (マシン間同期)。
-  - skill 側にある `create` / `start` / `done` / `block` の一部を CLI サブコマンド化するか検討
-    (今は手順書として skill が担当)。
-  - worktree 設定テンプレの拡充 (next/django/go 等)。
-  - Web ダッシュボード化 (このリポジトリ内で発展)。
-- ✅ blocked の理由・経過時間の可視化 (`blocked_at`/`blocked_reason` + list の BLOCKED 列。
-  store の agent-tasks/0003)。
-- ✅ frontmatter の時刻系 (`created`/`updated`/`blocked_at`) を ISO8601 日時に統一
-  (`date --iso-8601=seconds`。一覧は日付に丸めて表示、パーサは日付のみの旧データも両対応。
-  store の agent-tasks/0021)。
-- ✅ 着手/完了日時 (`started_at`/`completed_at`) を記録 (start/done で。show が所要時間/経過を
-  サマリ表示、doctor が日時の矛盾を検査。store の agent-tasks/0024)。
-- ✅ 同一セッションで start したタスクにも session 状態を紐づけ (`session-link`。hook が session_id
-  キーのマーカーも書き、start 時に session_id を `--session` で明示 (Claude は self-id を知れる) または
-  cwd 逆引きで特定して `<wt>.link.json` に記録。list は worktree マーカーと link の新しい方を採用。
-  保管・突合は agent 中立 / 信号源・self-id 取得は agent 固有として SKILL に整理。store の agent-tasks/0027)。
-- ✅ 実行中タスクの status line 表示 (`agent-tasks statusline`。Claude Code の status line から stdin の
-  JSON を読み、session_id を 0027 の link で逆引き (補助で cwd の worktree キー) して「この pane が実行中の
-  タスク」を 1 行表示。SESSION 列 (俯瞰) の裏返しで各 pane 自身に出す。`--print-config` で設定例。
-  store の agent-tasks/0037)。
-- ✅ rails worktree テンプレを実運用向けに改善 (CONFIG 切替式: `DOTENV_TARGET` で `.env.local`/`.env`
-  追記、`DB_MODE` で空スキーマ/dev DB 複製 (`createdb -T` + `pg_dump` フォールバック)、`SERVER_MODE` で
-  PORT env/puma-dev。pnpm 検出・Redis DB 分離・マルチテナント host のレシピ込み)。scaffold-worktree に
-  `--print`/`--dry-run` (書き出さず stdout プレビュー) を追加。store の agent-tasks/0044。
-  撤去フック (#7) は agent-tasks/0048 に分離。
-- ✅ シェル補完 (`agent-tasks completion bash|zsh`。サブコマンド名 + 列挙可能なフラグ値の静的補完を
-  stdout 出力。依存ゼロ・両シェルを同一データから生成。`make install-completions` で配置。
-  動的補完 (--project/id) は別タスクに切り出し。store の agent-tasks/0046)。
-
 ## コミットメッセージ
 
 末尾に付ける:

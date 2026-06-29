@@ -21,12 +21,13 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
   statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
+  completion.go                 # completion: bash/zsh のシェル補完スクリプトを生成 (静的)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
   templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
-  *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime/timestamps)
-  Makefile                      # build / install / link / test / fmt / vet
+  *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime/timestamps/completion)
+  Makefile                      # build / install / link / install-completions / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
 
 ~/agent-tasks-store/            ← データ (このリポジトリの外)
@@ -101,6 +102,9 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   PORT env/puma-dev。pnpm 検出・Redis DB 分離・マルチテナント host のレシピ込み)。scaffold-worktree に
   `--print`/`--dry-run` (書き出さず stdout プレビュー) を追加。store の agent-tasks/0044。
   撤去フック (#7) は agent-tasks/0048 に分離。
+- ✅ シェル補完 (`agent-tasks completion bash|zsh`。サブコマンド名 + 列挙可能なフラグ値の静的補完を
+  stdout 出力。依存ゼロ・両シェルを同一データから生成。`make install-completions` で配置。
+  動的補完 (--project/id) は別タスクに切り出し。store の agent-tasks/0046)。
 
 ## コミットメッセージ
 

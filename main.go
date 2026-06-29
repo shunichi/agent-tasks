@@ -123,6 +123,8 @@ func dispatch(args []string) error {
 		return cmdSessionLink(args)
 	case "statusline":
 		return cmdStatusline(args)
+	case "completion":
+		return cmdCompletion(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -163,6 +165,8 @@ USAGE:
                                      --session で自分の session_id を明示 (省略時は cwd 逆引き)
   agent-tasks statusline [--print-config]  Claude Code の status line から呼ぶ。stdin の JSON を読んで
                                      この pane が実行中のタスクを 1 行表示 (--print-config で設定例を出力)
+  agent-tasks completion bash|zsh    シェル補完スクリプトを stdout に出力
+                                     (例: source <(agent-tasks completion bash))
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

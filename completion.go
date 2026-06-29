@@ -1,0 +1,245 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+// completion サブコマンドはシェル補完スクリプトを stdout に出力する。
+// 依存ゼロ方針 (外部補完フレームワーク不使用) のため、bash / zsh それぞれの
+// スクリプトを自前で組み立てる。補完候補の一次情報 (サブコマンド名・列挙可能な
+// フラグ値) はここに集約し、両シェルのスクリプトを同じデータから生成する。
+//
+// 補完は静的のみ (サブコマンド名 + 列挙できるフラグ値)。--project の候補や id 引数の
+// 動的補完は agent-tasks を呼んで列挙する必要があり、別タスクに切り出している。
+
+// completionSubcommand は補完で提示するサブコマンドとその説明 (zsh 用)。
+type completionSubcommand struct{ name, desc string }
+
+var completionSubcommands = []completionSubcommand{
+	{"list", "現在 project のタスク一覧 (既定)"},
+	{"show", "1 タスクの全文を表示"},
+	{"edit", "ストア/タスクをエディタで開く"},
+	{"status", "ストアの未同期状態を表示"},
+	{"sync", "ストアを add/commit/push して同期"},
+	{"worktree-init", "worktree 作成後フックを実行"},
+	{"scaffold-worktree", "worktree 設定の雛形を展開"},
+	{"doctor", "id 重複/不一致を点検"},
+	{"session-hook", "Claude Code の hook から呼ぶ"},
+	{"session-link", "セッションをタスクに紐づける"},
+	{"statusline", "実行中タスクを status line に表示"},
+	{"where", "データディレクトリのパスを表示"},
+	{"completion", "シェル補完スクリプトを出力"},
+	{"help", "ヘルプを表示"},
+}
+
+// 列挙できるフラグ値 (静的補完で候補を出せるもの)。
+var (
+	completionStatusValues = []string{"todo", "in-progress", "blocked", "review", "done"}
+	completionColorValues  = []string{"always", "auto", "never"}
+	completionShellValues  = []string{"bash", "zsh"}
+)
+
+func subcommandNames() []string {
+	names := make([]string, len(completionSubcommands))
+	for i, s := range completionSubcommands {
+		names[i] = s.name
+	}
+	return names
+}
+
+func cmdCompletion(args []string) error {
+	if len(args) == 0 {
+		return usagef("completion requires a shell (bash|zsh)")
+	}
+	shell := args[0]
+	rest := args[1:]
+	for _, a := range rest {
+		return usagef("completion: unexpected argument %q", a)
+	}
+	switch shell {
+	case "bash":
+		fmt.Print(bashCompletionScript())
+	case "zsh":
+		fmt.Print(zshCompletionScript())
+	default:
+		return usagef("completion: unknown shell %q (want bash|zsh)", shell)
+	}
+	_ = os.Stdout.Sync()
+	return nil
+}
+
+func bashCompletionScript() string {
+	subs := strings.Join(subcommandNames(), " ")
+	statuses := strings.Join(completionStatusValues, " ")
+	colors := strings.Join(completionColorValues, " ")
+	shells := strings.Join(completionShellValues, " ")
+	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --color --help"
+
+	return fmt.Sprintf(`# bash completion for agent-tasks
+# 有効化: source <(agent-tasks completion bash)
+# 恒久化: agent-tasks completion bash > ~/.local/share/bash-completion/completions/agent-tasks
+_agent_tasks() {
+    local cur prev cword
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    cword=$COMP_CWORD
+
+    # 値を取るフラグの直後は、その値の候補を出す。
+    case "$prev" in
+        --status)   COMPREPLY=( $(compgen -W "%[1]s" -- "$cur") ); return ;;
+        --color)    COMPREPLY=( $(compgen -W "%[2]s" -- "$cur") ); return ;;
+        completion) COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
+    esac
+
+    # プログラム名の次にある最初の非フラグ語をサブコマンドとみなす。
+    local sub="" i
+    for (( i=1; i < cword; i++ )); do
+        case "${COMP_WORDS[i]}" in
+            -*) ;;
+            *) sub="${COMP_WORDS[i]}"; break ;;
+        esac
+    done
+
+    if [[ -z "$sub" ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=( $(compgen -W "%[4]s" -- "$cur") )
+        else
+            COMPREPLY=( $(compgen -W "%[5]s" -- "$cur") )
+        fi
+        return
+    fi
+
+    local flags="--color --help"
+    case "$sub" in
+        list)              flags="%[4]s" ;;
+        doctor)            flags="--project --color --help" ;;
+        sync)              flags="--no-push --push --color --help" ;;
+        scaffold-worktree) flags="--list --dir --force --color --help" ;;
+        worktree-init)     flags="--force --color --help" ;;
+        session-hook)      flags="--print-config --color --help" ;;
+        session-link)      flags="--session --project --color --help" ;;
+        statusline)        flags="--print-config --color --help" ;;
+        completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
+    esac
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
+    fi
+}
+complete -F _agent_tasks agent-tasks
+`, statuses, colors, shells, topFlags, subs)
+}
+
+func zshCompletionScript() string {
+	var subLines strings.Builder
+	for _, s := range completionSubcommands {
+		// 説明中の特殊文字を避けるため、説明はそのまま (記号を含まない前提)。
+		fmt.Fprintf(&subLines, "        '%s:%s'\n", s.name, s.desc)
+	}
+	statuses := strings.Join(completionStatusValues, " ")
+	colors := strings.Join(completionColorValues, " ")
+
+	return fmt.Sprintf(`#compdef agent-tasks
+# zsh completion for agent-tasks
+# 有効化: agent-tasks completion zsh > "${fpath[1]}/_agent_tasks" して再ログイン、
+#         または .zshrc に: source <(agent-tasks completion zsh)
+_agent_tasks() {
+    local -a subcommands
+    subcommands=(
+%[1]s    )
+
+    # プログラム名の次にある最初の非フラグ語をサブコマンドとみなす。
+    local sub="" i
+    for (( i = 2; i < CURRENT; i++ )); do
+        if [[ ${words[i]} != -* ]]; then
+            sub=${words[i]}
+            break
+        fi
+    done
+
+    if [[ -z $sub ]]; then
+        if [[ ${words[CURRENT]} == -* ]]; then
+            _values 'option' \
+                '--all-projects[全 project を横断]' \
+                '--all[done も含める]' '-a[done も含める]' \
+                '--status[status で絞り込み]' \
+                '--project[project を指定]' \
+                '--watch[自動更新]' '-w[自動更新]' \
+                '--interval[更新間隔(秒)]' \
+                '--active[着手中のみ]' \
+                '--color[色出力]' '--help[ヘルプ]'
+        else
+            _describe -t commands 'agent-tasks command' subcommands
+        fi
+        return
+    fi
+
+    case $sub in
+        list)
+            _arguments \
+                '--all-projects[全 project を横断]' \
+                '(--all -a)'{--all,-a}'[done も含める]' \
+                '--status[status で絞り込み]:status:(%[2]s)' \
+                '--project[project を指定]:project:' \
+                '(--watch -w)'{--watch,-w}'[自動更新]' \
+                '--interval[更新間隔(秒)]:seconds:' \
+                '--active[着手中のみ]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        completion)
+            _values 'shell' %[4]s
+            ;;
+        doctor)
+            _arguments \
+                '--project[project を指定]:project:' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        sync)
+            _arguments \
+                '--no-push[commit まで (push しない)]' \
+                '--push[push も行う]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        scaffold-worktree)
+            _arguments \
+                '--list[stack 一覧を表示]' \
+                '--dir[出力先ディレクトリ]:dir:_files -/' \
+                '--force[既存を上書き]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        worktree-init)
+            _arguments \
+                '--force[再実行する]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        session-hook|statusline)
+            _arguments \
+                '--print-config[設定例を出力]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        session-link)
+            _arguments \
+                '--session[session_id を明示]:id:' \
+                '--project[project を指定]:project:' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        *)
+            _arguments \
+                '--color[色出力]:mode:(%[3]s)' \
+                '--help[ヘルプ]'
+            ;;
+    esac
+}
+_agent_tasks "$@"
+`, subLines.String(), statuses, colors, shellsForValues())
+}
+
+// shellsForValues は zsh の _values 用に "'bash' 'zsh'" のようにクォートして並べる。
+func shellsForValues() string {
+	quoted := make([]string, len(completionShellValues))
+	for i, s := range completionShellValues {
+		quoted[i] = "'" + s + "'"
+	}
+	return strings.Join(quoted, " ")
+}

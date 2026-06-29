@@ -62,6 +62,7 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 | --- | --- |
 | 登録 | 「〜というタスクを作って」「/agent-tasks create」 |
 | 一覧 | 「タスク一覧」「/agent-tasks list」 |
+| おすすめ | 「次に何をやるべき?」「おすすめは?」「/agent-tasks recommend」(衝突回避・価値で着手候補を提示。着手はしない) |
 | 着手 | 「タスク 0001 に着手」「/agent-tasks start 0001」(git worktree で並行開発) |
 | 別 pane で着手 | 「別 pane で 0001 をやって」「/agent-tasks spawn 0001」(tmux の別 pane に新セッション) |
 | 完了 | 「0001 を完了」「/agent-tasks done 0001」 |

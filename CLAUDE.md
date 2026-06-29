@@ -67,10 +67,3 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   `t.TempDir()`。`sort.Slice` や手動ループに戻さない。
 - 機能追加は `store.go` (データ) / `render.go` (表示) / `main.go` (コマンド) の分担を保つ。
   サブコマンドは `main.go` の `switch` に足す。
-
-## コミットメッセージ
-
-末尾に付ける:
-```
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-```

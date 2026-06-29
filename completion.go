@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -11,8 +14,10 @@ import (
 // スクリプトを自前で組み立てる。補完候補の一次情報 (サブコマンド名・列挙可能な
 // フラグ値) はここに集約し、両シェルのスクリプトを同じデータから生成する。
 //
-// 補完は静的のみ (サブコマンド名 + 列挙できるフラグ値)。--project の候補や id 引数の
-// 動的補完は agent-tasks を呼んで列挙する必要があり、別タスクに切り出している。
+// 静的補完 (サブコマンド名 + 列挙できるフラグ値) に加え、ストアの状態を見て候補を出す
+// 動的補完 (--project の値・id 引数) を持つ。動的候補は生成スクリプトから
+// `agent-tasks completion-values <kind>` を呼び、1 行 1 候補のプレーン出力を列挙させる
+// (補完専用の内部コマンド。失敗しても補完が壊れないよう空で返す)。
 
 // completionSubcommand は補完で提示するサブコマンドとその説明 (zsh 用)。
 type completionSubcommand struct{ name, desc string }
@@ -71,6 +76,93 @@ func cmdCompletion(args []string) error {
 	return nil
 }
 
+// cmdCompletionValues は補完スクリプトが動的候補を得るための内部コマンド。
+// 1 行 1 候補のプレーン出力を stdout に列挙する (色やヘッダは付けない)。
+//   - completion-values projects        ストア配下の project (ディレクトリ名)
+//   - completion-values ids [--project <name>]  project のタスク id (既定: 現在 project)
+//
+// 補完を壊さないため、ストアが無い/読めない等は**エラーにせず空出力**で返す。
+func cmdCompletionValues(args []string) error {
+	if len(args) == 0 {
+		return usagef("completion-values requires a kind (projects|ids)")
+	}
+	kind, rest := args[0], args[1:]
+	switch kind {
+	case "projects":
+		for _, a := range rest {
+			return usagef("completion-values projects: unexpected argument %q", a)
+		}
+		printProjects(os.Stdout)
+		return nil
+	case "ids":
+		project := ""
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case "--project":
+				if i+1 >= len(rest) {
+					return usagef("--project requires a value")
+				}
+				i++
+				project = rest[i]
+			default:
+				return usagef("completion-values ids: unexpected argument %q", rest[i])
+			}
+		}
+		if project == "" {
+			project = currentProject()
+		}
+		if project != "" {
+			printTaskIDs(os.Stdout, project)
+		}
+		return nil
+	default:
+		return usagef("completion-values: unknown kind %q (want projects|ids)", kind)
+	}
+}
+
+// printProjects はストア配下のディレクトリ名 (project キー) を昇順で1行ずつ出力する。
+// 走査に失敗したら静かに何も出さない (補完を壊さない)。
+func printProjects(w io.Writer) {
+	entries, err := os.ReadDir(storeDir())
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, e := range entries {
+		// 隠しディレクトリ (.git など) は project ではないので除く。
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			names = append(names, e.Name())
+		}
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		fmt.Fprintln(w, n)
+	}
+}
+
+// printTaskIDs は project 配下のタスク id を昇順で1行ずつ出力する。
+// id はファイル名先頭の連番 (<NNNN>-*.md) から取る (frontmatter を読まず高速)。
+// project ディレクトリが無い/読めないときは静かに何も出さない。
+func printTaskIDs(w io.Writer, project string) {
+	entries, err := os.ReadDir(filepath.Join(storeDir(), project))
+	if err != nil {
+		return
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if id := leadingID(e.Name()); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		fmt.Fprintln(w, id)
+	}
+}
+
 func bashCompletionScript() string {
 	subs := strings.Join(subcommandNames(), " ")
 	statuses := strings.Join(completionStatusValues, " ")
@@ -91,6 +183,7 @@ _agent_tasks() {
     case "$prev" in
         --status)   COMPREPLY=( $(compgen -W "%[1]s" -- "$cur") ); return ;;
         --color)    COMPREPLY=( $(compgen -W "%[2]s" -- "$cur") ); return ;;
+        --project)  COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null)" -- "$cur") ); return ;;
         completion) COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
     esac
 
@@ -112,9 +205,21 @@ _agent_tasks() {
         return
     fi
 
+    # 位置引数 (id) を取るサブコマンドは、非フラグ語を現在 project の id で補完する。
+    # 値を取るフラグ (--project は上で処理済み、--session は自由入力) の直後は除く。
+    case "$sub" in
+        show|edit|session-link)
+            if [[ "$cur" != -* && "$prev" != "--session" ]]; then
+                COMPREPLY=( $(compgen -W "$(agent-tasks completion-values ids 2>/dev/null)" -- "$cur") )
+                return
+            fi
+            ;;
+    esac
+
     local flags="--color --help"
     case "$sub" in
         list)              flags="%[4]s" ;;
+        show|edit)         flags="--color --help" ;;
         doctor)            flags="--project --color --help" ;;
         sync)              flags="--no-push --push --color --help" ;;
         scaffold-worktree) flags="--list --dir --force --color --help" ;;
@@ -146,6 +251,19 @@ func zshCompletionScript() string {
 # zsh completion for agent-tasks
 # 有効化: agent-tasks completion zsh > "${fpath[1]}/_agent_tasks" して再ログイン、
 #         または .zshrc に: source <(agent-tasks completion zsh)
+
+# 動的補完のヘルパ: agent-tasks を呼んで候補を列挙する (失敗時は空 = 補完を壊さない)。
+(( $+functions[_agent_tasks_projects] )) || _agent_tasks_projects() {
+    local -a ps
+    ps=(${(f)"$(agent-tasks completion-values projects 2>/dev/null)"})
+    compadd -a ps
+}
+(( $+functions[_agent_tasks_ids] )) || _agent_tasks_ids() {
+    local -a ids
+    ids=(${(f)"$(agent-tasks completion-values ids 2>/dev/null)"})
+    compadd -a ids
+}
+
 _agent_tasks() {
     local -a subcommands
     subcommands=(
@@ -183,18 +301,23 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '(--all -a)'{--all,-a}'[done も含める]' \
                 '--status[status で絞り込み]:status:(%[2]s)' \
-                '--project[project を指定]:project:' \
+                '--project[project を指定]:project:_agent_tasks_projects' \
                 '(--watch -w)'{--watch,-w}'[自動更新]' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \
                 '--color[色出力]:mode:(%[3]s)'
+            ;;
+        show|edit)
+            _arguments \
+                '--color[色出力]:mode:(%[3]s)' \
+                '*:task:_agent_tasks_ids'
             ;;
         completion)
             _values 'shell' %[4]s
             ;;
         doctor)
             _arguments \
-                '--project[project を指定]:project:' \
+                '--project[project を指定]:project:_agent_tasks_projects' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         sync)
@@ -223,13 +346,14 @@ _agent_tasks() {
         session-link)
             _arguments \
                 '--session[session_id を明示]:id:' \
-                '--project[project を指定]:project:' \
-                '--color[色出力]:mode:(%[3]s)'
+                '--project[project を指定]:project:_agent_tasks_projects' \
+                '--color[色出力]:mode:(%[3]s)' \
+                '*:task:_agent_tasks_ids'
             ;;
         alloc-id)
             _arguments \
                 '--slug[内容を表すケバブケース]:slug:' \
-                '--project[project を指定]:project:' \
+                '--project[project を指定]:project:_agent_tasks_projects' \
                 '--pull[採番前にストアを pull --rebase]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;

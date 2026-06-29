@@ -10,6 +10,8 @@
 
 ### Added
 
+- シェル補完の動的補完: `--project` の値 (ストアの project 一覧) と `show`/`edit`/`session-link` の
+  id 引数 (現在 project のタスク id) をタブ補完できる。内部コマンド `completion-values` が候補を列挙する。
 - タスクに PR URL を記録する `prs:` フィールド (YAML リスト。1 タスクに複数 PR 可)。`show` が末尾に
   PR 一覧を表示し、`doctor` が URL 形式を点検する。PR は `session:` ではなく `prs:` に入れる。
 - `alloc-id` サブコマンド: タスク id を project ごとのロック下で原子的に採番し、予約ファイルを

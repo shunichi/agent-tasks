@@ -1,5 +1,7 @@
 # agent-tasks
 
+[![CI](https://github.com/shunichi/agent-tasks/actions/workflows/ci.yml/badge.svg)](https://github.com/shunichi/agent-tasks/actions/workflows/ci.yml)
+
 エージェント (Claude / Codex / ...) に開発させるタスクを管理するための一式。
 **操作 (skill)** と **閲覧 (CLI)** を1リポジトリにまとめている。
 

@@ -10,6 +10,9 @@
 
 ### Added
 
+- GitHub Actions による CI (`.github/workflows/ci.yml`): `push` (main) と `pull_request` で
+  gofmt (未整形チェック) / `go vet` / `go build` / `go test` を実行する。Go バージョンは
+  go.mod 連動。README に CI バッジを追加。
 - `list --json` / `show --json`: タスクを機械可読な JSON (一覧は配列、show はオブジェクト) で出力する。
   既存フィルタと併用でき、計算済みフィールド (`session_state` / `blocked_for`) を含む。skill/スクリプト向け。
 - シェル補完の動的補完: `--project` の値 (ストアの project 一覧) と `show`/`edit`/`session-link` の

@@ -65,6 +65,7 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 | おすすめ | 「次に何をやるべき?」「おすすめは?」「/agent-tasks recommend」(衝突回避・価値で着手候補を提示。着手はしない) |
 | 着手 | 「タスク 0001 に着手」「/agent-tasks start 0001」(git worktree で並行開発) |
 | 別 pane で着手 | 「別 pane で 0001 をやって」「/agent-tasks spawn 0001」(tmux の別 pane に新セッション) |
+| 連続実行 | 「0042 と 0045 をまとめてやって」「/agent-tasks batch 0042 0045」(直列に start→done。開始前に順序・リスクを合意し、低リスクは自動マージ) |
 | 完了 | 「0001 を完了」「/agent-tasks done 0001」 |
 | 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
 | worktree 設定の展開 | 「worktree 設定を入れて」「/agent-tasks scaffold」(firebase/rails を検出して雛形生成) |
@@ -74,6 +75,11 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 `spawn` は tmux の別 pane を**メインリポ root で**開き、新セッションに `start` を指示するだけ
 (fire-and-forget。worktree 作成・session 紐づけ・着手は子の `start` が担当)。親はポーリングせず、
 起動確認は `agent-tasks --watch` の SESSION 列で行う。tmux 外では貼り付け用コマンドを表示するだけ。
+
+**連続実行 (batch)** は逆に、複数タスクを **1 セッションで直列**に start→実装→done と流す
+(spawn の並行とは別物)。「気軽にマージしてよい」プロジェクト向けで、開始前に順序とタスクごとの
+リスク (自動マージ可否) をユーザーと合意し、低リスクは PR 作成→ CI 通過後に自動マージ、高リスクは
+review 止まりにする。領域が衝突して並行できないタスクを安全に直列化する用途にも使える。
 
 **worktree 作成後フック**: start は worktree を作ったあと `agent-tasks worktree-init` を呼び、
 環境の干渉 (worktree に `.env` も `node_modules` も無い問題) を解消する。コードリポジトリ root に

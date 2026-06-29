@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,6 +81,39 @@ func TestScaffoldInto(t *testing.T) {
 	if !strings.Contains(string(b), "EMULATOR_PORT_OFFSET") {
 		t.Errorf("firebase post-create の内容が想定と違う:\n%s", b)
 	}
+}
+
+func TestScaffoldPrint(t *testing.T) {
+	// --print は書き出さず stdout に出すだけ。CONFIG セクションの目印が rails テンプレに含まれること。
+	out := captureStdout(t, func() {
+		if err := scaffoldPrint("rails"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{".worktreeinclude", ".worktree-post-create", "DOTENV_TARGET", "DB_MODE"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--print 出力に %q が無い:\n%s", want, out)
+		}
+	}
+}
+
+// captureStdout は f 実行中の os.Stdout を捕捉して返す。
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+	f()
+	w.Close()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestScaffoldIntoSkipAndForce(t *testing.T) {

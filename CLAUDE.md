@@ -43,6 +43,11 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   - `~/.claude/skills/agent-tasks` → `skills/agent-tasks`
   - `~/.local/bin/agent-tasks` → `bin/agent-tasks` (Go バイナリ。**ソース変更後は `make build` が必要**)
 
+## CHANGELOG
+
+利用者目線の変更 (機能追加・破壊的変更・影響のある修正) を伴う PR では、`CHANGELOG.md` の
+`Unreleased` セクションに 1 行追記する (タグ運用はせず Unreleased のみ。内部リファクタの細かい話は不要)。
+
 ## 設計上の決めごと (踏襲する)
 
 - **命名は agent 非依存**。`claude-` prefix を使わない。Claude Code 標準の `/tasks` と被らないよう

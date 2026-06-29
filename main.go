@@ -125,6 +125,8 @@ func dispatch(args []string) error {
 		return cmdStatusline(args)
 	case "completion":
 		return cmdCompletion(args)
+	case "alloc-id":
+		return cmdAllocID(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -167,6 +169,10 @@ USAGE:
                                      この pane が実行中のタスクを 1 行表示 (--print-config で設定例を出力)
   agent-tasks completion bash|zsh    シェル補完スクリプトを stdout に出力
                                      (例: source <(agent-tasks completion bash))
+  agent-tasks alloc-id --slug <slug> [--project <name>] [--pull]
+                                     タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
+                                     stdout に出力 (skill の create が中身を書き込む)。project 省略時は
+                                     現在 project。--pull で採番前にストアを pull --rebase
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks help | -h | --help     このヘルプ
 

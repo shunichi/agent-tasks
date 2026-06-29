@@ -109,18 +109,24 @@ updated: "2026-06-28T14:30:00+09:00"
 > (1 件も着手しない)。着手したい場合は別途 `start` を指示してもらう。
 
 1. project キーを決める (上記)。
-2. `<root>/<project>/` がなければ作成する。
-3. **採番直前にストアを最新化する** (`agent-tasks sync --no-push` か、ストアで `git pull --rebase`)。
-   別マシン/別セッションが先に採番した番号を取り込んでから決めることで、id 衝突を起きにくくする。
-4. 既存 `<root>/<project>/*.md` の最大連番 + 1 で `id` を決める (なければ `0001`)。
-   - 採番は「既存最大 + 1」なので、**並行 create では同じ id を引く競合 (TOCTOU) があり得る。**
-     最新化 (手順 3) で大幅に減らせるが完全には防げないため、作成後に手順 7 で検査する。
-5. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
-6. `<root>/<project>/<NNNN>-<slug>.md` を上記形式で作成する。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、`created`/`updated` は現在の日時 (`date --iso-8601=seconds`)。
-7. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する。** 重複 id が出たら
-   (同じ id のファイルが他にある)、空いている最大連番 + 1 に振り直してファイル名と frontmatter `id:` の
-   両方を直し、再度 doctor が通ることを確認する。
-8. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
+2. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
+3. **採番と予約は CLI に任せる (推奨)。** `agent-tasks alloc-id` が project ごとのロック下で
+   「最大連番 + 1」を原子的に確保し、予約用の空ファイルを作ってそのパスを stdout に返す。
+   ローカル並行 create で同じ id を引く競合 (TOCTOU) を確実に防げる。
+   ```sh
+   path=$(agent-tasks alloc-id --slug <slug> --pull)   # project 省略時は現在 project。--pull で採番前にストア最新化
+   ```
+   - `--pull` は採番前にストアを `git pull --rebase` する (別マシンが先に採番した番号を取り込む)。
+   - 返ってきた `path` (= `<root>/<project>/<NNNN>-<slug>.md`) に**中身を書き込む**。id はファイル名先頭の連番。
+   - **CLI が無い環境のフォールバック**: ストアを最新化 (`git pull --rebase`) してから既存
+     `<root>/<project>/*.md` の最大連番 + 1 を自分で採番し、`<root>/<project>/<NNNN>-<slug>.md` を作る
+     (この経路は並行時に id 衝突があり得るので、手順 5 の doctor 検査を必ず行う)。
+4. 予約ファイルに上記形式の中身を書き込む。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、
+   `created`/`updated` は現在の日時 (`date --iso-8601=seconds`)。`branch`/`worktree` はファイル名の id・slug に合わせる。
+5. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する** (alloc-id 利用時も、
+   別マシン間衝突などの保険として実行する)。重複 id が出たら、空いている最大連番 + 1 に振り直して
+   ファイル名と frontmatter `id:` の両方を直し、再度 doctor が通ることを確認する。
+6. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
    報告では作成したタスクを `ID + タイトル` で示す (「ユーザーへの報告」参照)。
 
 ---

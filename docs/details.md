@@ -64,7 +64,8 @@ ahead/behind を1行で表示する (例: `未コミット 3 ファイル / 未 
 採番競合で起きる)、(2) frontmatter の `id:` がファイル名先頭の連番とずれている状態、(3) 着手/完了
 日時の矛盾 (`completed_at` があるのに `started_at` が無い / `completed_at` が `started_at` より前 /
 `done` なのに `completed_at` が無い記録漏れ)、(4) blocked の記録/クリア漏れ (blocked でないのに
-`blocked_at`/`blocked_reason` が残存 / `blocked` なのに `blocked_at` が無い)、(5) parse 失敗で一覧から
+`blocked_at`/`blocked_reason` が残存 / `blocked` なのに `blocked_at` が無い)、(5) `prs:` の値が URL 形式
+(`http(s)://`) でない (session URL の貼り間違いなど)、(6) parse 失敗で一覧から
 無言で落ちるファイル (長大な1行・権限など) を報告する。(3)(4) は記録・クリアを skill が行うため、
 CLI 側の検査が漏れの防御線になる。問題があれば終了コード 1 を返すので、CI や着手前チェックに使える。
 既定は全 project を横断し、`--project <name>` で 1 project に絞れる。
@@ -225,3 +226,17 @@ frontmatter の時刻系 (`created` / `updated` / `started_at` / `completed_at` 
 `started_at` (start で記録・初回着手を保持) と `completed_at` (done で記録) で**着手〜完了の所要期間
 (リードタイム)** を追える。`show` は記録があれば末尾に「着手 / 完了 / リードタイム」(進行中なら経過) を
 要約表示する。done→in-progress で再オープンすると `completed_at` はクリアされる。
+
+## PR URL (`prs`)
+
+PR の URL は frontmatter の `prs:` に **YAML リスト**で持つ (1 タスクに複数 PR = 分割 PR / 追従修正 も
+あり得る)。PR を `session:` に入れない (`session:` は着手したエージェントのセッション URL 専用)。
+done/review で記録する (skill 側の手順)。`show` は末尾に PR 一覧を表示する (一覧 `list` には幅の都合で
+出さない)。`doctor` は値が URL 形式 (`http(s)://`) でないものを警告する。パーサは YAML ブロックリスト
+(`- url`) を読むほか、1 行カンマ区切りも許容する。
+
+```yaml
+prs:
+  - https://github.com/owner/repo/pull/31
+  - https://github.com/owner/repo/pull/33
+```

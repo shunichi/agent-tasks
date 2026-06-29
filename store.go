@@ -25,6 +25,11 @@ type Task struct {
 	Created  string
 	Updated  string
 
+	// このタスクに紐づく PR の URL。1 タスクで複数 PR (分割 PR / 追従修正) になり得るので
+	// リストで持つ。frontmatter では prs: の YAML ブロックリストで表す。session (着手した
+	// エージェントのセッション URL) とは別フィールドに分け、PR はここに集約する。
+	PRs []string
+
 	// 着手・完了の日時 (ISO8601)。created/updated と違い「いつ始めて終わったか」を
 	// 正確に追う/所要期間 (リードタイム) を出すための専用フィールド。
 	StartedAt   string // status を in-progress にした日時。初回着手を保持 (再 start で上書きしない)
@@ -288,6 +293,9 @@ func parseTask(path string) (Task, error) {
 
 	first := true
 	inFrontmatter := false
+	// 直前に出た「空値のリストキー」(現状 prs のみ)。後続のインデント項目 ("- value") を
+	// ここへ集約する。新しいキー行が来たらリセットする。
+	listKey := ""
 	for sc.Scan() {
 		line := sc.Text()
 		if first {
@@ -304,9 +312,22 @@ func parseTask(path string) (Task, error) {
 		if !inFrontmatter {
 			break
 		}
-		if strings.TrimSpace(line) == "---" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
 			break // frontmatter 終端
 		}
+		// YAML ブロックリストの項目 ("  - value")。直前のキーが空値リストのときだけ拾う。
+		// URL は ":" を含むため、key:value 分割より前に処理する必要がある。
+		if listKey != "" && strings.HasPrefix(trimmed, "- ") {
+			if item := unquote(strings.TrimSpace(trimmed[len("- "):])); item != "" {
+				switch listKey {
+				case "prs":
+					t.PRs = append(t.PRs, item)
+				}
+			}
+			continue
+		}
+		listKey = "" // リスト項目でない行に来たら収集を終える
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -342,6 +363,18 @@ func parseTask(path string) (Task, error) {
 			t.BlockedAt = val
 		case "blocked_reason":
 			t.BlockedReason = val
+		case "prs":
+			// 値が空ならブロックリスト形式 (後続の "- url" を集約)。
+			// 同一行に値があれば 1 行カンマ区切りも一応許容する。
+			if val == "" {
+				listKey = "prs"
+			} else {
+				for _, p := range strings.Split(val, ",") {
+					if p = strings.TrimSpace(p); p != "" {
+						t.PRs = append(t.PRs, p)
+					}
+				}
+			}
 		}
 	}
 	return t, sc.Err()

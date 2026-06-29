@@ -154,6 +154,7 @@ USAGE:
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
+  agent-tasks --recent [N]           最近完了したタスクを completed_at 降順で上位 N 件 (既定 10)
   agent-tasks --json                 一覧を JSON 配列で出力 (機械可読。既存フィルタと併用可)
   agent-tasks show [<project>] <id> [--json]  1タスクの全文を表示 (--json で機械可読オブジェクト)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
@@ -207,6 +208,8 @@ func cmdList(args []string) error {
 	allProjects := false
 	watch := false
 	jsonOut := false
+	recent := false
+	recentN := recentDefaultN
 	interval := 2 * time.Second
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -242,9 +245,31 @@ func cmdList(args []string) error {
 			// 既定が「done 以外」になったので no-op。互換のため受け付ける。
 		case "--json":
 			jsonOut = true
+		case "--recent":
+			// 最近完了 N 件。N は任意の数値引数 (省略時は既定)。次が正の整数なら N として取る。
+			recent = true
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+					i++
+					recentN = n
+				}
+			}
 		default:
 			return usagef("unknown option: %s", args[i])
 		}
+	}
+
+	// --recent は done を completed_at 降順で上位 N 件。--json と併用可 (status フィルタは無視し done)。
+	if recent {
+		rows, err := selectRecent(filterProject, allProjects, recentN)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			return writeTasksJSON(os.Stdout, rows, time.Now())
+		}
+		runRecentTable(os.Stdout, rows)
+		return nil
 	}
 
 	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。

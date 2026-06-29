@@ -209,7 +209,7 @@ func bashCompletionScript() string {
 	statuses := strings.Join(completionStatusValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --json --color --help"
+	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --recent --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -366,6 +366,7 @@ _agent_tasks() {
                 '--watch[自動更新]' '-w[自動更新]' \
                 '--interval[更新間隔(秒)]' \
                 '--active[着手中のみ]' \
+                '--recent[最近完了 N 件]' \
                 '--json[JSON 出力]' \
                 '--color[色出力]' '--help[ヘルプ]'
         else
@@ -384,6 +385,7 @@ _agent_tasks() {
                 '(--watch -w)'{--watch,-w}'[自動更新]' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \
+                '--recent[最近完了 N 件]:count:' \
                 '--json[JSON 出力]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;

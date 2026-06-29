@@ -12,6 +12,8 @@ agent-tasks --status in-progress # status で絞り込み (既定どおり現在
 agent-tasks --project webapp     # 別 project を指定
 agent-tasks --watch              # 一覧を自動更新表示 (-w。--interval <秒> で間隔、既定 2。Ctrl-C で終了)
 agent-tasks -w --status in-progress # in-progress を常時モニタ (他の絞り込みと併用可)
+agent-tasks --recent             # 最近完了したタスクを completed_at 降順で上位 10 件
+agent-tasks --recent 5           # 上位 5 件 (N を指定。--all-projects / --json と併用可)
 agent-tasks --json               # 一覧を JSON 配列で出力 (既存フィルタと併用可。skill/スクリプト向け)
 agent-tasks --json --status todo --all-projects # フィルタと併用
 agent-tasks show webapp 0001     # 1 タスクの全文
@@ -256,6 +258,21 @@ done/review で記録する (skill 側の手順)。`show` は末尾に PR 一覧
 prs:
   - https://github.com/owner/repo/pull/31
   - https://github.com/owner/repo/pull/33
+```
+
+## 最近完了したタスク (`--recent`)
+
+`agent-tasks --recent [N]` は **done かつ `completed_at` のあるタスク**を `completed_at` 降順
+(同時刻は id 昇順) で上位 N 件表示する (既定 10 件)。直近の成果を振り返る用。完了日時を主役にするため
+通常の `UPDATED` 列ではなく **`COMPLETED` 列**を出す。`completed_at` の無い古い done は対象外
+(「完了日時順」が目的のため)。スコープは list と同じ既定 (現在 project、`--all-projects` で横断)。
+`--json` と併用すると完了日時降順の JSON 配列で出る。
+
+```sh
+agent-tasks --recent              # 直近 10 件
+agent-tasks --recent 5            # 直近 5 件
+agent-tasks --recent --all-projects   # 全 project 横断で直近 10 件
+agent-tasks --recent 20 --json    # JSON で直近 20 件
 ```
 
 ## JSON 出力 (`--json`)

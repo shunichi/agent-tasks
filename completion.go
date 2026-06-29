@@ -388,12 +388,15 @@ _agent_tasks() {
             if [[ ${words[CURRENT]} == -* ]]; then
                 _values 'option' '--color[色出力]' '--help[ヘルプ]'
             else
-                local -a pos; local i
-                for (( i = 3; i < CURRENT; i++ )); do
-                    case ${words[i]} in
-                        --color) (( i++ )) ;;
+                # サブコマンド以降の位置引数を集める (フラグと値を除く)。
+                # C 言語形式の for (( )) は zsh の補完文脈で表示を壊すため foreach を使う。
+                local -a pos; local w skip=0
+                for w in ${words[3,CURRENT-1]}; do
+                    if (( skip )); then skip=0; continue; fi
+                    case $w in
+                        --color) skip=1 ;;   # 値を取るフラグの値はスキップ
                         -*) ;;
-                        *) pos+=${words[i]} ;;
+                        *) pos+=$w ;;
                     esac
                 done
                 if (( ${#pos} == 0 )); then
@@ -443,12 +446,14 @@ _agent_tasks() {
                     '--project[project を指定]' \
                     '--color[色出力]' '--help[ヘルプ]'
             else
-                local -a pos; local i
-                for (( i = 3; i < CURRENT; i++ )); do
-                    case ${words[i]} in
-                        --session|--project|--color) (( i++ )) ;;
+                # C 言語形式の for (( )) は zsh の補完文脈で表示を壊すため foreach を使う。
+                local -a pos; local w skip=0
+                for w in ${words[3,CURRENT-1]}; do
+                    if (( skip )); then skip=0; continue; fi
+                    case $w in
+                        --session|--project|--color) skip=1 ;;
                         -*) ;;
-                        *) pos+=${words[i]} ;;
+                        *) pos+=$w ;;
                     esac
                 done
                 if (( ${#pos} == 0 )); then

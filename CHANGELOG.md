@@ -2,13 +2,18 @@
 
 このプロジェクトの主な変更を記録する。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に倣う。
 
-タグによるバージョニングは行わず、`Unreleased` セクションに追記していく運用。機能追加・破壊的変更・
-利用者に影響する修正があったときに、その変更を含む PR で `Unreleased` に1行追記する
-(内部リファクタの細かい話は不要)。ビルドの版はこの CHANGELOG の節ではなく、ビルド元 commit で識別する
-(`agent-tasks version` が commit + CalVer を表示)。この CHANGELOG は「何が変わったか」、version は
-「どの commit 時点か」という補完関係。
+タグによるバージョニングは行わず、**main にマージした日付の見出し (`## YYYY-MM-DD`)** の下に変更を
+追記していく運用。日付は **main へマージした日**。機能追加・破壊的変更・利用者に影響する修正があったとき、
+その変更を**その日の日付セクション**に1行足す (内部リファクタの細かい話は不要)。同じ日のセクションが
+無ければ新しい日付を一番上に作る (新しい順)。
 
-## [Unreleased]
+マージは Claude Code が行うので、**マージ時にこの追記も Claude Code が行う** (人手の `Unreleased` 運用に
+代える)。`## [Unreleased]` セクションは設けない (どんどん main にマージするため未マージ滞留がほぼ無い)。
+
+ビルドの版はこの CHANGELOG の節ではなく、ビルド元 commit で識別する (`agent-tasks version` が
+commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、version は「どの commit 時点か」という補完関係。
+
+## 2026-06-29
 
 ### Added
 
@@ -42,6 +47,8 @@
 
 ### Changed
 
+- CHANGELOG を **日付セクション (`## YYYY-MM-DD`, main マージ日)** 方式に変更した。`## [Unreleased]` を
+  廃し、変更がいつ入ったかを日付で追えるようにした (記入はマージ時に Claude Code が行う)。
 - skill の create が `alloc-id` を `--pull` 無しで呼ぶようにした (ストアは基本 1 マシン前提)。
   ストア側に未コミット変更があると `--pull` の `git pull --rebase` が失敗してノイズが出ていたのを回避。
   CLI の `--pull` フラグ自体は残す (複数マシン共有時に手動で使える)。

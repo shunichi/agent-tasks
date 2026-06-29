@@ -310,8 +310,8 @@ agent-tasks 2026.06.29+g904ff2b7cca8 (built from 904ff2b7cca8, 2026-06-29T16:46:
 - 先頭は **CalVer** (commit 日時から `YYYY.0M.0D`) + 短縮 commit SHA。続く括弧に commit SHA・commit 日時・
   作業ツリーの状態 (clean / dirty) を出す。
 - **skill 独自版は持たない**。skill も同じ repo から出るので、この version が CLI/skill 一式の版を指す。
-  `CHANGELOG.md` (Unreleased の running list) が「何が変わったか」、version が「どの commit 時点か」という
-  補完関係 (バージョン番号ごとの CHANGELOG 節は作らない)。
+  `CHANGELOG.md` (main マージ日の日付セクション) が「いつ何が変わったか」、version が「どの commit
+  時点か」という補完関係 (バージョン番号ごとの CHANGELOG 節は作らない)。
 - **dirty** は作業ツリーに変更/未追跡ファイルがあったビルド (Go の判定は未追跡ファイルも含む)。
 - worktree (リンク作業ツリー。`.git` がファイル) や `-buildvcs=false` でのビルドは VCS 情報が無く
   **`agent-tasks (devel)`** になる。正規のバイナリはメインリポ root の `make build` で作る (VCS 情報が入る)。

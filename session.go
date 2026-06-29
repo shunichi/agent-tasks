@@ -168,7 +168,31 @@ func writeSessionMarker(key string, st sessionState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0o644)
+	return atomicWriteFile(filepath.Join(dir, key+".json"), data, 0o644)
+}
+
+// atomicWriteFile は data を path に原子的に書く。同一ディレクトリの一時ファイルに書いてから
+// rename で差し替えるので、読み手 (list / --watch) が書きかけの半端な内容を読んで JSON parse に
+// 失敗する (= SESSION が "?" になる) ことがない。rename(2) は同一ファイルシステム内でアトミック。
+// hook は PreToolUse/PostToolUse 等で高頻度に書くため、この保証が効く。
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // 成功時は rename 済みで存在しない (無害)、失敗時は後始末
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // sessionMarkerKey は session_id 突合用マーカーのキー (sess-<id>) を返す。
@@ -196,7 +220,7 @@ func writeSessionLink(key, sessionID string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, key+".link.json"), data, 0o644)
+	return atomicWriteFile(filepath.Join(dir, key+".link.json"), data, 0o644)
 }
 
 // readSessionLink は worktree キー key のセッション対応を読む。無ければ ok=false。

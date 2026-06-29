@@ -21,7 +21,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
   statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
-  completion.go                 # completion: bash/zsh のシェル補完スクリプトを生成 (静的)
+  completion.go                 # completion: bash/zsh の補完スクリプト生成 (静的) + completion-values (動的候補 project/id)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック

@@ -97,6 +97,11 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   JSON を読み、session_id を 0027 の link で逆引き (補助で cwd の worktree キー) して「この pane が実行中の
   タスク」を 1 行表示。SESSION 列 (俯瞰) の裏返しで各 pane 自身に出す。`--print-config` で設定例。
   store の agent-tasks/0037)。
+- ✅ rails worktree テンプレを実運用向けに改善 (CONFIG 切替式: `DOTENV_TARGET` で `.env.local`/`.env`
+  追記、`DB_MODE` で空スキーマ/dev DB 複製 (`createdb -T` + `pg_dump` フォールバック)、`SERVER_MODE` で
+  PORT env/puma-dev。pnpm 検出・Redis DB 分離・マルチテナント host のレシピ込み)。scaffold-worktree に
+  `--print`/`--dry-run` (書き出さず stdout プレビュー) を追加。store の agent-tasks/0044。
+  撤去フック (#7) は agent-tasks/0048 に分離。
 - ✅ シェル補完 (`agent-tasks completion bash|zsh`。サブコマンド名 + 列挙可能なフラグ値の静的補完を
   stdout 出力。依存ゼロ・両シェルを同一データから生成。`make install-completions` で配置。
   動的補完 (--project/id) は別タスクに切り出し。store の agent-tasks/0046)。

@@ -87,9 +87,12 @@ ln -sfn "$(pwd)/skills/agent-tasks" ~/.claude/skills/agent-tasks
 コピーは既存を上書きせず、post-create は worktree ごとに一度だけ実行する (冪等。`--force` で再実行)。
 
 この 2 ファイルの雛形は **`agent-tasks scaffold-worktree [stack]`** でスタック別に生成できる
-(firebase / rails 同梱。stack 省略で自動検出、`--list` で一覧)。テンプレはバイナリに同梱しており、
-スタックを増やすには `templates/<stack>/{worktreeinclude,post-create}` を足すだけ。例えば firebase なら
-emulator ポートを worktree ごとに一意化する post-create が入る。
+(firebase / rails 同梱。stack 省略で自動検出、`--list` で一覧、`--print`/`--dry-run` で書き出さず
+stdout にプレビュー)。テンプレはバイナリに同梱しており、スタックを増やすには
+`templates/<stack>/{worktreeinclude,post-create}` を足すだけ。例えば firebase なら emulator ポートを
+worktree ごとに一意化する post-create が入る。rails テンプレは実運用を想定した CONFIG 切り替え式
+(`DOTENV_TARGET`: `.env.local` か `.env` 追記 / `DB_MODE`: 空スキーマか dev DB 複製 /
+`SERVER_MODE`: PORT env か puma-dev) で、pnpm 検出・Redis DB 分離・マルチテナント host のレシピを含む。
 
 ### 閲覧 (ターミナルから)
 
@@ -112,6 +115,7 @@ agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks sync --no-push       # commit まで (push しない)
 agent-tasks worktree-init ../foo--0001 # worktree 作成後フック (start/spawn が自動で呼ぶ)
 agent-tasks scaffold-worktree    # worktree 設定の雛形を生成 (stack 自動検出。--list/--dir/--force)
+agent-tasks scaffold-worktree rails --print # 書き出さず stdout にプレビュー (--dry-run も可)
 agent-tasks doctor               # id 重複と id/ファイル名不一致を点検 (既定は全 project 横断)
 agent-tasks doctor --project webapp # 1 project だけ点検
 agent-tasks session-hook --print-config # セッション状態表示用 hook の設定例を出力

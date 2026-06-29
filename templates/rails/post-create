@@ -1,43 +1,171 @@
 #!/bin/sh
 # agent-tasks worktree post-create フック (Rails テンプレ)。
 # 新しい worktree で 1 度だけ実行される (cwd = その worktree)。
-# dev サーバのポートと DB を worktree ごとに分離し、依存をインストールする。
-# プロジェクトに合わせて自由に編集してください。
+# dev サーバのポート/ホストと DB/Redis を worktree ごとに分離し、依存をインストールする。
+#
+# これは「叩き台」です。下の CONFIG を切り替え、プロジェクト固有の箇所を編集して使ってください。
+# 素朴な Rails (PORT env を読む / 単一ホスト / dotenv が .env.local を読む / 空 DB で可) を
+# 超える構成 (puma-dev / マルチテナント / require:'dotenv/load' / dev データの複製が要る等) は
+# 各セクションの分岐・コメントを参照。
 #
 # 渡される env: AGENT_TASKS_WORKTREE / AGENT_TASKS_MAIN / AGENT_TASKS_PROJECT
-#
-# DB 分離の考え方: database.yml で ENV を参照させ、worktree ごとに別 DB 名にする。例)
-#   development:
-#     database: myapp_development<%= ENV['DATABASE_NAME_SUFFIX'] %>
 set -e
 
+# ============================================================================
+# CONFIG — プロジェクトに合わせて切り替える
+# ============================================================================
+
+# dotenv の書き込み先。worktree 固有の値 (PORT/DB 名/Redis 等) をどこに書くか。
+#   local : .env.local に書く (dotenv-rails の development で .env.local が読まれる構成向け)
+#   env   : コピーした .env の末尾へマーカー付きで追記する
+#           (`require: 'dotenv/load'` など .env しか読まない構成向け。マーカーで冪等)
+# 迷ったら自分のアプリが .env.local を読むか確認してから決める (読まないなら env)。
+DOTENV_TARGET=local
+
+# DB の用意方法。
+#   schema : スキーマだけの空 DB を作る (bin/rails db:prepare 相当。現状の素朴な挙動)
+#   clone  : 既存 dev DB を複製して中身ごと持ってくる (createdb -T、失敗時 pg_dump フォールバック)
+DB_MODE=schema
+
+# clone モードの複製元 DB 名 (DB_MODE=clone のときだけ使う)。本体 (メインリポ) の dev DB 名。
+DB_CLONE_SOURCE=myapp_development
+
+# サーバのポート/ホスト戦略。
+#   port    : PORT env を読むサーバ (Rails 標準 puma 等)。worktree ごとに別ポートを割り当てる。
+#   pumadev : puma-dev 系。PORT を読まず、ホスト名 (*.test) で振り分ける。下の PUMADEV_* を参照。
+SERVER_MODE=port
+
+# ============================================================================
+# 以下、通常は触らなくてよい (各セクションのコメントは残す)
+# ============================================================================
+
 WT_NAME=$(basename "${AGENT_TASKS_WORKTREE:-$PWD}")
+# worktree 名から決定的な小さい整数 (0..89) を作る。ポート/Redis DB/サフィックスに流用する。
+HASH=$(printf '%s' "$WT_NAME" | cksum | cut -d' ' -f1)
+SLOT=$(( HASH % 90 ))
+PORT=$(( 3000 + (SLOT + 1) * 10 ))                 # 3010, 3020, ... 衝突しにくいよう 10 刻み
+# DB 名サフィックス (英数と _ のみ。database.yml 側で ENV を連結させる前提)。
+DB_SUFFIX=_$(printf '%s' "$WT_NAME" | tr -c 'a-zA-Z0-9' '_')
+# Redis の DB 番号 (2..15。0/1 は本体用に空けておく)。namespace 分離派はこの値を prefix に流用しても可。
+REDIS_DB=$(( SLOT % 14 + 2 ))
 
-# worktree 名から決定的なポートオフセット (10..900, 10 刻み) を作る。
-OFFSET=$(( ($(printf '%s' "$WT_NAME" | cksum | cut -d' ' -f1) % 90 + 1) * 10 ))
-PORT=$(( 3000 + OFFSET ))
+# upsert_env KEY VALUE — worktree 固有の設定を dotenv に書き込む (DOTENV_TARGET に従う)。
+# どちらのモードも既存の同名キー行を削除してから末尾に 1 本だけ書くので、再実行しても重複しない。
+# env モードはマーカー見出しを 1 度だけ追加し、worktree 固有値をその下にまとめる
+# (.env に元からある他のキー (SECRET 等) は触らない)。
+upsert_env() {
+  key=$1; val=$2
+  case "$DOTENV_TARGET" in
+    env)
+      target=.env
+      marker="# >>> agent-tasks worktree ($WT_NAME) >>>"
+      if [ -f "$target" ] && grep -qF "$marker" "$target"; then
+        # 既にブロックがある: 該当行だけ差し替える (key= 行を全置換)。
+        grep -v "^$key=" "$target" > "$target.tmp" && mv "$target.tmp" "$target"
+      else
+        printf '\n%s\n' "$marker" >> "$target"
+      fi
+      printf '%s=%s\n' "$key" "$val" >> "$target"
+      ;;
+    *)
+      target=.env.local
+      if [ -f "$target" ] && grep -q "^$key=" "$target"; then
+        grep -v "^$key=" "$target" > "$target.tmp" && mv "$target.tmp" "$target"
+      fi
+      printf '%s=%s\n' "$key" "$val" >> "$target"
+      ;;
+  esac
+  echo "set $key in $target"
+}
 
-# .env.local が無ければ書き込む (既存は尊重)。
-if [ ! -f .env.local ]; then
-  cat > .env.local <<EOF
-# agent-tasks: worktree ごとの設定 ($WT_NAME)
-PORT=$PORT
-DATABASE_NAME_SUFFIX=_$(printf '%s' "$WT_NAME" | tr -c 'a-zA-Z0-9' '_')
-EOF
-  echo "wrote .env.local (PORT=$PORT)"
-fi
+# ---- DB / host を ENV 化しておくチェックリスト (#8) -------------------------
+# worktree 分離は「tracked config が ENV を参照する」ことが前提。未対応なら先に↓を入れておく:
+#   config/database.yml:
+#     development:
+#       database: myapp_development<%= ENV.fetch("DATABASE_NAME_SUFFIX", "") %>
+#     test:
+#       database: myapp_test<%= ENV.fetch("DATABASE_NAME_SUFFIX", "") %><%= ENV.fetch("TEST_ENV_NUMBER", "") %>
+#   マルチテナント host (例 config/settings 等):
+#       host: <%= ENV.fetch("APP_HOST", "lvh.me") %>
+# ---------------------------------------------------------------------------
 
-# 依存インストール。
+# ---- DB 名 (development / test 分離) ----
+upsert_env DATABASE_NAME_SUFFIX "$DB_SUFFIX"
+
+# ---- サーバのポート/ホスト分離 ----
+case "$SERVER_MODE" in
+  pumadev)
+    # puma-dev 系: PORT を読まず host 名 (*.test) で振り分ける。worktree ごとに別アプリ名で link する。
+    # ここでは `pdl` (https://github.com/shunichi/puma-dev-links) を例にしているが、これは作者個人の
+    # ツールで一般的ではない。素の puma-dev なら `~/.puma-dev/<name>` に worktree パスを書く等に置き換える。
+    # マルチテナント (サブドメイン) は puma-dev のワイルドカード `*.<name>.test` が効くので、
+    # APP_HOST を worktree 専用ホストに向けるだけでテナントごとのサブドメインもそのまま使える。
+    APP_NAME="${AGENT_TASKS_PROJECT:-app}-$WT_NAME"
+    APP_HOST="$APP_NAME.test"
+    if command -v pdl >/dev/null 2>&1; then
+      pdl link "$APP_NAME" . || echo "pdl link に失敗 (手動で puma-dev に登録してください)"
+    else
+      echo "puma-dev: 'pdl' が無いので手動で登録してください (例: ~/.puma-dev/$APP_NAME に worktree パスを書く)"
+    fi
+    upsert_env APP_HOST "$APP_HOST"
+    echo "puma-dev host: https://$APP_HOST (and *.$APP_HOST for サブドメイン)"
+    ;;
+  *)
+    # PORT を読むサーバ: worktree ごとに別ポート。
+    upsert_env PORT "$PORT"
+    # マルチテナントで lvh.me 等を使うなら、サブドメインは付けてアクセスする (例 tenant.lvh.me:$PORT)。
+    upsert_env APP_HOST "lvh.me"
+    echo "server port: $PORT"
+    ;;
+esac
+
+# ---- Redis 分離 (#6) ----
+# REDIS_URL の DB 番号を worktree ごとに変える。アプリが REDIS_URL を読む前提。
+# namespace/prefix 分離派は REDIS_DB を prefix 文字列に流用してもよい。
+upsert_env REDIS_URL "redis://localhost:6379/$REDIS_DB"
+
+# ---- 依存インストール (pnpm > yarn > npm) (#4) ----
 if [ -f Gemfile ]; then
   bundle install
 fi
-if [ -f yarn.lock ]; then
+if [ -f pnpm-lock.yaml ]; then
+  pnpm install
+elif [ -f yarn.lock ]; then
   yarn install
 elif [ -f package.json ]; then
   npm install
 fi
 
-# DB 準備 (存在すれば。失敗してもフック全体は止めない)。
-if [ -x bin/rails ]; then
-  bin/rails db:prepare || echo "db:prepare をスキップ (手動で実行してください)"
+# ---- DB 準備 (#3) ----
+# DB_MODE=clone は既存 dev DB の中身ごと複製する。schema は空 DB。
+# どちらも worktree 固有 DB 名 (DATABASE_NAME_SUFFIX) に対して行う。
+dev_db="${DB_CLONE_SOURCE%_development}_development$DB_SUFFIX"
+src_db="$DB_CLONE_SOURCE"
+if [ "$DB_MODE" = clone ]; then
+  # createdb -T は near-instant だが、テンプレ元 DB に接続が残っていると失敗する (#10)。
+  # 失敗したら pg_dump | psql にフォールバックする (遅いが接続があっても通る)。
+  if createdb -T "$src_db" "$dev_db" 2>/dev/null; then
+    echo "cloned DB: $dev_db (createdb -T $src_db)"
+  else
+    echo "createdb -T 失敗 (元 DB '$src_db' に接続が残っている可能性)。pg_dump フォールバックを試行"
+    if createdb "$dev_db" 2>/dev/null && pg_dump -xO "$src_db" | psql -q "$dev_db" >/dev/null 2>&1; then
+      echo "cloned DB via pg_dump: $dev_db"
+    else
+      echo "DB 複製に失敗。手動で用意してください (例: createdb -T $src_db $dev_db)"
+    fi
+  fi
+  # test DB は worktree 並行 rspec が衝突しないよう、複製ではなく空スキーマで分離する。
+  if [ -x bin/rails ]; then
+    RAILS_ENV=test bin/rails db:prepare 2>/dev/null || echo "test DB の db:prepare をスキップ"
+  fi
+else
+  # schema モード: development / test とも空 DB を作る (db:prepare)。
+  if [ -x bin/rails ]; then
+    bin/rails db:prepare || echo "db:prepare をスキップ (手動で実行してください)"
+  fi
 fi
+
+# ---- teardown について ----
+# done で worktree を撤去すると、ここで作った DB / Redis DB / puma-dev 登録が孤児化する。
+# 撤去側のフック (.worktree-post-remove 相当) は別途整備予定。今は手動で後始末する:
+#   dropdb "$dev_db" ; (puma-dev) pdl unlink "$APP_NAME"

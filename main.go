@@ -154,7 +154,8 @@ USAGE:
   agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
   agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create) を
-                                     プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force)
+                                     プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force。
+                                     --print/--dry-run で書き出さず stdout にプレビュー)
   agent-tasks doctor [--project <name>] id 重複と id/ファイル名の不一致を点検 (既定は全 project 横断。
                                      問題があれば exit 1。CI / 着手前チェックに使う)
   agent-tasks session-hook [--print-config]  Claude Code の hook から呼ぶ。stdin の JSON を読んで

@@ -109,6 +109,7 @@ type tuiModel struct {
 	listH      int  // 一覧ペインの表示行数 (レイアウトで更新)
 	leftW      int  // 一覧ペインの桁幅 (レイアウトで更新)
 	showDetail bool // 詳細ペインを表示中か (起動直後は false = リストのみ。Enter で表示)
+	showHelp   bool // ヘルプ (キーバインド一覧) を表示中か (? で開閉)
 	vertical   bool // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
 	vp         viewport.Model
 	ready      bool
@@ -257,9 +258,22 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
+		// ヘルプ表示中は ?/q/Esc で閉じるだけ (他キーは無効化)。Ctrl+C は常に終了。
+		if m.showHelp {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "?", "q", "esc":
+				m.showHelp = false
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = true
+			return m, nil
 		case "q", "esc":
 			// 詳細表示中なら詳細を閉じてリストへ戻る。リストのみなら終了する。
 			if m.showDetail {
@@ -337,6 +351,9 @@ func cycleStatus(cur string) string {
 func (m *tuiModel) View() string {
 	if !m.ready {
 		return "起動中…"
+	}
+	if m.showHelp {
+		return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderHelp(), m.renderFooter())
 	}
 	var body string
 	switch {
@@ -487,12 +504,78 @@ func (m *tuiModel) renderHeader() string {
 
 func (m *tuiModel) renderFooter() string {
 	var keys string
-	if m.showDetail {
-		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  a done  s status  p project  r 更新  q/Esc 詳細を閉じる"
-	} else {
-		keys = "↑↓/jk 選択  Enter 詳細  a done  s status  p project  r 更新  q/Esc 終了"
+	switch {
+	case m.showHelp:
+		keys = "?/q/Esc 閉じる"
+	case m.showDetail:
+		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+	default:
+		keys = "↑↓/jk 選択  Enter 詳細  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
 	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
+}
+
+// helpEntries は表示する (キー, 説明) の一覧。renderHelp とテストで共有する。
+func helpEntries() [][2]string {
+	return [][2]string{
+		{"↑/↓, j/k", "選択を上下に移動"},
+		{"g / G", "先頭 / 末尾へ"},
+		{"Enter", "選択タスクの詳細を開く"},
+		{"PgUp/PgDn, K/J", "詳細をスクロール"},
+		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
+		{"マウスホイール", "詳細をスクロール"},
+		{"a", "done タスクの表示 / 非表示を切替"},
+		{"s", "status フィルタを循環 (全→todo→…→done)"},
+		{"p", "現在 project のみ / 全 project を切替"},
+		{"r", "ストアを今すぐ再読込 (通常は自動で更新)"},
+		{"?", "このヘルプを開閉"},
+		{"q / Esc", "詳細を閉じる / (一覧で) 終了"},
+		{"Ctrl+C", "終了"},
+	}
+}
+
+// renderHelp はキーバインド一覧を枠付きパネルで content 領域 (header/footer を除いた高さ) に
+// 描く。枠の幅は端末幅に収め (はみ出さない)、説明は必要なら折り返す。極端に狭い/低い端末では
+// MaxHeight/折り返しで破綻せず収める。
+func (m *tuiModel) renderHelp() string {
+	contentH := max1(m.height - 2) // header + footer
+
+	entries := helpEntries()
+	keyW := 0
+	for _, e := range entries {
+		if d := dispWidth(e[0]); d > keyW {
+			keyW = d
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(tuiBoldStyle.Render("キーバインド"))
+	b.WriteString("\n\n")
+	for _, e := range entries {
+		pad := strings.Repeat(" ", keyW-dispWidth(e[0]))
+		b.WriteString(tuiBoldStyle.Render(e[0]))
+		b.WriteString(pad + "  " + e[1] + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(tuiDimStyle.Render("ストアの変更は自動で反映されます (r で即時)。"))
+
+	// 枠の内側幅 = 端末幅から枠 (2) + 左右パディング (2) を引いた幅。広すぎても読みやすい幅に留める。
+	innerW := m.width - 4
+	if innerW > 72 {
+		innerW = 72
+	}
+	if innerW < 1 {
+		innerW = 1
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(0, 1).
+		Width(innerW).
+		Render(b.String())
+
+	// content 領域ちょうどに収める (footer を最下部に固定。高すぎる枠は下端を切る)。
+	return lipgloss.NewStyle().Width(max1(m.width)).Height(contentH).MaxHeight(contentH).Render(box)
 }
 
 // renderList は一覧ペイン (左) を表示窓ぶんだけ描く。cursor 行はポインタ + 太字で示す。

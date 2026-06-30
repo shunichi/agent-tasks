@@ -35,6 +35,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   横に並べず**縦分割 (詳細を下)** にしてウィンドウ全幅を詳細に与える。ウィンドウ幅だけの固定
   閾値ではなく、一覧の自然幅も加味して向きを決める。
 
+- `tui` の一覧で、横幅が広いときにタイトルと `UPDATED` の間が大きく空いて見づらい問題を修正。
+  `UPDATED` を行の右端に右寄せするのをやめ、**タイトル列の直後の桁にそろえて**置くようにした
+  (右側の余白は空ける)。
+
 ### Added
 
 - `agent-tasks sync` に **scoped 同期**を追加。`sync <id>` / `sync <project> <id>` / `sync --path <p>`
@@ -45,7 +49,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   起動直後は**一覧のみ**を表示し、`Enter` で選択タスクの詳細 (frontmatter + 本文 + PR/所要時間サマリ) を
   開く。詳細表示中の `q`/`Esc` は詳細を閉じ、一覧のみのときの `q`/`Esc` で終了する。
   端末が広いときは詳細を**右**に (リスト幅はタイトルに合わせて伸縮)、狭い/縦長のときは詳細を**下**に
-  積む (tig 風) よう自動で分割の向きを切り替える。一覧には `UPDATED` 列を右寄せで表示する。
+  積む (tig 風) よう自動で分割の向きを切り替える。一覧にはタイトル列の直後に `UPDATED` 列を、
+  in-progress 行には色付きのセッション状態 (working/waiting/ended) を表示する。
   別セッションが裏でストアを更新しても、一定間隔のポーリング (mtime 差分検知。`--interval <秒>`、既定 2)
   で自動再描画し、選択は project/id で保持する。`↑↓`/`jk` で選択、`PgUp`/`PgDn` で詳細スクロール、
   `a` で done 表示トグル、`s` で status フィルタ循環、`p` で現在 project ↔ 横断トグル、`r` で手動更新。
@@ -63,6 +68,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   直列化** (git の index.lock 衝突を回避)、push 競合 (non-fast-forward) は `pull --rebase --autostash`
   で取り込み直して**自動リトライ**、dirty な作業ツリーでも `--autostash` で rebase する。これにより
   scoped 同期 (上記 Added) と合わせて auto-sync を安全に有効化できる。
+
+- `tui` の一覧で in-progress 行の**セッション状態を色付きで表示**するようにした (list の `SESSION` 列と
+  同じ working/waiting/ended。waiting を目立たせる)。従来の無色プレフィックスから格上げし、詳細ペインの
+  先頭にも現在のセッション状態を出す。
 
 ## 2026-06-30
 

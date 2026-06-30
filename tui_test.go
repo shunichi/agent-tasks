@@ -3,11 +3,16 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 func TestCycleStatus(t *testing.T) {
 	want := []string{"todo", "in-progress", "blocked", "review", "done", ""}
@@ -292,6 +297,51 @@ func TestWrapDetailNoClip(t *testing.T) {
 		if dispWidth(line) > 40 {
 			t.Fatalf("折り返し後も行が幅を超える: dispWidth=%d line=%q", dispWidth(line), line)
 		}
+	}
+}
+
+// TestListUpdatedColumnNotFarRight は UPDATED が右端寄せでなくタイトル直後の桁にそろうこと
+// (広い端末で間延びしない = 0071) を確認する。
+func TestListUpdatedColumnNotFarRight(t *testing.T) {
+	const upd = "2026-07-01T10:00:00+09:00"
+	tasks := []Task{
+		{Project: "alpha", ID: "0001", Status: "todo", Title: "短い", Updated: upd},
+		{Project: "alpha", ID: "0002", Status: "todo", Title: "短2", Updated: upd},
+	}
+	m := &tuiModel{all: tasks, effProject: "alpha"}
+	m.applyFilter()
+	var model tea.Model = m
+	// リストのみモード (全幅) の広い端末。
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	out := model.View()
+	date := displayDate(upd)
+
+	found := false
+	for _, line := range strings.Split(out, "\n") {
+		plain := stripANSI(line)
+		idx := strings.Index(plain, date)
+		if idx < 0 {
+			continue
+		}
+		found = true
+		col := dispWidth(plain[:idx]) // 日付の開始桁
+		if col > 60 {
+			t.Fatalf("UPDATED が右端寄りで間延びしている (開始桁=%d, 幅=120): %q", col, plain)
+		}
+	}
+	if !found {
+		t.Fatal("UPDATED 日付を含む行が見つからない")
+	}
+}
+
+// TestSessionLabel はセッションラベルの分岐 (in-progress 以外は空 / マーカー未取得は ?) を確認する。
+func TestSessionLabel(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir()) // 実マーカーを読まない
+	if got := tuiSessionLabel(Task{Status: "todo"}); got != "" {
+		t.Fatalf("in-progress 以外は空のはず: got %q", got)
+	}
+	if got := tuiSessionLabel(Task{Status: "in-progress"}); got != "?" {
+		t.Fatalf("マーカー未取得は ? のはず: got %q", got)
 	}
 }
 

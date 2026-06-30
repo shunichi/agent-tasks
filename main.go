@@ -144,6 +144,10 @@ func dispatch(args []string) error {
 		return cmdCompletionValues(args)
 	case "alloc-id":
 		return cmdAllocID(args)
+	case "archive":
+		return cmdArchive(args)
+	case "unarchive":
+		return cmdUnarchive(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -166,11 +170,13 @@ USAGE:
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
   agent-tasks --recent [N]           最近完了したタスクを completed_at 降順で上位 N 件 (既定 10)
+  agent-tasks --archived             アーカイブ済みタスクだけを一覧 (通常は非表示。--recent と排他)
   agent-tasks tui                    一覧+詳細をインタラクティブに閲覧する常駐ビューワー (自動更新)。
                                      ↑↓で選択し右に詳細。a:done切替 s:status p:project r:更新 q:終了。
                                      --status/--project/--all-projects/--all/--interval を受ける (端末専用)
   agent-tasks --json                 一覧を JSON 配列で出力 (機械可読。既存フィルタと併用可)
-  agent-tasks show [<project>] <id> [--json]  1タスクの全文を表示 (--json で機械可読オブジェクト)
+  agent-tasks show [<project>] <id> [--archived] [--json]  1タスクの全文を表示 (--json で機械可読
+                                     オブジェクト。--archived でアーカイブ済みタスクを開く)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
                                      (未同期があれば exit 1。sync が要るかの確認に使う)
@@ -198,14 +204,18 @@ USAGE:
                                      この pane が実行中のタスクを 1 行表示 (--print-config で設定例を出力)
   agent-tasks completion bash|zsh    シェル補完スクリプトを stdout に出力
                                      (例: source <(agent-tasks completion bash))
-  agent-tasks completion-values projects|ids [--project <name>] [--with-title]
+  agent-tasks completion-values projects|ids [--project <name>] [--with-title] [--archived]
                                      動的補完の候補を1行ずつ出力 (補完スクリプトが内部で呼ぶ)。
                                      projects=ストアの project 一覧 / ids=その project の id 一覧。
-                                     ids に --with-title で "<id>\t<title>" 形式 (zsh の説明付き補完用)
+                                     ids に --with-title で "<id>\t<title>" 形式 (zsh の説明付き補完用)、
+                                     --archived でアーカイブ済みの id を列挙 (unarchive 補完用)
   agent-tasks alloc-id --slug <slug> [--project <name>] [--pull]
                                      タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks archive [<project>] <id>   タスクを <project>/archive/ へ退避 (削除しない)。通常の
+                                     list / -a / doctor に出なくなる。閲覧は list/show の --archived
+  agent-tasks unarchive [<project>] <id> アーカイブ済みタスクを通常ディレクトリへ戻す
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks version | --version | -V  ビルド元の commit + CalVer を表示 (タグ運用なし)
   agent-tasks help | -h | --help     このヘルプ
@@ -227,6 +237,7 @@ func cmdList(args []string) error {
 	var filterStatus, filterProject string
 	showAll := false
 	allProjects := false
+	archived := false
 	watch := false
 	jsonOut := false
 	recent := false
@@ -255,6 +266,8 @@ func cmdList(args []string) error {
 			showAll = true
 		case "--all-projects":
 			allProjects = true
+		case "--archived":
+			archived = true
 		case "--watch", "-w":
 			watch = true
 		case "--interval":
@@ -287,6 +300,10 @@ func cmdList(args []string) error {
 	if pos := s.rest(); len(pos) > 0 {
 		return usagef("unexpected argument: %s", pos[0])
 	}
+	// --recent は「最近完了したアクティブタスク」専用なので --archived とは併用しない。
+	if recent && archived {
+		return usagef("--recent と --archived は併用できません")
+	}
 
 	// --recent は done を completed_at 降順で上位 N 件。--json と併用可 (status フィルタは無視し done)。
 	if recent {
@@ -303,7 +320,7 @@ func cmdList(args []string) error {
 
 	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。
 	if jsonOut {
-		rows, _, _, err := selectTasks(filterStatus, filterProject, showAll, allProjects)
+		rows, _, _, err := selectTasks(filterStatus, filterProject, showAll, allProjects, archived)
 		if err != nil {
 			return err
 		}
@@ -312,26 +329,32 @@ func cmdList(args []string) error {
 
 	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
 	if watch && isTTY(os.Stdout) {
-		return watchList(filterStatus, filterProject, showAll, allProjects, interval)
+		return watchList(filterStatus, filterProject, showAll, allProjects, archived, interval)
 	}
-	return runList(os.Stdout, filterStatus, filterProject, showAll, allProjects)
+	return runList(os.Stdout, filterStatus, filterProject, showAll, allProjects, archived)
 }
 
 // selectTasks はストアを読み、list のスコープ/フラグで絞り込んだ行を返す
 // (テーブル出力と JSON 出力で共有)。effProject は実効 project スコープ
 // (空文字 = 横断)、current は現在 project (フッター注記の判定に使う)。
-func selectTasks(filterStatus, filterProject string, showAll, allProjects bool) (rows []Task, effProject, current string, err error) {
+func selectTasks(filterStatus, filterProject string, showAll, allProjects, archived bool) (rows []Task, effProject, current string, err error) {
 	current = currentProject()
 	effProject, _ = resolveListScope(filterProject, allProjects, current)
 
 	dir := storeDir()
-	tasks, err := loadTasks(dir)
+	var tasks []Task
+	if archived {
+		// アーカイブ表示: <project>/archive/ だけを読む (通常の一覧とは排他の専用ビュー)。
+		tasks, _, err = loadArchivedTasks(dir)
+	} else {
+		tasks, err = loadTasks(dir)
+	}
 	if err != nil {
 		return nil, effProject, current, fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
 
-	// 既定では done を隠す。--all 指定時、または --status で明示的に絞り込んだ時は隠さない。
-	hideDone := !showAll && filterStatus == ""
+	// 既定では done を隠す。--all 指定時、--status で絞った時、--archived (完全なアーカイブ閲覧) では隠さない。
+	hideDone := !archived && !showAll && filterStatus == ""
 	for _, t := range tasks {
 		if filterStatus != "" && t.Status != filterStatus {
 			continue
@@ -349,8 +372,8 @@ func selectTasks(filterStatus, filterProject string, showAll, allProjects bool) 
 
 // runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
 // ちらつかない上書き再描画に使う。
-func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects bool) error {
-	rows, effProject, current, err := selectTasks(filterStatus, filterProject, showAll, allProjects)
+func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects, archived bool) error {
+	rows, effProject, current, err := selectTasks(filterStatus, filterProject, showAll, allProjects, archived)
 	if err != nil {
 		return err
 	}
@@ -366,13 +389,17 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 	}
 
 	if len(rows) == 0 {
+		scopeNote := ""
+		if archived {
+			scopeNote = "アーカイブに"
+		}
 		if effProject != "" {
-			fmt.Fprintf(w, "該当タスクなし (project: %s, dir: %s)\n", effProject, dir)
+			fmt.Fprintf(w, "%s該当タスクなし (project: %s, dir: %s)\n", scopeNote, effProject, dir)
 			if defaulted {
 				fmt.Fprintln(w, "横断するには --all-projects、別 project は --project <name>")
 			}
 		} else {
-			fmt.Fprintf(w, "該当タスクなし (dir: %s)\n", dir)
+			fmt.Fprintf(w, "%s該当タスクなし (dir: %s)\n", scopeNote, dir)
 		}
 		return nil
 	}
@@ -429,6 +456,10 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 	case fellBack:
 		fmt.Fprintf(w, "%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
 	}
+	// アーカイブ閲覧中であることを明示する (通常の一覧と取り違えないように)。
+	if archived {
+		fmt.Fprintf(w, "%s(アーカイブ表示。通常の一覧には出ません。戻すには unarchive <id>)%s\n", c.dim, c.reset)
+	}
 	return nil
 }
 
@@ -438,7 +469,7 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 // ちらつき対策: 画面全消去 (\033[2J) はせず、1 フレームをバッファに組み立ててから
 // writeFrame で「カーソルを左上へ戻して上書き」する。全消去だと消去〜再描画の間に空白
 // フレームが見えてチカチカするため。
-func watchList(filterStatus, filterProject string, showAll, allProjects bool, interval time.Duration) error {
+func watchList(filterStatus, filterProject string, showAll, allProjects, archived bool, interval time.Duration) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
@@ -454,7 +485,7 @@ func watchList(filterStatus, filterProject string, showAll, allProjects bool, in
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
-		if err := runList(&buf, filterStatus, filterProject, showAll, allProjects); err != nil {
+		if err := runList(&buf, filterStatus, filterProject, showAll, allProjects, archived); err != nil {
 			fmt.Fprintf(&buf, "%serror: %v%s\n", c.block, err, c.reset)
 		}
 		writeFrame(buf.String())
@@ -530,14 +561,20 @@ func cmdDoctor(args []string) error {
 	if err != nil {
 		return fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
+	// アーカイブ済みも読み、重複 id 検査の対象に含める。番号は再利用しない方針なので、
+	// アクティブと退避済みで id が被っていないか (戻すときに衝突しないか) を点検する。
+	// 他の検査 (不一致 / 日時 / blocked / PR) は通常運用の対象であるアクティブのみに絞る。
+	archivedTasks, _, _ := loadArchivedTasks(dir)
 	if filterProject != "" {
 		tasks = slices.DeleteFunc(tasks, func(t Task) bool { return t.Project != filterProject })
+		archivedTasks = slices.DeleteFunc(archivedTasks, func(t Task) bool { return t.Project != filterProject })
 		failures = slices.DeleteFunc(failures, func(f LoadFailure) bool {
 			return filepath.Base(filepath.Dir(f.Path)) != filterProject
 		})
 	}
 
-	dups := findDuplicateIDs(tasks)
+	// 重複検査だけはアクティブ + アーカイブを合わせて見る (active を先に並べて Paths 順を安定させる)。
+	dups := findDuplicateIDs(append(slices.Clone(tasks), archivedTasks...))
 	mismatches := findIDMismatches(tasks)
 	tsIssues := findTimestampIssues(tasks)
 	blockedIssues := findBlockedIssues(tasks)
@@ -618,6 +655,7 @@ func cmdDoctor(args []string) error {
 func cmdShow(args []string) error {
 	// --json は機械可読出力。位置引数 (project/id) と分離してから解決する。
 	jsonOut := false
+	archived := false
 	s := newArgScan(args)
 	for {
 		a, ok := s.token()
@@ -627,6 +665,8 @@ func cmdShow(args []string) error {
 		switch a {
 		case "--json":
 			jsonOut = true
+		case "--archived":
+			archived = true
 		default:
 			s.positional(a)
 		}
@@ -635,7 +675,11 @@ func cmdShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := resolveTaskPath(project, id)
+	subdir := ""
+	if archived {
+		subdir = archiveDirName // アーカイブ済みタスクを <project>/archive/ から開く
+	}
+	path, err := resolveTaskPathIn(project, id, subdir)
 	if err != nil {
 		return err
 	}
@@ -644,6 +688,7 @@ func cmdShow(args []string) error {
 		if err != nil {
 			return err
 		}
+		t.Archived = archived // parseTask は印を付けないので、開いた場所 (--archived) を反映する
 		return writeTaskJSON(os.Stdout, t, time.Now())
 	}
 	data, err := os.ReadFile(path)
@@ -698,11 +743,20 @@ func resolveProjectID(args []string) (project, id string, err error) {
 // resolveTaskPath は <project>/<id>-*.md (なければ <id>.md) を1件解決する。
 // id は数値なら4桁ゼロ埋めに正規化してから照合するので `5` でも `0005` を指せる。
 func resolveTaskPath(project, id string) (string, error) {
+	return resolveTaskPathIn(project, id, "")
+}
+
+// resolveTaskPathIn は resolveTaskPath の subdir 指定版。subdir が空なら <project>/ 直下、
+// 非空なら <project>/<subdir>/ (アーカイブ閲覧用の "archive" 等) から1件解決する。
+func resolveTaskPathIn(project, id, subdir string) (string, error) {
 	id = normalizeID(id)
-	projDir := filepath.Join(storeDir(), project)
-	matches, _ := filepath.Glob(filepath.Join(projDir, id+"-*.md"))
+	dir := filepath.Join(storeDir(), project)
+	if subdir != "" {
+		dir = filepath.Join(dir, subdir)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, id+"-*.md"))
 	if len(matches) == 0 {
-		matches, _ = filepath.Glob(filepath.Join(projDir, id+".md"))
+		matches, _ = filepath.Glob(filepath.Join(dir, id+".md"))
 	}
 	if len(matches) == 0 {
 		return "", fmt.Errorf("見つかりません: %s / %s", project, id)

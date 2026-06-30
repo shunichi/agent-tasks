@@ -29,6 +29,15 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- タスクのアーカイブ機能を追加 (不要になったタスクを削除せず退避する)。
+  - `agent-tasks archive [<project>] <id>` でタスクを `<project>/archive/` へ退避。通常の
+    `list` / `-a` / `doctor` から外れる。`agent-tasks unarchive <id>` で元に戻す。
+  - `agent-tasks list --archived` / `agent-tasks show <id> --archived` で退避済みを閲覧
+    (`--json` にも `archived: true` が出る)。
+  - 採番 (`alloc-id`) はアーカイブ済みの番号も算入するので、退避した番号を再利用しない。
+  - `doctor` の id 重複検査はアクティブとアーカイブを横断して点検する。
+  - skill (`/agent-tasks`) に `archive` / `unarchive` 操作を追加。
+
 - worktree 撤去フック **`.worktree-post-remove`** と、それを呼ぶ **`agent-tasks worktree-remove <dir>`**
   を追加 (worktree-init / post-create の対)。`done` の worktree 撤去を `git worktree remove` から
   `worktree-remove` に置き換えると、撤去の直前に worktree 内で `.worktree-post-remove` が走り、

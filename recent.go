@@ -17,8 +17,8 @@ const recentDefaultN = 10
 // selectRecent は scope 内の done タスクのうち completed_at が妥当なものを
 // completed_at 降順 (同時刻は id 昇順) で最大 n 件返す。
 func selectRecent(filterProject string, allProjects bool, n int) ([]Task, error) {
-	// status=done に絞り、done を隠さない (showAll=true)。スコープは list と共通。
-	rows, _, _, err := selectTasks("done", filterProject, true, allProjects)
+	// status=done に絞り、done を隠さない (showAll=true)。スコープは list と共通。アーカイブは対象外。
+	rows, _, _, err := selectTasks("done", filterProject, true, allProjects, false)
 	if err != nil {
 		return nil, err
 	}

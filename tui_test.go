@@ -228,6 +228,66 @@ func TestDetailLayout(t *testing.T) {
 	}
 }
 
+// TestStartCommandFor は start コマンド文字列の生成規則を検証する。
+// 着手の意味がある todo / blocked のみ "start <id>" を返し、それ以外は ok=false。
+func TestStartCommandFor(t *testing.T) {
+	cases := []struct {
+		status string
+		wantOK bool
+	}{
+		{"todo", true}, {"blocked", true},
+		{"in-progress", false}, {"review", false}, {"done", false},
+	}
+	for _, c := range cases {
+		got, ok := startCommandFor(Task{ID: "0042", Status: c.status})
+		if ok != c.wantOK {
+			t.Errorf("status=%s: ok=%v want %v", c.status, ok, c.wantOK)
+		}
+		if ok && got != "start 0042" {
+			t.Errorf("status=%s: got %q want %q", c.status, got, "start 0042")
+		}
+	}
+}
+
+// TestCopyKeyFlash は c キーで「start <NNNN>」をコピーし、結果がヘッダに一時表示され、
+// 次のキー入力で消えること、in-progress では注意メッセージになることを検証する。
+func TestCopyKeyFlash(t *testing.T) {
+	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	press := func(s string) { model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}) }
+
+	// 先頭は alpha/0001 (todo)。c でコピー → フラッシュに start 0001。
+	mm := model.(*tuiModel)
+	if mm.cursor != 0 || mm.rows[0].Status != "todo" {
+		t.Fatalf("前提: 先頭が todo のはず (cursor=%d status=%s)", mm.cursor, mm.rows[0].Status)
+	}
+	press("c")
+	if !strings.Contains(model.(*tuiModel).flash, "start 0001") {
+		t.Fatalf("c で start 0001 のコピーがフラッシュされるはず: flash=%q", model.(*tuiModel).flash)
+	}
+	if !strings.Contains(model.View(), "start 0001") {
+		t.Fatal("ヘッダにコピー結果が出ていない")
+	}
+
+	// 次のキー入力でフラッシュは消える。
+	press("j")
+	if model.(*tuiModel).flash != "" {
+		t.Fatalf("次のキー入力でフラッシュが消えるはず: flash=%q", model.(*tuiModel).flash)
+	}
+
+	// 2 行目は alpha/0002 (in-progress)。c は start をコピーせず注意メッセージ。
+	cur := model.(*tuiModel)
+	if cur.rows[cur.cursor].Status != "in-progress" {
+		t.Fatalf("前提: 2 行目が in-progress のはず: %s", cur.rows[cur.cursor].Status)
+	}
+	press("c")
+	if f := model.(*tuiModel).flash; f == "" || strings.Contains(f, "start ") {
+		t.Fatalf("in-progress では start をコピーせず注意メッセージのはず: flash=%q", f)
+	}
+}
+
 // TestHelpToggle はヘルプの開閉と、ヘルプ表示中の挙動を検証する:
 // ? で開閉 / q・Esc で閉じる (終了しない) / 表示中は他キーが無効。
 func TestHelpToggle(t *testing.T) {

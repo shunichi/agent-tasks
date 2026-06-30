@@ -23,7 +23,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+### Changed
+
+- `list` / `--watch` の `TITLE` 列を端末幅で truncate するようにした。端末幅 (ioctl(TIOCGWINSZ)、
+  取れなければ `COLUMNS`) から他列の幅を引いた残りに収まるよう長い title を末尾 `…` で丸める。
+  watch (折返し OFF) で長い title が桁ずれ・前フレームの残骸を出していたのを防ぐ。端末幅が
+  取れない (パイプ等) ときは従来どおり truncate しない。
 
 ## 2026-06-30
 

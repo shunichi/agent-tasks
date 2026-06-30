@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -47,6 +48,21 @@ func colorEnabled(mode string) bool {
 // テストから差し替えられ、実 stdout の TTY 状態 (ターミナル実行か CI/パイプ経由か) に
 // テスト結果が左右されないようにする。
 var isStdoutTTY = func() bool { return isTTY(os.Stdout) }
+
+// terminalWidth は stdout の端末桁数を返す。取得できない (パイプ等で端末でない) ときは 0。
+// 優先順位: ioctl(TIOCGWINSZ) で実寸を取り、ダメなら COLUMNS 環境変数、いずれも無ければ 0。
+// 0 のときテーブルは TITLE を truncate しない (素のまま出す)。変数にしてテストから差し替え可能。
+var terminalWidth = func() int {
+	if w := ttyWidth(os.Stdout.Fd()); w > 0 {
+		return w
+	}
+	if v := strings.TrimSpace(os.Getenv("COLUMNS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
 
 func newColors() colors {
 	if !colorEnabled(colorMode) {
@@ -138,17 +154,28 @@ type cell struct {
 }
 
 type table struct {
-	headers []string
-	rows    [][]cell
+	headers  []string
+	rows     [][]cell
+	truncCol int // 端末幅に収めるため truncate する列 index。-1 で無効。
 }
 
 func newTable(headers ...string) *table {
-	return &table{headers: headers}
+	return &table{headers: headers, truncCol: -1}
+}
+
+// truncatable は端末幅に収まらないとき col 番目の列を残り幅で truncate するよう設定する
+// (他列の幅は維持)。端末幅が取れないときは何もしない。長い TITLE が watch (折返し OFF) で
+// 桁ずれ・残骸を出すのを防ぐ用途。
+func (t *table) truncatable(col int) *table {
+	t.truncCol = col
+	return t
 }
 
 func (t *table) add(cells ...cell) {
 	t.rows = append(t.rows, cells)
 }
+
+const tableGap = 2 // 列間の空白幅
 
 func (t *table) render(w io.Writer, c colors) {
 	n := len(t.headers)
@@ -164,7 +191,9 @@ func (t *table) render(w io.Writer, c colors) {
 		}
 	}
 
-	const gap = 2
+	const gap = tableGap
+	t.truncateColumn(widths, gap)
+
 	var b strings.Builder
 	// ヘッダ
 	for i, h := range t.headers {
@@ -183,6 +212,38 @@ func (t *table) render(w io.Writer, c colors) {
 		b.WriteByte('\n')
 	}
 	fmt.Fprint(w, b.String())
+}
+
+// truncateColumn は truncatable に指定された列を、端末幅に収まるよう残り幅で truncate する。
+// 端末幅が取れない (0) / 指定なし / 既に収まっているときは何もしない。widths を破壊的に縮め、
+// 対象列のヘッダと各行セルも truncate して、render 時のパディング計算と整合させる。
+func (t *table) truncateColumn(widths []int, gap int) {
+	col := t.truncCol
+	if col < 0 || col >= len(widths) {
+		return
+	}
+	tw := terminalWidth()
+	if tw <= 0 {
+		return
+	}
+	// 対象列以外の幅合計 + 列間ギャップ (n-1 個)。残りを対象列に割り当てる。
+	other := gap * (len(widths) - 1)
+	for i, wd := range widths {
+		if i != col {
+			other += wd
+		}
+	}
+	avail := tw - other
+	if avail < 1 || widths[col] <= avail {
+		return // 残り幅が無い / 既に収まっている
+	}
+	widths[col] = avail
+	t.headers[col] = truncateDisp(t.headers[col], avail)
+	for _, row := range t.rows {
+		if col < len(row) {
+			row[col].text = truncateDisp(row[col].text, avail)
+		}
+	}
 }
 
 // writePadded は color+text+reset を出力し、表示幅に合わせて空白で右詰めパディングする。

@@ -29,6 +29,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- タスクを GitHub issue として共有する機能を追加 (store → issue の一方向)。
+  - `agent-tasks issue [<project>] <id> [--repo owner/repo]` でタスクを issue として起票し、URL を
+    frontmatter `issue:` に記録する (CLI が記録するので手編集不要)。連携済みなら本文を更新する。
+  - 本文は frontmatter (内部メタ) を除いた Markdown 本文のみ。作成先 repo は `--repo` 明示が最優先、
+    省略時は cwd のコード repo を `gh` で推論 (project と食い違うときは取り違え防止で停止)。
+  - `show` の末尾と `--json` に issue を表示。`doctor` が `issue:` の URL 形式を検査。
+  - skill (`/agent-tasks`) に `issue` 操作、bash/zsh 補完も対応。`gh` (GitHub CLI) が必要。
+
 - `agent-tasks tui`: 一覧で選択中タスクの **`start task <NNNN>` をクリップボードへコピー**する `c` キーを
   追加 (任意の pane の claude に貼って着手できる)。コピーは OS のクリップボードコマンド
   (`wl-copy` / `xclip` / `xsel` / `pbcopy` / `clip.exe`) でシステムクリップボードへ直接書き、無い環境

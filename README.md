@@ -42,6 +42,7 @@ make install
 | 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
 | アーカイブ | 「0001 をアーカイブ」「/agent-tasks archive 0001」(削除せず退避。一覧から外す) |
 | アーカイブ解除 | 「0001 を戻して」「/agent-tasks unarchive 0001」 |
+| issue 共有 | 「0001 を issue にして」「/agent-tasks issue 0001」(GitHub issue として起票/更新。要 `gh`) |
 | worktree 設定の展開 | 「worktree 設定を入れて」「/agent-tasks scaffold」(firebase/rails を検出して雛形生成) |
 
 **並行開発**: 別々のエージェントセッションでそれぞれ別タスクを `start` すると、タスクごとに
@@ -62,6 +63,8 @@ agent-tasks show 0001            # 1 タスクの全文 (--archived で退避済
 agent-tasks edit 0001            # 1 タスクをエディタで開く
 agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ移動。一覧から外す)
 agent-tasks unarchive 0001       # 退避したタスクを元に戻す
+agent-tasks issue 0001           # タスクを GitHub issue として共有 (起票/本文更新。要 gh)
+agent-tasks issue 0001 --repo owner/repo  # 作成先 repo を明示 (省略時は cwd から推論)
 agent-tasks status               # ストアの未同期状態を1行表示
 agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks doctor               # id 重複・不整合を点検

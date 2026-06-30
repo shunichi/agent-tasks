@@ -20,6 +20,7 @@ type taskJSON struct {
 	Status        string   `json:"status"`
 	Agent         string   `json:"agent,omitempty"`
 	Session       string   `json:"session,omitempty"`
+	Issue         string   `json:"issue,omitempty"`
 	Branch        string   `json:"branch,omitempty"`
 	Worktree      string   `json:"worktree,omitempty"`
 	Created       string   `json:"created"`
@@ -41,7 +42,7 @@ type taskJSON struct {
 func toTaskJSON(t Task, now time.Time) taskJSON {
 	j := taskJSON{
 		ID: t.ID, Project: t.Project, Title: t.Title, Status: t.Status,
-		Agent: t.Agent, Session: t.Session, Branch: t.Branch, Worktree: t.Worktree,
+		Agent: t.Agent, Session: t.Session, Issue: t.Issue, Branch: t.Branch, Worktree: t.Worktree,
 		Created: t.Created, Updated: t.Updated,
 		StartedAt: t.StartedAt, CompletedAt: t.CompletedAt,
 		BlockedAt: t.BlockedAt, BlockedReason: t.BlockedReason,

@@ -148,6 +148,8 @@ func dispatch(args []string) error {
 		return cmdArchive(args)
 	case "unarchive":
 		return cmdUnarchive(args)
+	case "issue":
+		return cmdIssue(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -216,6 +218,9 @@ USAGE:
   agent-tasks archive [<project>] <id>   タスクを <project>/archive/ へ退避 (削除しない)。通常の
                                      list / -a / doctor に出なくなる。閲覧は list/show の --archived
   agent-tasks unarchive [<project>] <id> アーカイブ済みタスクを通常ディレクトリへ戻す
+  agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
+                                     (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
+                                     --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks version | --version | -V  ビルド元の commit + CalVer を表示 (タグ運用なし)
   agent-tasks help | -h | --help     このヘルプ
@@ -579,6 +584,7 @@ func cmdDoctor(args []string) error {
 	tsIssues := findTimestampIssues(tasks)
 	blockedIssues := findBlockedIssues(tasks)
 	prIssues := findPRIssues(tasks)
+	issueProbs := findIssueProblems(tasks)
 
 	c := newColors()
 	scope := "全 project"
@@ -586,7 +592,7 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(failures)
+	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(issueProbs) + len(failures)
 	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
@@ -637,8 +643,17 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, pi.Project, pi.ID, c.reset, pi.Detail, pi.Path)
 		}
 	}
-	if len(failures) > 0 {
+	if len(issueProbs) > 0 {
 		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%sissue URL の形式 (issue:):%s\n", c.bold, c.reset)
+		for _, ip := range issueProbs {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, ip.Project, ip.ID, c.reset, ip.Detail, ip.Path)
+		}
+	}
+	if len(failures) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s読めなかったファイル (一覧から無言で落ちる):%s\n", c.bold, c.reset)
@@ -647,8 +662,8 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / 読込失敗 %d)\n",
-		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(failures))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / issue %d / 読込失敗 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(issueProbs), len(failures))
 	return &silentExit{code: 1}
 }
 
@@ -701,6 +716,9 @@ func cmdShow(args []string) error {
 	// PR 一覧と、着手/完了が記録されていれば所要時間 (または経過) の要約を末尾に添える。
 	if t, err := parseTask(path); err == nil {
 		var footers []string
+		if s := issueSummary(t, c); s != "" {
+			footers = append(footers, s)
+		}
 		if s := prSummary(t, c); s != "" {
 			footers = append(footers, s)
 		}

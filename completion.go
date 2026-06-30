@@ -36,6 +36,7 @@ var completionSubcommands = []completionSubcommand{
 	{"doctor", "id 重複/不一致を点検"},
 	{"archive", "タスクを退避 (削除せず一覧から外す)"},
 	{"unarchive", "退避したタスクを元に戻す"},
+	{"issue", "タスクを GitHub issue として共有"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"statusline", "実行中タスクを status line に表示"},
@@ -271,8 +272,8 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|session-link|archive|unarchive)
-            if [[ "$cur" != -* && "$prev" != "--session" ]]; then
+        show|edit|session-link|archive|unarchive|issue)
+            if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
                 [[ "$sub" == "unarchive" ]] && idopt="--archived"
@@ -283,9 +284,9 @@ _agent_tasks() {
                     local w="${COMP_WORDS[j]}"
                     if (( skip )); then skip=0; continue; fi
                     case "$w" in
-                        "$sub")                       ;;  # サブコマンド自身
-                        --project|--session|--color)  skip=1 ;;  # フラグ値をスキップ
-                        -*)                           ;;
+                        "$sub")                              ;;  # サブコマンド自身
+                        --project|--session|--color|--repo)  skip=1 ;;  # フラグ値をスキップ
+                        -*)                                  ;;
                         *)                            pos+=("$w") ;;
                     esac
                 done
@@ -306,6 +307,7 @@ _agent_tasks() {
         show)              flags="--archived --json --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
+        issue)             flags="--repo --color --help" ;;
         doctor)            flags="--project --color --help" ;;
         sync)              flags="--no-push --push --color --help" ;;
         scaffold-worktree) flags="--list --dir --force --color --help" ;;
@@ -428,11 +430,13 @@ _agent_tasks() {
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit|archive|unarchive)
+        show|edit|archive|unarchive|issue)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then
                     _values 'option' '--archived[アーカイブ済みを開く]' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
+                elif [[ $sub == issue ]]; then
+                    _values 'option' '--repo[owner/repo を明示]' '--color[色出力]' '--help[ヘルプ]'
                 else
                     _values 'option' '--color[色出力]' '--help[ヘルプ]'
                 fi
@@ -446,7 +450,7 @@ _agent_tasks() {
                 for w in ${words[3,CURRENT-1]}; do
                     if (( skip )); then skip=0; continue; fi
                     case $w in
-                        --color) skip=1 ;;   # 値を取るフラグの値はスキップ
+                        --color|--repo) skip=1 ;;   # 値を取るフラグの値はスキップ
                         -*) ;;
                         *) pos+=$w ;;
                     esac

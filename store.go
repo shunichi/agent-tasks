@@ -29,6 +29,11 @@ type Task struct {
 	// エージェントのセッション URL) とは別フィールドに分け、PR はここに集約する。
 	PRs []string
 
+	// このタスクを共有するために起票した GitHub issue の URL (任意)。ストアは private で
+	// 人に見せづらいので、共有したいタスクだけ `agent-tasks issue` で起票し、その URL をここに
+	// 記録する (store → issue の一方向)。1 タスク 1 issue (共有用途には単一で足りる)。
+	Issue string
+
 	// 着手・完了の日時 (ISO8601)。created/updated と違い「いつ始めて終わったか」を
 	// 正確に追う/所要期間 (リードタイム) を出すための専用フィールド。
 	StartedAt   string // status を in-progress にした日時。初回着手を保持 (再 start で上書きしない)
@@ -400,6 +405,8 @@ func parseTask(path string) (Task, error) {
 			t.Agent = val
 		case "session":
 			t.Session = val
+		case "issue":
+			t.Issue = val
 		case "branch":
 			t.Branch = val
 		case "worktree":

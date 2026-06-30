@@ -99,20 +99,28 @@ func cmdCompletionValues(args []string) error {
 	case "ids":
 		project := ""
 		withTitle := false
-		for i := 0; i < len(rest); i++ {
-			switch rest[i] {
+		s := newArgScan(rest)
+		for {
+			a, ok := s.token()
+			if !ok {
+				break
+			}
+			switch a {
 			case "--project":
-				if i+1 >= len(rest) {
-					return usagef("--project requires a value")
+				v, err := s.value("--project")
+				if err != nil {
+					return err
 				}
-				i++
-				project = rest[i]
+				project = v
 			case "--with-title":
 				// 各 id にタブ区切りでタイトルを添える (zsh の説明付き補完用)。
 				withTitle = true
 			default:
-				return usagef("completion-values ids: unexpected argument %q", rest[i])
+				return usagef("completion-values ids: unexpected argument %q", a)
 			}
+		}
+		if pos := s.rest(); len(pos) > 0 {
+			return usagef("completion-values ids: unexpected argument %q", pos[0])
 		}
 		if project == "" {
 			project = currentProject()

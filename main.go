@@ -64,9 +64,15 @@ func main() {
 // 形式は --color=always と --color always の両対応。未指定なら auto。
 func extractColorFlag(args []string) (mode string, rest []string, err error) {
 	mode = "auto"
+loop:
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--":
+			// オプション終端。以降は `--` ごとサブコマンドへそのまま渡す (サブコマンド側の
+			// パーサが終端を解釈し、`--color` 等を奪わせない)。
+			rest = append(rest, args[i:]...)
+			break loop
 		case a == "--color":
 			if i+1 >= len(args) {
 				return "", nil, usagef("--color requires a value (always|auto|never)")
@@ -211,20 +217,25 @@ func cmdList(args []string) error {
 	recent := false
 	recentN := recentDefaultN
 	interval := 2 * time.Second
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch a {
 		case "--status":
-			if i+1 >= len(args) {
-				return usagef("--status requires a value")
+			v, err := s.value("--status")
+			if err != nil {
+				return err
 			}
-			i++
-			filterStatus = args[i]
+			filterStatus = v
 		case "--project":
-			if i+1 >= len(args) {
-				return usagef("--project requires a value")
+			v, err := s.value("--project")
+			if err != nil {
+				return err
 			}
-			i++
-			filterProject = args[i]
+			filterProject = v
 		case "--all", "-a":
 			showAll = true
 		case "--all-projects":
@@ -232,13 +243,13 @@ func cmdList(args []string) error {
 		case "--watch", "-w":
 			watch = true
 		case "--interval":
-			if i+1 >= len(args) {
-				return usagef("--interval requires a value (秒)")
+			v, err := s.value("--interval")
+			if err != nil {
+				return err
 			}
-			i++
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(v)
 			if err != nil || n <= 0 {
-				return usagef("--interval must be a positive integer (秒): %q", args[i])
+				return usagef("--interval must be a positive integer (秒): %q", v)
 			}
 			interval = time.Duration(n) * time.Second
 		case "--active":
@@ -248,15 +259,18 @@ func cmdList(args []string) error {
 		case "--recent":
 			// 最近完了 N 件。N は任意の数値引数 (省略時は既定)。次が正の整数なら N として取る。
 			recent = true
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
-					i++
+			if v, ok := s.peek(); ok {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					s.skip()
 					recentN = n
 				}
 			}
 		default:
-			return usagef("unknown option: %s", args[i])
+			return usagef("unknown option: %s", a)
 		}
+	}
+	if pos := s.rest(); len(pos) > 0 {
+		return usagef("unexpected argument: %s", pos[0])
 	}
 
 	// --recent は done を completed_at 降順で上位 N 件。--json と併用可 (status フィルタは無視し done)。
@@ -475,17 +489,25 @@ func overwriteFrame(frame string) string {
 // 問題が 1 件でもあれば silentExit{1} を返し、CI / prompt から検出できるようにする。
 func cmdDoctor(args []string) error {
 	var filterProject string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--project":
-			if i+1 >= len(args) {
-				return usagef("--project requires a value")
-			}
-			i++
-			filterProject = args[i]
-		default:
-			return usagef("unknown option: %s", args[i])
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
 		}
+		switch a {
+		case "--project":
+			v, err := s.value("--project")
+			if err != nil {
+				return err
+			}
+			filterProject = v
+		default:
+			return usagef("unknown option: %s", a)
+		}
+	}
+	if pos := s.rest(); len(pos) > 0 {
+		return usagef("unexpected argument: %s", pos[0])
 	}
 
 	dir := storeDir()
@@ -581,15 +603,20 @@ func cmdDoctor(args []string) error {
 func cmdShow(args []string) error {
 	// --json は機械可読出力。位置引数 (project/id) と分離してから解決する。
 	jsonOut := false
-	rest := args[:0:0]
-	for _, a := range args {
-		if a == "--json" {
-			jsonOut = true
-			continue
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
 		}
-		rest = append(rest, a)
+		switch a {
+		case "--json":
+			jsonOut = true
+		default:
+			s.positional(a)
+		}
 	}
-	project, id, err := resolveProjectID(rest)
+	project, id, err := resolveProjectID(s.rest())
 	if err != nil {
 		return err
 	}
@@ -670,12 +697,21 @@ func resolveTaskPath(project, id string) (string, error) {
 
 // cmdEdit はストア (引数なし) か1タスク (<id> / <project> <id>) をエディタで開く。
 func cmdEdit(args []string) error {
+	// フラグは無いが `--` (オプション終端) を解釈して位置引数だけを取り出す。
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		s.positional(a)
+	}
 	target := storeDir()
-	switch len(args) {
+	switch pos := s.rest(); len(pos) {
 	case 0:
 		// ストアのルートを開く
 	default:
-		project, id, err := resolveProjectID(args)
+		project, id, err := resolveProjectID(pos)
 		if err != nil {
 			return err
 		}

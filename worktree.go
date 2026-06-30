@@ -20,21 +20,29 @@ import (
 // (spawn の親と子の start が両方呼んでも 1 回だけ走る)。--force で再実行できる。
 func cmdWorktreeInit(args []string) error {
 	force := false
-	var dirArg string
-	for _, a := range args {
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
 		switch {
 		case a == "--force":
 			force = true
 		case strings.HasPrefix(a, "-"):
 			return usagef("unknown option: %s", a)
-		case dirArg == "":
-			dirArg = a
 		default:
-			return usagef("worktree-init は <worktree-dir> を1つだけ取る")
+			s.positional(a)
 		}
 	}
-	if dirArg == "" {
+	var dirArg string
+	switch pos := s.rest(); len(pos) {
+	case 0:
 		return usagef("worktree-init は <worktree-dir> が必要")
+	case 1:
+		dirArg = pos[0]
+	default:
+		return usagef("worktree-init は <worktree-dir> を1つだけ取る")
 	}
 
 	worktreeDir, err := filepath.Abs(dirArg)

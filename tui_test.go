@@ -148,6 +148,95 @@ func TestViewDoesNotPanic(t *testing.T) {
 	}
 }
 
+// TestDetailToggleAndQuit は仕様: 起動直後はリストのみ / Enter で詳細表示 /
+// 詳細表示中の q・Esc は詳細を閉じる / リストのみでの q・Esc は終了、を検証する。
+func TestDetailToggleAndQuit(t *testing.T) {
+	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	if model.(*tuiModel).showDetail {
+		t.Fatal("起動直後は詳細非表示のはず")
+	}
+
+	// リストのみで q → 終了コマンド (QuitMsg)。
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if cmd == nil {
+		t.Fatal("リストのみでの q は終了コマンドを返すはず")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q が QuitMsg を返していない")
+	}
+
+	// Enter → 詳細表示。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.(*tuiModel).showDetail {
+		t.Fatal("Enter で詳細表示になるはず")
+	}
+
+	// 詳細表示中の Esc → 詳細を閉じる (終了しない)。
+	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.(*tuiModel).showDetail {
+		t.Fatal("詳細表示中の Esc は詳細を閉じるはず")
+	}
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("詳細を閉じるだけで終了してはいけない")
+		}
+	}
+
+	// 閉じた後の q → 今度は終了。
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if cmd == nil {
+		t.Fatal("詳細を閉じた後の q は終了コマンドを返すはず")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q が QuitMsg を返していない (詳細クローズ後)")
+	}
+}
+
+// TestLayoutOrientation は分割の向きを検証する: 広い端末は横分割 (詳細を右、
+// リストはタイトルに応じて広がる)、狭い/縦長端末は縦分割 (詳細を下)。
+func TestLayoutOrientation(t *testing.T) {
+	tasks := append(mkTasks(), Task{Project: "alpha", ID: "0009", Status: "todo",
+		Title: strings.Repeat("長い", 30)}) // 横幅を要求する長いタイトル
+
+	// 広い端末: 横分割。リストは固定上限ではなく内容に応じて広がり、詳細にも幅が残る。
+	wide := &tuiModel{all: tasks, effProject: ""}
+	wide.applyFilter()
+	var wm tea.Model = wide
+	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	wm, _ = wm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	w := wm.(*tuiModel)
+	if w.vertical {
+		t.Fatal("広い端末では横分割のはず")
+	}
+	if w.leftW <= 64 {
+		t.Fatalf("広い端末では旧固定上限 64 を超えて広がるはず: leftW=%d", w.leftW)
+	}
+	if w.vp.Width < 36 {
+		t.Fatalf("詳細ペインに最小幅が残っていない: vpW=%d", w.vp.Width)
+	}
+
+	// 狭い/縦長端末: 縦分割 (詳細を下)。リストは全幅、詳細は下に高さを持つ。
+	narrow := &tuiModel{all: tasks, effProject: ""}
+	narrow.applyFilter()
+	var nm tea.Model = narrow
+	nm, _ = nm.Update(tea.WindowSizeMsg{Width: 70, Height: 50})
+	nm, _ = nm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	n := nm.(*tuiModel)
+	if !n.vertical {
+		t.Fatal("狭い端末では縦分割 (詳細を下) のはず")
+	}
+	if n.leftW != 70 {
+		t.Fatalf("縦分割ではリストが全幅のはず: leftW=%d", n.leftW)
+	}
+	if n.vp.Height < 1 || n.listH < 1 || n.listH+n.vp.Height >= 50 {
+		t.Fatalf("縦分割の高さ配分が不正: listH=%d vpH=%d", n.listH, n.vp.Height)
+	}
+}
+
 func writeTaskFile(t *testing.T, dir, project, name, body string) string {
 	t.Helper()
 	pd := filepath.Join(dir, project)

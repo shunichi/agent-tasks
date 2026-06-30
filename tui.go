@@ -104,17 +104,19 @@ type tuiModel struct {
 	all  []Task // ストア全タスク (project/id 昇順)
 	rows []Task // フィルタ適用後の表示行
 
-	cursor  int // rows のインデックス
-	top     int // 一覧のスクロール先頭 (表示窓の先頭行)
-	listH   int // 一覧ペインの表示行数 (レイアウトで更新)
-	leftW   int // 一覧ペインの桁幅 (レイアウトで更新)
-	vp      viewport.Model
-	ready   bool
-	width   int
-	height  int
-	sig     uint64    // ストアの変更検知シグネチャ
-	updated time.Time // 最終再読込時刻
-	loadErr error
+	cursor     int  // rows のインデックス
+	top        int  // 一覧のスクロール先頭 (表示窓の先頭行)
+	listH      int  // 一覧ペインの表示行数 (レイアウトで更新)
+	leftW      int  // 一覧ペインの桁幅 (レイアウトで更新)
+	showDetail bool // 詳細ペインを表示中か (起動直後は false = リストのみ。Enter で表示)
+	vertical   bool // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
+	vp         viewport.Model
+	ready      bool
+	width      int
+	height     int
+	sig        uint64    // ストアの変更検知シグネチャ
+	updated    time.Time // 最終再読込時刻
+	loadErr    error
 }
 
 type tuiTickMsg time.Time
@@ -245,8 +247,24 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "ctrl+c":
 			return m, tea.Quit
+		case "q", "esc":
+			// 詳細表示中なら詳細を閉じてリストへ戻る。リストのみなら終了する。
+			if m.showDetail {
+				m.showDetail = false
+				m.layout()
+				return m, nil
+			}
+			return m, tea.Quit
+		case "enter":
+			// 選択中タスクの詳細を右に表示する。
+			if len(m.rows) > 0 {
+				m.showDetail = true
+				m.layout()
+				m.syncDetail()
+			}
+			return m, nil
 		case "up", "k":
 			m.cursor--
 			m.clampCursor()
@@ -309,9 +327,19 @@ func (m *tuiModel) View() string {
 	if !m.ready {
 		return "起動中…"
 	}
-	left := m.renderList()
-	sep := tuiSepStyle.Height(m.listH).Render(strings.Repeat("│\n", m.listH))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, m.vp.View())
+	var body string
+	switch {
+	case !m.showDetail:
+		body = m.renderList() // リストのみ (全面)
+	case m.vertical:
+		// 縦分割: 一覧 (上) / 区切り線 / 詳細 (下)。tig の縦長レイアウトと同じ向き。
+		sep := tuiSepStyle.Render(strings.Repeat("─", max1(m.width)))
+		body = lipgloss.JoinVertical(lipgloss.Left, m.renderList(), sep, m.vp.View())
+	default:
+		// 横分割: 一覧 (左) / 区切り線 / 詳細 (右)。
+		sep := tuiSepStyle.Height(m.listH).Render(strings.Repeat("│\n", m.listH))
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(), sep, m.vp.View())
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderFooter())
 }
 
@@ -322,24 +350,52 @@ func (m *tuiModel) layout() {
 	if contentH < 1 {
 		contentH = 1
 	}
+
+	// 詳細を出していないときは一覧がウィンドウ全面を使う。
+	if !m.showDetail {
+		m.leftW = max1(m.width)
+		m.listH = contentH
+		m.fixScroll()
+		return
+	}
+
+	// 分割の向き: 横に十分な幅があれば横分割 (詳細を右)、狭ければ縦分割 (詳細を下、tig 風)。
+	m.vertical = m.width < tuiSplitMinWidth
+
+	if m.vertical {
+		// 縦分割: 一覧を上、詳細を下に積む。間に区切り線 1 行。
+		m.leftW = max1(m.width)
+		listH := clampInt(contentH*2/5, 3, contentH-4)
+		if listH < 1 {
+			listH = 1
+		}
+		m.listH = listH
+		m.vp.Width = max1(m.width)
+		m.vp.Height = max1(contentH - listH - 1)
+		m.fixScroll()
+		return
+	}
+
+	// 横分割: リストはタイトルが収まる「自然幅」まで広げ、固定上限で頭打ちにしない
+	// (十分な幅があるのにタイトルが切れるのを防ぐ)。ただし詳細側に最低限の幅は確保する。
 	m.listH = contentH
-
-	leftW := m.width * 2 / 5
-	leftW = clampInt(leftW, 24, 64)
-	if leftW > m.width-12 {
-		leftW = m.width - 12
-	}
-	if leftW < 1 {
-		leftW = 1
-	}
-	m.leftW = leftW
-
-	rightW := m.width - leftW - 3 // セパレータ "│" + 前後の余白
-	if rightW < 1 {
-		rightW = 1
-	}
-	m.vp.Width = rightW
+	natural := m.listNaturalWidth()
+	minDetail := clampInt(m.width/3, 36, 64) // 詳細ペインに残す最小幅
+	upper := clampInt(m.width-3-minDetail, 24, m.width)
+	m.leftW = clampInt(natural, 24, upper)
+	m.vp.Width = max1(m.width - m.leftW - 3) // セパレータ "│" + 前後の余白
 	m.vp.Height = contentH
+	m.fixScroll()
+}
+
+// tuiSplitMinWidth はこれ未満の幅では縦分割 (詳細を下) にする閾値。
+const tuiSplitMinWidth = 100
+
+func max1(v int) int {
+	if v < 1 {
+		return 1
+	}
+	return v
 }
 
 func clampInt(v, lo, hi int) int {
@@ -402,7 +458,12 @@ func (m *tuiModel) renderHeader() string {
 }
 
 func (m *tuiModel) renderFooter() string {
-	keys := "↑↓/jk 選択  PgUp/PgDn 詳細  a done  s status  p project  r 更新  q 終了"
+	var keys string
+	if m.showDetail {
+		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  a done  s status  p project  r 更新  q/Esc 詳細を閉じる"
+	} else {
+		keys = "↑↓/jk 選択  Enter 詳細  a done  s status  p project  r 更新  q/Esc 終了"
+	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
 }
 
@@ -417,23 +478,17 @@ func (m *tuiModel) renderList() string {
 		return lipgloss.NewStyle().Width(w).Height(m.listH).Render(tuiDimStyle.Render(msg))
 	}
 
-	cross := m.effProject == ""
-	projW := 0
-	if cross {
-		for _, t := range m.rows {
-			if dw := dispWidth(t.Project); dw > projW {
-				projW = dw
-			}
-		}
-		projW = clampInt(projW, 0, 16)
+	cross, projW, fixed := m.listCols()
+	// 右端に UPDATED 列を出す (幅が足りなければ諦めて title を優先)。
+	rightCol := 0
+	if updW := m.updatedColWidth(); updW > 0 {
+		rightCol = updW + 2 // title との最小余白
 	}
-	// 行構成: "❯ " + [project] + id(4) + " " + status(11) + " " + title
-	const idW, stW = 4, 11
-	fixed := 2 + idW + 1 + stW + 1
-	if cross {
-		fixed += projW + 1
+	titleW := w - fixed - rightCol
+	if titleW < 4 {
+		titleW = w - fixed
+		rightCol = 0
 	}
-	titleW := w - fixed
 	if titleW < 4 {
 		titleW = 4
 	}
@@ -456,23 +511,88 @@ func (m *tuiModel) renderList() string {
 			line.WriteString(tuiDimStyle.Render(padDisp(t.Project, projW)))
 			line.WriteByte(' ')
 		}
-		line.WriteString(tuiDimStyle.Render(fmt.Sprintf("%-*s", idW, t.ID)))
+		line.WriteString(tuiDimStyle.Render(fmt.Sprintf("%-*s", tuiIDColW, t.ID)))
 		line.WriteByte(' ')
-		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", stW, t.Status)))
+		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", tuiStatusColW, t.Status)))
 		line.WriteByte(' ')
 
-		title := tuiListTitle(t)
-		title = truncateDisp(title, titleW)
+		title := truncateDisp(tuiListTitle(t), titleW)
+		titleDisp := dispWidth(title)
 		if selected {
 			title = tuiBoldStyle.Render(title)
 		}
 		line.WriteString(title)
+
+		// UPDATED を右端へ寄せる: title の後ろを空白で埋め、updated を置く。
+		if rightCol > 0 {
+			upd := displayDate(t.Updated)
+			pad := w - fixed - titleDisp - dispWidth(upd)
+			if pad < 1 {
+				pad = 1
+			}
+			line.WriteString(strings.Repeat(" ", pad))
+			line.WriteString(tuiDimStyle.Render(upd))
+		}
 		b.WriteString(line.String())
 		if i < end-1 {
 			b.WriteByte('\n')
 		}
 	}
 	return lipgloss.NewStyle().Width(w).Height(m.listH).MaxHeight(m.listH).Render(b.String())
+}
+
+// 一覧の固定列幅 (ポインタ/id/status)。renderList と幅計算 (listCols) で共有する。
+const (
+	tuiIDColW     = 4
+	tuiStatusColW = 11
+)
+
+// listCols は一覧の列構成を返す。cross は横断表示か (= project 列を出すか)、
+// projW は project 列幅、fixed は title より前の固定幅 (ポインタ + [project] + id + status + 余白)。
+func (m *tuiModel) listCols() (cross bool, projW, fixed int) {
+	cross = m.effProject == ""
+	if cross {
+		for _, t := range m.rows {
+			if dw := dispWidth(t.Project); dw > projW {
+				projW = dw
+			}
+		}
+		projW = clampInt(projW, 0, 16)
+	}
+	// 行構成: "❯ " + [project] + id + " " + status + " " + title
+	fixed = 2 + tuiIDColW + 1 + tuiStatusColW + 1
+	if cross {
+		fixed += projW + 1
+	}
+	return
+}
+
+// updatedColWidth は UPDATED 列の表示幅 (行中の最大)。行が無ければ 0。
+func (m *tuiModel) updatedColWidth() int {
+	mx := 0
+	for _, t := range m.rows {
+		if dw := dispWidth(displayDate(t.Updated)); dw > mx {
+			mx = dw
+		}
+	}
+	return mx
+}
+
+// listNaturalWidth は全タイトルが切れずに収まる一覧の理想幅。横分割でリスト幅を
+// ここまで広げ、固定上限による不要な truncate を避ける (layout で使う)。
+func (m *tuiModel) listNaturalWidth() int {
+	_, _, fixed := m.listCols()
+	maxTitle := 0
+	for _, t := range m.rows {
+		if dw := dispWidth(tuiListTitle(t)); dw > maxTitle {
+			maxTitle = dw
+		}
+	}
+	w := fixed + maxTitle
+	if upd := m.updatedColWidth(); upd > 0 {
+		w += upd + 2
+	}
+	return w
 }
 
 // tuiListTitle は一覧に出すタイトル。in-progress でセッション状態が分かれば

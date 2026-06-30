@@ -150,7 +150,7 @@ func dispatch(args []string) error {
 	}
 }
 
-func usage(w *os.File) {
+func usage(w io.Writer) {
 	fmt.Fprint(w, `agent-tasks — エージェント開発タスクの横断ビュー
 
 USAGE:

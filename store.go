@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -62,21 +61,13 @@ func storeDir() string {
 // の中で実行されても、その basename (<project>--<NNNN>) ではなくメイン repo 名
 // (<project>) を返すため。タスク登録時に記録される project キーと一致させる。
 func currentProject() string {
-	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	// git root の解決は mainRepoOf に集約 (worktree.go)。現在 project はその root の basename。
+	// git 外などで解決できないときは "" を返し、呼び出し側が横断にフォールバックする契約。
+	root, err := mainRepoOf(".")
 	if err != nil {
 		return ""
 	}
-	commonDir := strings.TrimSpace(string(out))
-	if commonDir == "" {
-		return ""
-	}
-	if !filepath.IsAbs(commonDir) {
-		if wd, err := os.Getwd(); err == nil {
-			commonDir = filepath.Join(wd, commonDir)
-		}
-	}
-	// commonDir はメイン作業ツリーの .git を指す。その親 = メイン repo root。
-	return filepath.Base(filepath.Dir(commonDir))
+	return filepath.Base(root)
 }
 
 // resolveListScope は list の project フィルタ対象と横断フラグを決める。

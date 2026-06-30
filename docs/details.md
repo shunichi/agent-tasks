@@ -27,6 +27,7 @@ agent-tasks status               # ストアの未同期状態 (未コミット/
 agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks sync --no-push       # commit まで (push しない)
 agent-tasks worktree-init ../foo--0001 # worktree 作成後フック (start/spawn が自動で呼ぶ)
+agent-tasks worktree-remove ../foo--0001 # worktree 撤去フック + git worktree remove (done が呼ぶ。--force/--hook-only)
 agent-tasks scaffold-worktree    # worktree 設定の雛形を生成 (stack 自動検出。--list/--dir/--force)
 agent-tasks scaffold-worktree rails --print # 書き出さず stdout にプレビュー (--dry-run も可)
 agent-tasks doctor               # id 重複と id/ファイル名不一致を点検 (既定は全 project 横断)
@@ -76,26 +77,36 @@ ahead/behind を1行で表示する (例: `未コミット 3 ファイル / 未 
 CLI 側の検査が漏れの防御線になる。問題があれば終了コード 1 を返すので、CI や着手前チェックに使える。
 既定は全 project を横断し、`--project <name>` で 1 project に絞れる。
 
-## worktree 作成後フック
+## worktree 作成後フック / 撤去フック
 
 start は worktree を作ったあと `agent-tasks worktree-init` を呼び、環境の干渉 (worktree に `.env` も
-`node_modules` も無い問題) を解消する。コードリポジトリ root に置いた 2 ファイルを参照する
-(両方任意・無ければ no-op):
+`node_modules` も無い問題) を解消する。done は撤去時に `agent-tasks worktree-remove` を呼び、撤去の
+直前に後始末してから `git worktree remove` する。どちらもコードリポジトリ root に置いた次のファイルを
+参照する (すべて任意・無ければ no-op):
 
 - `.worktreeinclude` — コピーする gitignored ファイル (`.gitignore` 構文。Claude Code の `--worktree` と
   同名・互換)。tracked ファイルは複製しない。
 - `.worktree-post-create` — worktree 内で実行するスクリプト (依存インストール / ポート分離 / DB 準備など)。
   `AGENT_TASKS_WORKTREE` / `AGENT_TASKS_MAIN` / `AGENT_TASKS_PROJECT` が渡る。
+- `.worktree-post-remove` — post-create の**対**。`worktree-remove` が撤去の直前 (worktree がまだ在る
+  うち) に worktree 内で実行する。post-create が worktree ごとに作った外部副作用 (worktree 固有 DB /
+  puma-dev 登録など) の後始末を書く。渡る env は post-create と同じなので、同じ決定的オフセットで DB 名
+  などを再計算して落とせる (CONFIG・導出は post-create と揃える)。
 
 コピーは既存を上書きせず、post-create は worktree ごとに一度だけ実行する (冪等。`--force` で再実行)。
+post-remove はマーカーを持たず撤去のたびに 1 度走る。`worktree-remove` は cwd が対象 worktree 内なら
+中止し、`git worktree remove` が未コミット変更で失敗したらエラーを返す (意図的に捨てるなら `--force`、
+フックだけ流すなら `--hook-only`)。
 
-この 2 ファイルの雛形は **`agent-tasks scaffold-worktree [stack]`** でスタック別に生成できる
+この 3 ファイルの雛形は **`agent-tasks scaffold-worktree [stack]`** でスタック別に生成できる
 (firebase / rails 同梱。stack 省略で自動検出、`--list` で一覧、`--print`/`--dry-run` で書き出さず
 stdout にプレビュー)。テンプレはバイナリに同梱しており、スタックを増やすには
-`templates/<stack>/{worktreeinclude,post-create}` を足すだけ。例えば firebase なら emulator ポートを
-worktree ごとに一意化する post-create が入る。rails テンプレは実運用を想定した CONFIG 切り替え式
+`templates/<stack>/{worktreeinclude,post-create,post-remove}` を足すだけ。例えば firebase なら emulator
+ポートを worktree ごとに一意化する post-create が入る (副作用は worktree 内で完結するため post-remove は
+ほぼ no-op)。rails テンプレは実運用を想定した CONFIG 切り替え式
 (`DOTENV_TARGET`: `.env.local` か `.env` 追記 / `DB_MODE`: 空スキーマか dev DB 複製 /
-`SERVER_MODE`: PORT env か puma-dev) で、pnpm 検出・Redis DB 分離・マルチテナント host のレシピを含む。
+`SERVER_MODE`: PORT env か puma-dev) で、pnpm 検出・Redis DB 分離・マルチテナント host のレシピを含み、
+post-remove は同じ命名で `dropdb` / `pdl unlink` する。
 
 ## セッション状態 (working / waiting) の表示
 

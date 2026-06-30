@@ -76,6 +76,108 @@ func cmdWorktreeInit(args []string) error {
 	return nil
 }
 
+// cmdWorktreeRemove は done が worktree を撤去するときに呼ぶ「撤去フック付き remove」。
+// worktree-init (作成後フック) と対。git worktree remove の直前に、worktree がまだ
+// 在るうちにメイン repo の .worktree-post-remove を実行して後始末させ
+// (post-create が作った worktree 固有 DB / puma-dev 登録などの孤児化を防ぐ)、
+// そのあと git worktree remove で撤去する。フックが無ければ撤去だけ行う (no-op フック)。
+//
+// 安全策: 自分の cwd が撤去対象 worktree の中にあると、撤去で足元が消えて以降のプロセス/
+// フックが壊れる。その場合は撤去せずエラーにする (メインリポ root から実行させる)。
+func cmdWorktreeRemove(args []string) error {
+	force, hookOnly := false, false
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch {
+		case a == "--force":
+			force = true
+		case a == "--hook-only":
+			hookOnly = true
+		case strings.HasPrefix(a, "-"):
+			return usagef("unknown option: %s", a)
+		default:
+			s.positional(a)
+		}
+	}
+	var dirArg string
+	switch pos := s.rest(); len(pos) {
+	case 0:
+		return usagef("worktree-remove は <worktree-dir> が必要")
+	case 1:
+		dirArg = pos[0]
+	default:
+		return usagef("worktree-remove は <worktree-dir> を1つだけ取る")
+	}
+
+	worktreeDir, err := filepath.Abs(dirArg)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Stat(worktreeDir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("worktree ディレクトリがありません: %s", worktreeDir)
+	}
+	if cwdInside(worktreeDir) {
+		return fmt.Errorf("cwd が撤去対象 worktree の中にあります (%s)。メインリポ root から実行してください", worktreeDir)
+	}
+	mainRepo, err := mainRepoOf(worktreeDir)
+	if err != nil {
+		return fmt.Errorf("%s のメイン repo を特定できません (git worktree ですか): %w", worktreeDir, err)
+	}
+
+	// 撤去前フック (worktree がまだ在るうちに実行し、DB 名等を引けるようにする)。
+	ran, err := runPostRemove(mainRepo, worktreeDir)
+	if err != nil {
+		if !force {
+			return fmt.Errorf(".worktree-post-remove に失敗 (撤去を中止。後始末を確認のうえ再実行するか --force): %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "warning: .worktree-post-remove に失敗しましたが --force のため撤去を続行: %v\n", err)
+	}
+
+	if hookOnly {
+		if !ran {
+			fmt.Println("worktree-remove: .worktree-post-remove が無いため何もしません (--hook-only)")
+		}
+		return nil
+	}
+
+	gitArgs := []string{"-C", mainRepo, "worktree", "remove"}
+	if force {
+		gitArgs = append(gitArgs, "--force")
+	}
+	gitArgs = append(gitArgs, worktreeDir)
+	cmd := exec.Command("git", gitArgs...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git worktree remove に失敗 (未コミット変更が残っているなら確認のうえ --force): %w", err)
+	}
+	fmt.Printf("removed worktree: %s\n", worktreeDir)
+	return nil
+}
+
+// cwdInside は現在の作業ディレクトリが dir 配下 (dir 自身を含む) にあるかを返す。
+// /tmp -> /private/tmp のような symlink 差で誤判定しないよう両側を解決してから比べる。
+func cwdInside(dir string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	rel, err := filepath.Rel(dir, cwd)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
 // mainRepoOf は worktree からメイン作業ツリーの root を返す。
 // git-common-dir はリンク worktree でもメイン repo の .git を指すので、その親が root。
 func mainRepoOf(worktreeDir string) (string, error) {
@@ -294,6 +396,41 @@ func runPostCreate(mainRepo, worktreeDir string, force bool) (bool, error) {
 		}
 	} else {
 		fmt.Fprintln(os.Stderr, "warning: worktree の git dir を特定できず post-create マーカーを記録できません — 次回も再実行されます")
+	}
+	return true, nil
+}
+
+// runPostRemove はメイン repo の .worktree-post-remove を worktree 内で実行する。
+// runPostCreate と対称だが、撤去直前に 1 度だけ走るので二重実行ガード (マーカー) は無い。
+// 渡す env は post-create と揃える (AGENT_TASKS_WORKTREE / _MAIN / _PROJECT) ので、
+// post-create と同じ決定的オフセットで DB 名などを再計算して後始末できる。
+// スクリプトが無ければ false を返す (no-op)。実行ビットがあれば直接、無ければ sh で実行する。
+func runPostRemove(mainRepo, worktreeDir string) (bool, error) {
+	hook := filepath.Join(mainRepo, ".worktree-post-remove")
+	info, err := os.Stat(hook)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	var cmd *exec.Cmd
+	if info.Mode().Perm()&0o111 != 0 {
+		cmd = exec.Command(hook)
+	} else {
+		cmd = exec.Command("sh", hook)
+	}
+	cmd.Dir = worktreeDir
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(),
+		"AGENT_TASKS_WORKTREE="+worktreeDir,
+		"AGENT_TASKS_MAIN="+mainRepo,
+		"AGENT_TASKS_PROJECT="+filepath.Base(mainRepo),
+	)
+	fmt.Printf("post-remove: %s を実行 (cwd: %s)\n", hook, worktreeDir)
+	if err := cmd.Run(); err != nil {
+		return true, err
 	}
 	return true, nil
 }

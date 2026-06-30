@@ -21,7 +21,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   tui.go                        # tui: 一覧+詳細のインタラクティブ閲覧 (Bubble Tea。mtime ポーリングで自動更新)
   version.go                     # version: ビルド埋め込みの VCS 情報 (commit+CalVer) を表示 (手動 bump なし)
   render.go                     # 色付け + CJK 幅対応のテーブル描画
-  worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)
+  worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行) / worktree-remove: 撤去フック (post-remove 実行 + git worktree remove)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
   statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
@@ -30,7 +30,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
   prs.go                        # prs: PR URL リスト: show の PR 一覧サマリ + doctor の URL 形式チェック
-  templates/<stack>/            # firebase/rails の worktreeinclude + post-create (バイナリに同梱)
+  templates/<stack>/            # firebase/rails の worktreeinclude + post-create + post-remove (バイナリに同梱)
   *_test.go                     # テスト (store/worktree/scaffold/session/blocked/datetime/timestamps/completion)
   Makefile                      # build / install / link / install-completions / test / fmt / vet
   bin/agent-tasks               # ビルド成果物 (gitignore)
@@ -76,9 +76,11 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - **並行開発**: `/agent-tasks start <id>` がタスクごとに
   `git worktree add ../<project>--<NNNN> -b task/<NNNN>-<slug>` を作る。別セッションで start すれば
   衝突なく同時進行。二重着手は status=in-progress + session でガード。
-- **worktree 作成後フック**: start/spawn は worktree 作成後に `agent-tasks worktree-init <dir>` を呼ぶ。
-  コードリポジトリ root の `.worktreeinclude` (gitignored ファイルをコピー。Claude Code 互換) と
-  `.worktree-post-create` (worktree 内で実行するセットアップスクリプト) を参照する汎用機構。
+- **worktree 作成後フック / 撤去フック**: start/spawn は worktree 作成後に `agent-tasks worktree-init <dir>`、
+  done は撤去時に `agent-tasks worktree-remove <dir>` を呼ぶ。コードリポジトリ root の `.worktreeinclude`
+  (gitignored ファイルをコピー。Claude Code 互換) と `.worktree-post-create` (作成後に worktree 内で実行)、
+  対の `.worktree-post-remove` (撤去直前に worktree 内で実行し、worktree 固有 DB / puma-dev 登録などを
+  後始末) を参照する汎用機構。worktree-remove は cwd が対象 worktree 内なら中止する安全策付き。
   スタック固有 (firebase/rails) の設定**生成**は別タスク (store の agent-tasks/0017) で、本機構は実行のみ。
 
 ## Go の方針

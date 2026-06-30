@@ -166,6 +166,8 @@ else
 fi
 
 # ---- teardown について ----
-# done で worktree を撤去すると、ここで作った DB / Redis DB / puma-dev 登録が孤児化する。
-# 撤去側のフック (.worktree-post-remove 相当) は別途整備予定。今は手動で後始末する:
-#   dropdb "$dev_db" ; (puma-dev) pdl unlink "$APP_NAME"
+# done で worktree を撤去すると、ここで作った DB / puma-dev 登録などが孤児化する。
+# 後始末は対の撤去フック .worktree-post-remove に書く (このテンプレに同梱)。done が
+# `agent-tasks worktree-remove` を呼ぶと、撤去直前に .worktree-post-remove が走って
+# dropdb / pdl unlink などを実行する。CONFIG (DB_CLONE_SOURCE / SERVER_MODE) と DB 名の
+# 導出は post-create と post-remove で必ず揃えること (ずれると後始末対象がずれる)。

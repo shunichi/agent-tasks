@@ -126,6 +126,8 @@ func dispatch(args []string) error {
 		return cmdSync(args)
 	case "worktree-init":
 		return cmdWorktreeInit(args)
+	case "worktree-remove":
+		return cmdWorktreeRemove(args)
 	case "scaffold-worktree":
 		return cmdScaffoldWorktree(args)
 	case "doctor":
@@ -179,9 +181,12 @@ USAGE:
                                      ストアロックで直列化し、push 競合は pull --rebase で自動リトライ
   agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
-  agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create) を
-                                     プロジェクトに展開 (stack 省略で自動検出。--list/--dir/--force。
-                                     --print/--dry-run で書き出さず stdout にプレビュー)
+  agent-tasks worktree-remove <dir>  worktree 撤去フック: .worktree-post-remove を実行してから
+                                     git worktree remove (done が呼ぶ。cwd が中なら中止。未コミット/
+                                     フック失敗で中止、捨てるなら --force。--hook-only でフックだけ)
+  agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create/
+                                     .worktree-post-remove) をプロジェクトに展開 (stack 省略で自動検出。
+                                     --list/--dir/--force。--print/--dry-run で書き出さず stdout にプレビュー)
   agent-tasks doctor [--project <name>] id 重複と id/ファイル名の不一致を点検 (既定は全 project 横断。
                                      問題があれば exit 1。CI / 着手前チェックに使う)
   agent-tasks session-hook [--print-config]  Claude Code の hook から呼ぶ。stdin の JSON を読んで

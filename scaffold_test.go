@@ -60,7 +60,7 @@ func TestScaffoldInto(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(written)
-	want := []string{".worktree-post-create", ".worktreeinclude"}
+	want := []string{".worktree-post-create", ".worktree-post-remove", ".worktreeinclude"}
 	if !slices.Equal(written, want) {
 		t.Fatalf("written = %v, want %v", written, want)
 	}
@@ -68,13 +68,15 @@ func TestScaffoldInto(t *testing.T) {
 		t.Errorf("skipped = %v, want none", skipped)
 	}
 
-	// post-create に実行ビットが立っていること。
-	fi, err := os.Stat(filepath.Join(dir, ".worktree-post-create"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm()&0o100 == 0 {
-		t.Errorf(".worktree-post-create に実行ビットが無い: %v", fi.Mode())
+	// post-create / post-remove に実行ビットが立っていること。
+	for _, name := range []string{".worktree-post-create", ".worktree-post-remove"} {
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm()&0o100 == 0 {
+			t.Errorf("%s に実行ビットが無い: %v", name, fi.Mode())
+		}
 	}
 	// 中身が同梱テンプレ由来であること (firebase の目印)。
 	b, _ := os.ReadFile(filepath.Join(dir, ".worktree-post-create"))
@@ -90,7 +92,7 @@ func TestScaffoldPrint(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	for _, want := range []string{".worktreeinclude", ".worktree-post-create", "DOTENV_TARGET", "DB_MODE"} {
+	for _, want := range []string{".worktreeinclude", ".worktree-post-create", ".worktree-post-remove", "DOTENV_TARGET", "DB_MODE"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--print 出力に %q が無い:\n%s", want, out)
 		}

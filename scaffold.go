@@ -27,6 +27,7 @@ type scaffoldFile struct {
 var scaffoldFiles = []scaffoldFile{
 	{"worktreeinclude", ".worktreeinclude", 0o644},
 	{"post-create", ".worktree-post-create", 0o755},
+	{"post-remove", ".worktree-post-remove", 0o755},
 }
 
 // cmdScaffoldWorktree はスタック (firebase/rails/...) の推奨 worktree 設定

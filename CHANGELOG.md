@@ -27,6 +27,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-06-30
 
+### Fixed
+
+- `worktree-init`: `.worktreeinclude` の対象が symlink のとき、リンク先 (repo 外も含む) の中身を
+  コピーしてしまう問題を修正。`os.Lstat` で symlink を判定し追従せず除外する (ディレクトリ配下の
+  symlink も同様)。dst の既存チェックも `Lstat` にして、壊れた symlink を「無い」と誤判定して
+  追従コピーしないようにした。
+
 ### Changed
 
 - 表示幅計算 (テーブルの列幅・truncate) を自前の East Asian Width テーブルから

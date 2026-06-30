@@ -107,6 +107,87 @@ func TestCopyWorktreeIncludesSkipsExisting(t *testing.T) {
 	}
 }
 
+// .worktreeinclude に書いた対象が symlink のときは追従せずコピーしない。
+// (リンク先が repo 外を指し得るため。Lstat で判定する。)
+func TestCopyWorktreeIncludesSkipsSymlink(t *testing.T) {
+	main := initRepo(t)
+	// repo 外の機微ファイルを用意し、repo 内 symlink がそれを指す。
+	outside := filepath.Join(t.TempDir(), "outside-secret")
+	writeFile(t, outside, "OUTSIDE")
+	if err := os.Symlink(outside, filepath.Join(main, "link-to-outside")); err != nil {
+		t.Fatal(err)
+	}
+	// ディレクトリ配下の symlink も追従しないことを確認する。
+	writeFile(t, filepath.Join(main, "dir", "real.txt"), "REAL")
+	if err := os.Symlink(outside, filepath.Join(main, "dir", "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(main, ".gitignore"), "link-to-outside\ndir/\n.env\n")
+	writeFile(t, filepath.Join(main, ".worktreeinclude"), "link-to-outside\ndir\n.env\n")
+	writeFile(t, filepath.Join(main, ".env"), "SECRET=1")
+
+	wt := t.TempDir()
+	copied, err := copyWorktreeIncludes(main, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	slices.Sort(copied)
+	want := []string{".env", filepath.Join("dir", "real.txt")}
+	if !slices.Equal(copied, want) {
+		t.Fatalf("copied = %v, want %v (symlink は除外されるべき)", copied, want)
+	}
+	// symlink 自体もリンク先の中身も worktree に持ち込まれない。
+	if _, err := os.Lstat(filepath.Join(wt, "link-to-outside")); err == nil {
+		t.Error("repo 外を指す symlink がコピーされてしまった")
+	}
+	if _, err := os.Lstat(filepath.Join(wt, "dir", "link.txt")); err == nil {
+		t.Error("ディレクトリ配下の symlink がコピーされてしまった")
+	}
+}
+
+// dst に壊れた (dangling) symlink がある場合、Lstat で「在る」と判定してスキップし、
+// symlink を追従して target を新規作成しない。
+func TestCopyWorktreeIncludesSkipsDanglingSymlinkDst(t *testing.T) {
+	main := initRepo(t)
+	writeFile(t, filepath.Join(main, ".gitignore"), ".env\n")
+	writeFile(t, filepath.Join(main, ".worktreeinclude"), ".env\n")
+	writeFile(t, filepath.Join(main, ".env"), "FROM_MAIN")
+
+	wt := t.TempDir()
+	// dst を存在しない先への symlink にする (dangling)。
+	target := filepath.Join(t.TempDir(), "nonexistent")
+	if err := os.Symlink(target, filepath.Join(wt, ".env")); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, err := copyWorktreeIncludes(main, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(copied) != 0 {
+		t.Errorf("dangling symlink の dst はスキップされるべき: copied = %v", copied)
+	}
+	// symlink を追従して target を作っていないこと。
+	if _, err := os.Stat(target); err == nil {
+		t.Error("dst の symlink を追従して target を作ってしまった")
+	}
+}
+
+// copyFile は単体でも symlink を追従しない。
+func TestCopyFileRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	writeFile(t, real, "DATA")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(link, filepath.Join(dir, "dst")); err == nil {
+		t.Error("copyFile は symlink を拒否すべき")
+	}
+}
+
 func TestCopyWorktreeIncludesNoFile(t *testing.T) {
 	main := initRepo(t)
 	copied, err := copyWorktreeIncludes(main, t.TempDir())

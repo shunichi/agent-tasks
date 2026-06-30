@@ -107,16 +107,27 @@ func copyWorktreeIncludes(mainRepo, worktreeDir string) ([]string, error) {
 		}
 		matches, _ := filepath.Glob(filepath.Join(mainRepo, line))
 		for _, m := range matches {
-			info, err := os.Stat(m)
+			info, err := os.Lstat(m) // Lstat: symlink を追従せず素のエントリを見る
 			if err != nil {
+				continue
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				// symlink は追従しない (リンク先が repo 外を指し得るため。underRepo と同じ防御方針)。
+				noteSkippedSymlink(mainRepo, m)
 				continue
 			}
 			if info.IsDir() {
 				filepath.WalkDir(m, func(p string, d fs.DirEntry, err error) error {
-					if err == nil && !d.IsDir() {
-						if rel, e := filepath.Rel(mainRepo, p); e == nil && underRepo(rel) {
-							candidates = append(candidates, rel)
-						}
+					if err != nil || d.IsDir() {
+						return nil
+					}
+					if d.Type()&os.ModeSymlink != 0 {
+						// ディレクトリ配下の symlink も同様に追従しない。
+						noteSkippedSymlink(mainRepo, p)
+						return nil
+					}
+					if rel, e := filepath.Rel(mainRepo, p); e == nil && underRepo(rel) {
+						candidates = append(candidates, rel)
 					}
 					return nil
 				})
@@ -137,8 +148,8 @@ func copyWorktreeIncludes(mainRepo, worktreeDir string) ([]string, error) {
 	var copied []string
 	for _, rel := range ignored {
 		dst := filepath.Join(worktreeDir, rel)
-		if _, err := os.Stat(dst); err == nil {
-			continue // 既存は上書きしない
+		if _, err := os.Lstat(dst); err == nil {
+			continue // 既存は上書きしない (Lstat: 壊れた symlink も「在る」とみなし、追従して target を作らない)
 		}
 		if err := copyFile(filepath.Join(mainRepo, rel), dst); err != nil {
 			return copied, err
@@ -180,8 +191,25 @@ func filterIgnored(mainRepo string, rels []string) ([]string, error) {
 	return res, nil
 }
 
+// noteSkippedSymlink は symlink を追従せずスキップしたことを stderr に知らせる
+// (一覧に書いた include がコピーされない理由を利用者が分かるように)。
+func noteSkippedSymlink(mainRepo, path string) {
+	rel, err := filepath.Rel(mainRepo, path)
+	if err != nil {
+		rel = path
+	}
+	fmt.Fprintf(os.Stderr, "worktree-init: %s は symlink のためコピーしません (リンク先の追従を抑止)\n", rel)
+}
+
 // copyFile は src を dst へコピーする (親ディレクトリ作成 + パーミッション保持)。
+// src が symlink の場合は追従しない (os.Open は symlink を辿ってリンク先=repo 外も
+// 読み得るため)。呼び出し側で既に除外しているが、単体でも安全になるよう二重に防ぐ。
 func copyFile(src, dst string) error {
+	if fi, err := os.Lstat(src); err != nil {
+		return err
+	} else if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symlink はコピーしません: %s", src)
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}

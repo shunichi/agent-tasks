@@ -521,6 +521,20 @@ func (m *tuiModel) renderList() string {
 		titleW = 4
 	}
 
+	// UPDATED の桁位置をそろえる: タイトル列幅 = 表示されるタイトル (セッションバッジ込み) の最大幅
+	// (titleW で頭打ち)。日付をタイトル直後の同じ桁に置くことで、広い端末でも右端まで間延びしない (0071)。
+	titleColW := 0
+	if rightCol > 0 {
+		for _, t := range m.rows {
+			if seg := tuiSessionBadgeWidth(tuiSessionLabel(t)) + dispWidth(blockedTitle(t)); seg > titleColW {
+				titleColW = seg
+			}
+		}
+		if titleColW > titleW {
+			titleColW = titleW
+		}
+	}
+
 	end := m.top + m.listH
 	if end > len(m.rows) {
 		end = len(m.rows)
@@ -544,22 +558,33 @@ func (m *tuiModel) renderList() string {
 		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", tuiStatusColW, t.Status)))
 		line.WriteByte(' ')
 
-		title := truncateDisp(tuiListTitle(t), titleW)
-		titleDisp := dispWidth(title)
-		if selected {
-			title = tuiBoldStyle.Render(title)
+		// セッション状態を色付きバッジで表示 (in-progress のみ。waiting を目立たせる) (0070)。
+		label := tuiSessionLabel(t)
+		badgeW := tuiSessionBadgeWidth(label)
+		avail := titleW - badgeW
+		if avail < 1 {
+			avail = 1
 		}
-		line.WriteString(title)
+		ttl := truncateDisp(blockedTitle(t), avail)
+		segW := badgeW + dispWidth(ttl)
+		if label != "" {
+			line.WriteString(tuiSessionStyle(label).Render(label))
+			line.WriteByte(' ')
+		}
+		if selected {
+			line.WriteString(tuiBoldStyle.Render(ttl))
+		} else {
+			line.WriteString(ttl)
+		}
 
-		// UPDATED を右端へ寄せる: title の後ろを空白で埋め、updated を置く。
+		// UPDATED はタイトル列の右隣の固定桁にそろえる (右端寄せにしない → 間延びしない)。
 		if rightCol > 0 {
-			upd := displayDate(t.Updated)
-			pad := w - fixed - titleDisp - dispWidth(upd)
+			pad := titleColW - segW + 2 // タイトル列の後に 2 桁あけて日付
 			if pad < 1 {
 				pad = 1
 			}
 			line.WriteString(strings.Repeat(" ", pad))
-			line.WriteString(tuiDimStyle.Render(upd))
+			line.WriteString(tuiDimStyle.Render(displayDate(t.Updated)))
 		}
 		b.WriteString(line.String())
 		if i < end-1 {
@@ -612,8 +637,8 @@ func (m *tuiModel) listNaturalWidth() int {
 	_, _, fixed := m.listCols()
 	maxTitle := 0
 	for _, t := range m.rows {
-		if dw := dispWidth(tuiListTitle(t)); dw > maxTitle {
-			maxTitle = dw
+		if seg := tuiSessionBadgeWidth(tuiSessionLabel(t)) + dispWidth(blockedTitle(t)); seg > maxTitle {
+			maxTitle = seg
 		}
 	}
 	w := fixed + maxTitle
@@ -623,26 +648,46 @@ func (m *tuiModel) listNaturalWidth() int {
 	return w
 }
 
-// tuiListTitle は一覧に出すタイトル。in-progress でセッション状態が分かれば
-// [waiting]/[working]/[ended] を先頭に添える (どの pane が応答待ちかを一覧で掴むため)。
-func tuiListTitle(t Task) string {
-	title := blockedTitle(t) // blocked なら理由が添う既存整形を流用
+// tuiSessionLabel は in-progress タスクのセッション状態ラベルを返す (list の SESSION 列と同じ語)。
+// in-progress 以外は ""、マーカー未取得 (hook 未導入など) は "?"。
+func tuiSessionLabel(t Task) string {
 	if t.Status != "in-progress" {
-		return title
+		return ""
 	}
 	st, ok := taskSessionState(t)
 	if !ok {
-		return title
+		return "?"
 	}
 	switch st.State {
 	case sessWaiting:
-		return "[waiting] " + title
+		return "waiting"
 	case sessWorking:
-		return "[working] " + title
+		return "working"
 	case sessEnded:
-		return "[ended] " + title
+		return "ended"
 	}
-	return title
+	return ""
+}
+
+// tuiSessionStyle はセッションラベルの色。list の sessionCell と同じ基準で、入力待ち
+// (waiting) を目立たせ、working は cyan、ended / 未取得 (?) は淡色にする。
+func tuiSessionStyle(label string) lipgloss.Style {
+	switch label {
+	case "waiting":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true) // review 色 + 太字で目立たせる
+	case "working":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
+	default: // "ended" / "?"
+		return tuiDimStyle
+	}
+}
+
+// tuiSessionBadgeWidth はバッジ ("waiting " 等、ラベル + 区切り空白) の表示幅。ラベルが無ければ 0。
+func tuiSessionBadgeWidth(label string) int {
+	if label == "" {
+		return 0
+	}
+	return dispWidth(label) + 1
 }
 
 // padDisp は表示幅 w に右詰めパディングする (CJK 幅対応)。w を超える場合は truncate。
@@ -681,6 +726,11 @@ func tuiDetail(t Task) string {
 	out := strings.TrimRight(body, "\n")
 	if len(footers) > 0 {
 		out += "\n\n" + strings.Join(footers, "\n")
+	}
+	// 先頭にライブのセッション状態を出す (in-progress のみ。frontmatter の session URL とは別の、
+	// hook 由来の working/waiting/ended)。どの pane が応答待ちかを詳細でも確認できる (0070)。
+	if label := tuiSessionLabel(t); label != "" {
+		out = "セッション状態: " + label + "\n\n" + out
 	}
 	return out + "\n"
 }

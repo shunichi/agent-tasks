@@ -25,6 +25,7 @@ type completionSubcommand struct{ name, desc string }
 
 var completionSubcommands = []completionSubcommand{
 	{"list", "現在 project のタスク一覧 (既定)"},
+	{"tui", "一覧+詳細をインタラクティブに閲覧 (自動更新)"},
 	{"show", "1 タスクの全文を表示"},
 	{"edit", "ストア/タスクをエディタで開く"},
 	{"status", "ストアの未同期状態を表示"},
@@ -287,6 +288,7 @@ _agent_tasks() {
     local flags="--color --help"
     case "$sub" in
         list)              flags="%[4]s" ;;
+        tui)               flags="--status --project --all-projects --all --interval --color --help" ;;
         show)              flags="--json --color --help" ;;
         edit)              flags="--color --help" ;;
         doctor)            flags="--project --color --help" ;;
@@ -395,6 +397,15 @@ _agent_tasks() {
                 '--active[着手中のみ]' \
                 '--recent[最近完了 N 件]:count:' \
                 '--json[JSON 出力]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        tui)
+            _arguments \
+                '--all-projects[全 project を横断]' \
+                '(--all -a)'{--all,-a}'[done も含める]' \
+                '--status[status で絞り込み]:status:(%[2]s)' \
+                '--project[project を指定]:project:_agent_tasks_projects' \
+                '--interval[更新間隔(秒)]:seconds:' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         show|edit)

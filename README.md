@@ -51,6 +51,7 @@ agent-tasks --all-projects       # 全 project を横断
 agent-tasks --all                # done も含める (-a も可)
 agent-tasks --status in-progress # status で絞り込み
 agent-tasks --watch              # 一覧を自動更新表示 (-w)
+agent-tasks tui                  # 一覧+詳細をインタラクティブに閲覧 (自動更新。端末専用)
 agent-tasks show 0001            # 1 タスクの全文
 agent-tasks edit 0001            # 1 タスクをエディタで開く
 agent-tasks status               # ストアの未同期状態を1行表示

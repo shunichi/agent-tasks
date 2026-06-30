@@ -113,6 +113,8 @@ func dispatch(args []string) error {
 	switch cmd {
 	case "list":
 		return cmdList(args)
+	case "tui":
+		return cmdTUI(args)
 	case "show":
 		return cmdShow(args)
 	case "edit":
@@ -161,6 +163,9 @@ USAGE:
   agent-tasks --project <name>       project を指定 (別 project も可)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
   agent-tasks --recent [N]           最近完了したタスクを completed_at 降順で上位 N 件 (既定 10)
+  agent-tasks tui                    一覧+詳細をインタラクティブに閲覧する常駐ビューワー (自動更新)。
+                                     ↑↓で選択し右に詳細。a:done切替 s:status p:project r:更新 q:終了。
+                                     --status/--project/--all-projects/--all/--interval を受ける (端末専用)
   agent-tasks --json                 一覧を JSON 配列で出力 (機械可読。既存フィルタと併用可)
   agent-tasks show [<project>] <id> [--json]  1タスクの全文を表示 (--json で機械可読オブジェクト)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く

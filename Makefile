@@ -8,8 +8,11 @@ build: $(BIN)
 $(BIN): $(wildcard *.go) $(wildcard templates/*/*) go.mod
 	go build -o $(BIN) .
 
-# CLI を PATH へ、skill を ~/.claude/skills へ symlink (ビルドも実行)
-install: build link
+# CLI を PATH へ、skill を ~/.claude/skills へ symlink + 補完を再生成 (ビルドも実行)。
+# 補完は静的に書き出すファイルなので install に含める。機能追加後に make install を一度打てば
+# バイナリ + skill + 補完がすべて最新になる (CLI は symlink で常に最新だが、補完だけ古いまま
+# 残るのを防ぐ)。
+install: build link install-completions
 
 link:
 	mkdir -p $(PREFIX)/bin $(HOME)/.claude/skills

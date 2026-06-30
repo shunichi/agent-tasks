@@ -364,8 +364,9 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 		headers = append(headers, "BLOCKED")
 	}
 	headers = append(headers, "TITLE", "UPDATED")
+	titleCol := len(headers) - 2 // TITLE は末尾 UPDATED の 1 つ手前
 
-	tbl := newTable(headers...)
+	tbl := newTable(headers...).truncatable(titleCol)
 	for _, t := range rows {
 		cells := []cell{
 			{t.Project, c.dim},

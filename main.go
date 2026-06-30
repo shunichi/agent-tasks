@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/exec"
@@ -171,7 +172,11 @@ USAGE:
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
                                      (未同期があれば exit 1。sync が要るかの確認に使う)
-  agent-tasks sync [--no-push]       ストアを add/commit/push して同期 (--no-push で commit まで)
+  agent-tasks sync [[<project>] <id>] [--path <p>]... [--no-push]
+                                     ストアを add/commit/push して同期 (--no-push で commit まで)。
+                                     <id> / --path 指定でそのタスクだけを stage (scoped。並列セッションの
+                                     書きかけを巻き込まない)。指定なしは全体 (add -A)。並列 sync は
+                                     ストアロックで直列化し、push 競合は pull --rebase で自動リトライ
   agent-tasks worktree-init <dir>    worktree 作成後フック: .worktreeinclude をコピーし
                                      .worktree-post-create を実行 (start/spawn が呼ぶ。--force で再実行)
   agent-tasks scaffold-worktree [stack]  worktree 設定 (.worktreeinclude/.worktree-post-create) を
@@ -769,17 +774,49 @@ func cmdStatus(args []string) error {
 	return nil
 }
 
+// sync のロック/リトライのパラメータ。sync は network push を含むので、採番ロックより
+// 長めに待つ・残骸判定も長め (途中で死んだ sync の置き土産を一定後に奪う)。
+const (
+	syncLockWait     = 30 * time.Second
+	syncLockStale    = 2 * time.Minute
+	syncPushAttempts = 3 // push 競合 (non-fast-forward) 時に pull --rebase して再試行する回数
+)
+
 func cmdSync(args []string) error {
 	push := true
-	for _, a := range args {
+	var paths []string // 指定があれば scoped add (そのファイルだけ stage)
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
 		switch a {
 		case "--no-push":
 			push = false
 		case "--push":
 			push = true // 既定だが明示用に受け付ける
+		case "--path":
+			v, err := s.value("--path")
+			if err != nil {
+				return err
+			}
+			paths = append(paths, v)
 		default:
-			return usagef("unknown option: %s", a)
+			s.positional(a)
 		}
+	}
+	// 位置引数 [<project>] <id> はそのタスクファイルへ解決して scoped add の対象にする。
+	if pos := s.rest(); len(pos) > 0 {
+		project, id, err := resolveProjectID(pos)
+		if err != nil {
+			return err
+		}
+		p, err := resolveTaskPath(project, id)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, p)
 	}
 
 	dir := storeDir()
@@ -787,7 +824,21 @@ func cmdSync(args []string) error {
 		return fmt.Errorf("%s は git リポジトリではありません (git init とリモート設定が必要)", dir)
 	}
 
-	if _, err := git(dir, "add", "-A"); err != nil {
+	// 並列セッションの sync を直列化する (index.lock 衝突や add -A の取りこぼしを防ぐ)。
+	// ロックは git 管理下に置くと add -A で混入するため、ストア外 (OS temp) にパス由来の名前で置く。
+	unlock, err := lockFile(syncLockPath(dir), syncLockWait, syncLockStale)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	// scoped add: 指定があればそのファイルだけ stage する (他セッションの dirty を巻き込まない)。
+	// 指定なしは従来どおり全体 (add -A) = 手動の全体同期。
+	if len(paths) > 0 {
+		if out, err := git(dir, append([]string{"add", "--"}, paths...)...); err != nil {
+			return fmt.Errorf("git add に失敗しました:\n%s", out)
+		}
+	} else if _, err := git(dir, "add", "-A"); err != nil {
 		return fmt.Errorf("git add に失敗しました: %w", err)
 	}
 
@@ -823,16 +874,45 @@ func cmdSync(args []string) error {
 		return nil
 	}
 
-	// 別マシンの更新を取り込んでから push する。コンフリクト時は rebase を畳んで通知。
-	if out, err := git(dir, "pull", "--rebase"); err != nil {
-		git(dir, "rebase", "--abort")
-		return fmt.Errorf("pull --rebase に失敗しました。ストアで手動解決してください (%s):\n%s", dir, out)
-	}
-	if out, err := git(dir, "push"); err != nil {
+	// 取り込んで push。push が競合 (non-fast-forward) したら取り込み直して数回リトライする。
+	// pull --rebase --autostash で、他セッションの未 stage 変更があっても rebase できる。
+	for attempt := 1; ; attempt++ {
+		if out, err := git(dir, "pull", "--rebase", "--autostash"); err != nil {
+			git(dir, "rebase", "--abort")
+			return fmt.Errorf("pull --rebase に失敗しました。ストアで手動解決してください (%s):\n%s", dir, out)
+		}
+		out, err := git(dir, "push")
+		if err == nil {
+			fmt.Printf("push 完了 (%s)\n", branch)
+			return nil
+		}
+		if attempt < syncPushAttempts && isNonFastForward(out) {
+			continue // 別 push が先着。取り込み直して再試行。
+		}
 		return fmt.Errorf("push に失敗しました:\n%s", out)
 	}
-	fmt.Printf("push 完了 (%s)\n", branch)
-	return nil
+}
+
+// syncLockPath はストア dir 専用の sync ロックのパスを返す。git 管理下に置くと add -A で
+// 混入するため、ストア外 (OS temp) にストア絶対パスのハッシュで一意な名前を作る。
+func syncLockPath(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	h := fnv.New64a()
+	io.WriteString(h, abs)
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-tasks-sync-%x.lock", h.Sum64()))
+}
+
+// isNonFastForward は git push の出力が「先に他の push が入った (取り込みが必要)」かを判定する。
+func isNonFastForward(out string) bool {
+	for _, s := range []string{"non-fast-forward", "fetch first", "[rejected]", "behind"} {
+		if strings.Contains(out, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // git は storeDir 等の dir で git を実行し、出力 (stdout+stderr) を trim して返す。

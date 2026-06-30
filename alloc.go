@@ -169,12 +169,16 @@ func maxTaskID(projDir string) int {
 	return max
 }
 
-// lockProject は projDir の採番ロックを O_CREATE|O_EXCL で取得し、解放関数を返す。
-// 生存中のロックは allocLockWait まで待ち、allocLockStale より古い残骸ロック
-// (採番途中で死んだプロセスの置き土産) は奪って続行する。
+// lockProject は projDir の採番ロックを取得し、解放関数を返す (lockFile の薄いラッパ)。
 func lockProject(projDir string) (func(), error) {
-	lockPath := filepath.Join(projDir, allocLockName)
-	deadline := time.Now().Add(allocLockWait)
+	return lockFile(filepath.Join(projDir, allocLockName), allocLockWait, allocLockStale)
+}
+
+// lockFile は lockPath を O_CREATE|O_EXCL で作って排他ロックとし、解放関数 (ファイル削除) を返す。
+// 生存中のロックは wait まで待ち、stale より古い残骸ロック (途中で死んだプロセスの置き土産) は
+// 奪って続行する。採番 (alloc-id) と同期 (sync) で共有するプロセス間ロック。
+func lockFile(lockPath string, wait, stale time.Duration) (func(), error) {
+	deadline := time.Now().Add(wait)
 	for {
 		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -186,12 +190,12 @@ func lockProject(projDir string) (func(), error) {
 			return nil, fmt.Errorf("ロックを取得できません: %w", err)
 		}
 		// 既存ロックが残骸 (mtime が古い) なら奪って再試行する。
-		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > allocLockStale {
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > stale {
 			os.Remove(lockPath)
 			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("採番ロック %s を取得できませんでした (別の採番処理が動作中の可能性)", lockPath)
+			return nil, fmt.Errorf("ロック %s を取得できませんでした (別の処理が動作中の可能性)", lockPath)
 		}
 		time.Sleep(allocLockPoll)
 	}

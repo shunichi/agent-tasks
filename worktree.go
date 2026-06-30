@@ -88,6 +88,13 @@ func mainRepoOf(worktreeDir string) (string, error) {
 	if commonDir == "" {
 		return "", errors.New("git-common-dir が空")
 	}
+	// --path-format=absolute なので通常は絶対パスだが、念のため相対なら起点 (worktreeDir) で
+	// 絶対化する。commonDir はメイン作業ツリーの .git を指すので、その親 = メイン repo root。
+	if !filepath.IsAbs(commonDir) {
+		if abs, err := filepath.Abs(filepath.Join(worktreeDir, commonDir)); err == nil {
+			commonDir = abs
+		}
+	}
 	return filepath.Dir(commonDir), nil
 }
 

@@ -100,6 +100,53 @@ func TestLoadTasksSorted(t *testing.T) {
 	}
 }
 
+// TestLoadTasksNumericIDSort は ID が4桁を超えても数値順になることを確認する。
+// 文字列比較だと "10000" < "9999" で逆転するため、数値比較を第1キーにする (0035)。
+func TestLoadTasksNumericIDSort(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, id string) {
+		d := filepath.Join(dir, "big")
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, name), []byte("---\nid: \""+id+"\"\nstatus: todo\n---\n"), 0o644)
+	}
+	write("9999-a.md", "9999")
+	write("10000-b.md", "10000")
+	write("0001-c.md", "0001")
+
+	tasks, err := loadTasks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, tk := range tasks {
+		ids = append(ids, tk.ID)
+	}
+	want := []string{"0001", "9999", "10000"}
+	if !slices.Equal(ids, want) {
+		t.Errorf("id order = %v, want %v (numeric, not lexical)", ids, want)
+	}
+}
+
+func TestCompareID(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"9999", "10000", -1}, // 数値: 9999 < 10000 (文字列だと逆)
+		{"10000", "9999", 1},
+		{"0001", "0002", -1},
+		{"0005", "0005", 0},
+		{"abc", "9999", 1},  // 非数値はフォールバック (文字列比較)
+		{"9999", "abc", -1}, // 数値 vs 非数値もフォールバック
+		{"foo", "bar", 1},   // 両方非数値: 文字列比較
+	}
+	for _, c := range cases {
+		if got := compareID(c.a, c.b); got != c.want {
+			t.Errorf("compareID(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
 func TestEditorArgv(t *testing.T) {
 	// 既定は code。
 	t.Setenv("AGENT_TASKS_EDITOR", "")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -253,6 +254,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tuiTick(m.interval)
 
+	case copyResultMsg:
+		if msg.err != nil {
+			m.flash = "コピー失敗: " + msg.err.Error()
+		} else {
+			m.flash = "コピーしました: " + msg.text
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		// マウスホイールは詳細ペインのスクロールに使う。
 		var cmd tea.Cmd
@@ -335,17 +344,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			// 選択タスクの `start <NNNN>` をクリップボードへコピーする (任意の pane の
 			// claude に貼って着手できる)。着手の意味がある todo / blocked のみ対象。
+			// コピーは外部コマンドの起動を伴い得るので tea.Cmd で非同期実行し、実際の
+			// 成否を copyResultMsg で受けてフラッシュ表示する (UI をブロックしない)。
 			if t, ok := m.selectedTask(); ok {
 				if cmdStr, startable := startCommandFor(t); startable {
-					if err := copyToClipboard(cmdStr); err != nil {
-						m.flash = "コピー失敗: " + err.Error()
-					} else {
-						m.flash = "コピーしました: " + cmdStr
-					}
-				} else {
-					m.flash = "コピー対象は todo / blocked のタスクのみです"
+					return m, copyCmd(cmdStr)
 				}
+				m.flash = "コピー対象は todo / blocked のタスクのみです"
 			}
+			return m, nil
 		case "r":
 			m.reload()
 		}
@@ -372,13 +379,71 @@ func startCommandFor(t Task) (string, bool) {
 	return "", false
 }
 
-// copyToClipboard はテキストを OSC52 エスケープで端末のクリップボードへ送る。外部コマンド
-// 不要で SSH 越しでも効き、ブロックしない。bubbletea の stdout バッファと混ざらないよう
-// 端末 (stderr) へ直接書く。tmux/端末が OSC52 を許可していないとクリップボードに入らない
-// ことがあるが、その場合もフラッシュ表示で文字列は確認できる。
+// copyResultMsg は非同期コピーの結果 (成否と対象文字列)。Update がフラッシュ表示に使う。
+type copyResultMsg struct {
+	text string
+	err  error
+}
+
+// copyCmd は s のクリップボードコピーを非同期で行い、結果を copyResultMsg で返す tea.Cmd。
+// 外部コマンド起動を伴い得るので UI スレッドをブロックしない。
+func copyCmd(s string) tea.Cmd {
+	return func() tea.Msg {
+		return copyResultMsg{text: s, err: copyToClipboard(s)}
+	}
+}
+
+// copyToClipboard はテキストをクリップボードへコピーする。まず OS のクリップボードコマンドで
+// システムクリップボードへ直接書き (確実)、見つからなければ OSC52 エスケープを端末へ書く
+// フォールバックを使う (外部ツールの無い SSH 先など。ただし tmux/端末が OSC52 を許可して
+// いないと届かないことがある)。
 func copyToClipboard(s string) error {
+	if name, args, ok := clipboardTool(); ok {
+		if err := runClipboard(name, args, s); err == nil {
+			return nil
+		}
+		// ツールはあるが失敗 (DISPLAY 無し等) → OSC52 にフォールバック。
+	}
 	_, err := osc52.New(s).WriteTo(os.Stderr)
 	return err
+}
+
+// clipboardTool は使えるクリップボード書き込みコマンドを返す (PATH にある最初のもの)。
+func clipboardTool() (name string, args []string, ok bool) {
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"wl-copy", nil}, // Wayland
+		{"xclip", []string{"-selection", "clipboard"}}, // X11
+		{"xsel", []string{"--clipboard", "--input"}},   // X11 (自分で背景化)
+		{"pbcopy", nil},   // macOS
+		{"clip.exe", nil}, // WSL/Windows
+	} {
+		if _, err := exec.LookPath(c.name); err == nil {
+			return c.name, c.args, true
+		}
+	}
+	return "", nil, false
+}
+
+// runClipboard はクリップボードコマンドに s を流し込む。xclip のように選択を供給し続けて
+// 終了しない (前景型) ツールでも UI をブロックしないよう、短時間だけ完了を待ち、まだ
+// 動いていれば成功とみなしてバックグラウンドで後始末する (プロセスは選択を供給中)。
+func runClipboard(name string, args []string, s string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = strings.NewReader(s)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }() // 速やかに終了するツールの結果取得 + 後始末
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(200 * time.Millisecond):
+		return nil // まだ選択を供給中 (xclip 前景型) → 成功扱い。goroutine が後で reap する
+	}
 }
 
 // cycleStatus は status フィルタを循環させる (全 → todo → in-progress → blocked → review → done → 全)。

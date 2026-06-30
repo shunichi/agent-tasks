@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -249,42 +251,95 @@ func TestStartCommandFor(t *testing.T) {
 	}
 }
 
-// TestCopyKeyFlash は c キーで「start <NNNN>」をコピーし、結果がヘッダに一時表示され、
-// 次のキー入力で消えること、in-progress では注意メッセージになることを検証する。
-func TestCopyKeyFlash(t *testing.T) {
+// TestCopyKeyDispatch は c キーの分岐を検証する: todo では非同期コピー (tea.Cmd) を発行し
+// (フラッシュは結果待ち)、in-progress では即座に注意メッセージを出してコピーしない。
+// 実際のコピー (copyToClipboard) は実クリップボードに触れるのでここでは cmd を実行しない。
+func TestCopyKeyDispatch(t *testing.T) {
 	m := &tuiModel{all: mkTasks(), effProject: ""}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	press := func(s string) { model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}) }
+	press := func(s string) tea.Cmd {
+		var cmd tea.Cmd
+		model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+		return cmd
+	}
 
-	// 先頭は alpha/0001 (todo)。c でコピー → フラッシュに start 0001。
+	// 先頭は alpha/0001 (todo)。c で非同期コピーの cmd が出る (まだフラッシュは出ない)。
 	mm := model.(*tuiModel)
 	if mm.cursor != 0 || mm.rows[0].Status != "todo" {
 		t.Fatalf("前提: 先頭が todo のはず (cursor=%d status=%s)", mm.cursor, mm.rows[0].Status)
 	}
-	press("c")
-	if !strings.Contains(model.(*tuiModel).flash, "start 0001") {
-		t.Fatalf("c で start 0001 のコピーがフラッシュされるはず: flash=%q", model.(*tuiModel).flash)
+	if cmd := press("c"); cmd == nil {
+		t.Fatal("todo では c で非同期コピーの cmd を発行するはず")
 	}
-	if !strings.Contains(model.View(), "start 0001") {
-		t.Fatal("ヘッダにコピー結果が出ていない")
+	if f := model.(*tuiModel).flash; f != "" {
+		t.Fatalf("コピー結果は非同期。押下直後はフラッシュ無しのはず: flash=%q", f)
 	}
 
-	// 次のキー入力でフラッシュは消える。
+	// 2 行目 alpha/0002 (in-progress) では cmd を出さず注意メッセージ。
 	press("j")
-	if model.(*tuiModel).flash != "" {
-		t.Fatalf("次のキー入力でフラッシュが消えるはず: flash=%q", model.(*tuiModel).flash)
-	}
-
-	// 2 行目は alpha/0002 (in-progress)。c は start をコピーせず注意メッセージ。
 	cur := model.(*tuiModel)
 	if cur.rows[cur.cursor].Status != "in-progress" {
 		t.Fatalf("前提: 2 行目が in-progress のはず: %s", cur.rows[cur.cursor].Status)
 	}
-	press("c")
+	if cmd := press("c"); cmd != nil {
+		t.Fatal("in-progress では c でコピーしないはず (cmd=nil)")
+	}
 	if f := model.(*tuiModel).flash; f == "" || strings.Contains(f, "start ") {
-		t.Fatalf("in-progress では start をコピーせず注意メッセージのはず: flash=%q", f)
+		t.Fatalf("in-progress では注意メッセージのはず: flash=%q", f)
+	}
+}
+
+// TestCopyResultFlash は非同期コピーの結果メッセージがフラッシュに反映され、次のキー入力で
+// 消えることを検証する (成功・失敗の両方)。
+func TestCopyResultFlash(t *testing.T) {
+	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// 成功 → ヘッダに表示。
+	model, _ = model.Update(copyResultMsg{text: "start 0001"})
+	if !strings.Contains(model.(*tuiModel).flash, "start 0001") {
+		t.Fatalf("成功時に start 0001 がフラッシュされるはず: flash=%q", model.(*tuiModel).flash)
+	}
+	if !strings.Contains(model.View(), "start 0001") {
+		t.Fatal("ヘッダにコピー結果が出ていない")
+	}
+	// 次のキー入力で消える。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if model.(*tuiModel).flash != "" {
+		t.Fatalf("次のキー入力でフラッシュが消えるはず: flash=%q", model.(*tuiModel).flash)
+	}
+	// 失敗 → 失敗メッセージ。
+	model, _ = model.Update(copyResultMsg{text: "start 0001", err: errTest})
+	if f := model.(*tuiModel).flash; !strings.Contains(f, "失敗") {
+		t.Fatalf("失敗時は失敗メッセージのはず: flash=%q", f)
+	}
+}
+
+var errTest = fmt.Errorf("テスト用エラー")
+
+// TestRunClipboard は外部コマンド起動部の挙動を検証する (実クリップボードに触れない):
+// 即終了コマンドは結果を返し、見つからないコマンドはエラー、終了しないコマンドは
+// タイムアウトして成功扱い (ブロックしない) になる。
+func TestRunClipboard(t *testing.T) {
+	// stdin を読んで捨てて即終了 → 成功 (nil)。
+	if err := runClipboard("sh", []string{"-c", "cat >/dev/null"}, "start 0001"); err != nil {
+		t.Errorf("即終了コマンドは nil を返すはず: %v", err)
+	}
+	// 存在しないコマンド → Start に失敗してエラー。
+	if err := runClipboard("definitely-no-such-clipboard-cmd", nil, "x"); err == nil {
+		t.Error("存在しないコマンドはエラーを返すはず")
+	}
+	// 終了しないコマンドは 200ms でタイムアウトして成功扱い (ブロックしない)。
+	start := time.Now()
+	if err := runClipboard("sleep", []string{"5"}, "x"); err != nil {
+		t.Errorf("終了しないコマンドは成功扱い (nil) のはず: %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("runClipboard が長時間ブロックした: %v", d)
 	}
 }
 

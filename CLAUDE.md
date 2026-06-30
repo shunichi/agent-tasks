@@ -18,6 +18,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   store.go                      # タスクの model + ストア走査 + frontmatter パース + doctor 集計
   json.go                       # list/show の --json 出力 (機械可読。計算済み session_state/blocked_for を含む)
   recent.go                     # list --recent: 最近完了タスク (completed_at 降順 N 件) の選択 + 描画
+  tui.go                        # tui: 一覧+詳細のインタラクティブ閲覧 (Bubble Tea。mtime ポーリングで自動更新)
   version.go                     # version: ビルド埋め込みの VCS 情報 (commit+CalVer) を表示 (手動 bump なし)
   render.go                     # 色付け + CJK 幅対応のテーブル描画
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行)

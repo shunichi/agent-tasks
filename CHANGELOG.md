@@ -23,7 +23,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+### Added
+
+- `agent-tasks tui`: 一覧+詳細をインタラクティブに閲覧する常駐ビューワーを追加 (Bubble Tea)。
+  左の一覧を ↑↓/jk で選び、右に選択タスクの詳細 (frontmatter + 本文 + PR/所要時間サマリ) を表示する。
+  別セッションが裏でストアを更新しても、一定間隔のポーリング (mtime 差分検知。`--interval <秒>`、既定 2)
+  で自動再描画し、選択は project/id で保持する。`a` で done 表示トグル、`s` で status フィルタ循環、
+  `p` で現在 project ↔ 横断トグル、`r` で手動更新、`q` で終了。スコープ指定は list と同じ
+  (`--project` / `--all-projects` / `--status` / `--all`)。端末専用 (非 TTY では案内して終了)。
 
 ## 2026-06-30
 

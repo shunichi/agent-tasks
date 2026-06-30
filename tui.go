@@ -506,7 +506,7 @@ func (m *tuiModel) renderList() string {
 		return lipgloss.NewStyle().Width(w).Height(m.listH).Render(tuiDimStyle.Render(msg))
 	}
 
-	cross, projW, fixed := m.listCols()
+	cross, projW, sessW, fixed := m.listCols()
 	// 右端に UPDATED 列を出す (幅が足りなければ諦めて title を優先)。
 	rightCol := 0
 	if updW := m.updatedColWidth(); updW > 0 {
@@ -521,13 +521,13 @@ func (m *tuiModel) renderList() string {
 		titleW = 4
 	}
 
-	// UPDATED の桁位置をそろえる: タイトル列幅 = 表示されるタイトル (セッションバッジ込み) の最大幅
-	// (titleW で頭打ち)。日付をタイトル直後の同じ桁に置くことで、広い端末でも右端まで間延びしない (0071)。
+	// UPDATED の桁位置をそろえる: タイトル列幅 = 表示タイトルの最大幅 (titleW で頭打ち)。
+	// 日付をタイトル直後の同じ桁に置くことで、広い端末でも右端まで間延びしない (0071)。
 	titleColW := 0
 	if rightCol > 0 {
 		for _, t := range m.rows {
-			if seg := tuiSessionBadgeWidth(tuiSessionLabel(t)) + dispWidth(blockedTitle(t)); seg > titleColW {
-				titleColW = seg
+			if dw := dispWidth(blockedTitle(t)); dw > titleColW {
+				titleColW = dw
 			}
 		}
 		if titleColW > titleW {
@@ -558,19 +558,22 @@ func (m *tuiModel) renderList() string {
 		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", tuiStatusColW, t.Status)))
 		line.WriteByte(' ')
 
-		// セッション状態を色付きバッジで表示 (in-progress のみ。waiting を目立たせる) (0070)。
-		label := tuiSessionLabel(t)
-		badgeW := tuiSessionBadgeWidth(label)
-		avail := titleW - badgeW
-		if avail < 1 {
-			avail = 1
-		}
-		ttl := truncateDisp(blockedTitle(t), avail)
-		segW := badgeW + dispWidth(ttl)
-		if label != "" {
-			line.WriteString(tuiSessionStyle(label).Render(label))
+		// SESSION 列 (in-progress 行があるときだけ出す。タイトルを侵食しない独立列) (0073)。
+		// 各行は working/waiting/ended/?/(空) を sessW 桁に左寄せ。色は waiting を目立たせる (0070)。
+		if sessW > 0 {
+			if label := tuiSessionLabel(t); label == "" {
+				line.WriteString(strings.Repeat(" ", sessW))
+			} else {
+				line.WriteString(tuiSessionStyle(label).Render(label))
+				if pad := sessW - dispWidth(label); pad > 0 {
+					line.WriteString(strings.Repeat(" ", pad))
+				}
+			}
 			line.WriteByte(' ')
 		}
+
+		ttl := truncateDisp(blockedTitle(t), titleW)
+		ttlDisp := dispWidth(ttl)
 		if selected {
 			line.WriteString(tuiBoldStyle.Render(ttl))
 		} else {
@@ -579,7 +582,7 @@ func (m *tuiModel) renderList() string {
 
 		// UPDATED はタイトル列の右隣の固定桁にそろえる (右端寄せにしない → 間延びしない)。
 		if rightCol > 0 {
-			pad := titleColW - segW + 2 // タイトル列の後に 2 桁あけて日付
+			pad := titleColW - ttlDisp + 2 // タイトル列の後に 2 桁あけて日付
 			if pad < 1 {
 				pad = 1
 			}
@@ -594,15 +597,28 @@ func (m *tuiModel) renderList() string {
 	return lipgloss.NewStyle().Width(w).Height(m.listH).MaxHeight(m.listH).Render(b.String())
 }
 
-// 一覧の固定列幅 (ポインタ/id/status)。renderList と幅計算 (listCols) で共有する。
+// 一覧の固定列幅 (ポインタ/id/status/session)。renderList と幅計算 (listCols) で共有する。
 const (
-	tuiIDColW     = 4
-	tuiStatusColW = 11
+	tuiIDColW      = 4
+	tuiStatusColW  = 11
+	tuiSessionColW = 7 // 最長ラベル "waiting"/"working" の幅
 )
 
-// listCols は一覧の列構成を返す。cross は横断表示か (= project 列を出すか)、
-// projW は project 列幅、fixed は title より前の固定幅 (ポインタ + [project] + id + status + 余白)。
-func (m *tuiModel) listCols() (cross bool, projW, fixed int) {
+// sessionColWidth は SESSION 列の幅を返す。in-progress 行が一つでもあれば tuiSessionColW、
+// 無ければ 0 (列を出さない。CLI list の showSession と同じ)。
+func (m *tuiModel) sessionColWidth() int {
+	for _, t := range m.rows {
+		if t.Status == "in-progress" {
+			return tuiSessionColW
+		}
+	}
+	return 0
+}
+
+// listCols は一覧の列構成を返す。cross は横断表示か (= project 列を出すか)、projW は project 列幅、
+// sessW は SESSION 列幅 (0 = 非表示)、fixed は title より前の固定幅 (ポインタ + [project] + id +
+// status + [session] + 余白)。
+func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 	cross = m.effProject == ""
 	if cross {
 		for _, t := range m.rows {
@@ -612,10 +628,14 @@ func (m *tuiModel) listCols() (cross bool, projW, fixed int) {
 		}
 		projW = clampInt(projW, 0, 16)
 	}
-	// 行構成: "❯ " + [project] + id + " " + status + " " + title
+	sessW = m.sessionColWidth()
+	// 行構成: "❯ " + [project] + id + " " + status + " " + [session + " "] + title
 	fixed = 2 + tuiIDColW + 1 + tuiStatusColW + 1
 	if cross {
 		fixed += projW + 1
+	}
+	if sessW > 0 {
+		fixed += sessW + 1
 	}
 	return
 }
@@ -634,11 +654,11 @@ func (m *tuiModel) updatedColWidth() int {
 // listNaturalWidth は全タイトルが切れずに収まる一覧の理想幅。横分割でリスト幅を
 // ここまで広げ、固定上限による不要な truncate を避ける (layout で使う)。
 func (m *tuiModel) listNaturalWidth() int {
-	_, _, fixed := m.listCols()
+	_, _, _, fixed := m.listCols()
 	maxTitle := 0
 	for _, t := range m.rows {
-		if seg := tuiSessionBadgeWidth(tuiSessionLabel(t)) + dispWidth(blockedTitle(t)); seg > maxTitle {
-			maxTitle = seg
+		if dw := dispWidth(blockedTitle(t)); dw > maxTitle {
+			maxTitle = dw
 		}
 	}
 	w := fixed + maxTitle
@@ -680,14 +700,6 @@ func tuiSessionStyle(label string) lipgloss.Style {
 	default: // "ended" / "?"
 		return tuiDimStyle
 	}
-}
-
-// tuiSessionBadgeWidth はバッジ ("waiting " 等、ラベル + 区切り空白) の表示幅。ラベルが無ければ 0。
-func tuiSessionBadgeWidth(label string) int {
-	if label == "" {
-		return 0
-	}
-	return dispWidth(label) + 1
 }
 
 // padDisp は表示幅 w に右詰めパディングする (CJK 幅対応)。w を超える場合は truncate。

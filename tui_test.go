@@ -334,6 +334,50 @@ func TestListUpdatedColumnNotFarRight(t *testing.T) {
 	}
 }
 
+// TestSessionColumnWidth は SESSION 列が in-progress 行のあるときだけ出ることを確認する。
+func TestSessionColumnWidth(t *testing.T) {
+	m := &tuiModel{rows: []Task{{Status: "todo"}, {Status: "done"}}}
+	if m.sessionColWidth() != 0 {
+		t.Fatalf("in-progress が無いとき SESSION 列は 0 のはず: got %d", m.sessionColWidth())
+	}
+	m.rows = []Task{{Status: "todo"}, {Status: "in-progress"}}
+	if m.sessionColWidth() != tuiSessionColW {
+		t.Fatalf("in-progress があるとき SESSION 列は %d のはず: got %d", tuiSessionColW, m.sessionColWidth())
+	}
+}
+
+// TestSessionColumnDoesNotEatTitle は SESSION を独立列にしたことで、todo 行と in-progress 行で
+// タイトル開始桁がそろう (セッション表示がタイトルを侵食しない) ことを確認する (0073)。
+func TestSessionColumnDoesNotEatTitle(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	tasks := []Task{
+		{Project: "alpha", ID: "0001", Status: "todo", Title: "AAA"},
+		{Project: "alpha", ID: "0002", Status: "in-progress", Title: "BBB"},
+	}
+	m := &tuiModel{all: tasks, effProject: "alpha"}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	out := model.View()
+
+	colA, colB := -1, -1
+	for _, line := range strings.Split(out, "\n") {
+		p := stripANSI(line)
+		if i := strings.Index(p, "AAA"); i >= 0 {
+			colA = dispWidth(p[:i])
+		}
+		if i := strings.Index(p, "BBB"); i >= 0 {
+			colB = dispWidth(p[:i])
+		}
+	}
+	if colA < 0 || colB < 0 {
+		t.Fatalf("タイトル行が見つからない (colA=%d colB=%d)", colA, colB)
+	}
+	if colA != colB {
+		t.Fatalf("タイトル開始桁がそろっていない (SESSION 列がタイトルを侵食): todo=%d in-progress=%d", colA, colB)
+	}
+}
+
 // TestSessionLabel はセッションラベルの分岐 (in-progress 以外は空 / マーカー未取得は ?) を確認する。
 func TestSessionLabel(t *testing.T) {
 	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir()) // 実マーカーを読まない

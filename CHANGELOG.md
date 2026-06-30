@@ -25,6 +25,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-01
+
 ### Added
 
 - worktree 撤去フック **`.worktree-post-remove`** と、それを呼ぶ **`agent-tasks worktree-remove <dir>`**
@@ -34,8 +36,6 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   cwd が対象 worktree 内なら撤去を中止、未コミット変更やフック失敗でも中止 (捨てるなら `--force`、
   フックだけなら `--hook-only`)。`scaffold-worktree` が 3 つ目のファイル `.worktree-post-remove` も
   展開するようになり、rails テンプレは post-create と同じ命名で `dropdb` / `pdl unlink` する雛形を含む。
-
-## 2026-07-01
 
 ### Fixed
 

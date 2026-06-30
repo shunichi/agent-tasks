@@ -40,6 +40,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   スコープ指定は list と同じ (`--project` / `--all-projects` / `--status` / `--all`)。
   端末専用 (非 TTY では案内して終了)。
 
+### Changed
+
+- `make install` が補完スクリプト (`install-completions`) も再生成するようになった。CLI バイナリは
+  symlink で常に最新だが補完は静的ファイルのため、従来は機能追加後に補完だけ古いまま残っていた。
+  今後は `make install` 一度でバイナリ + skill + 補完がすべて最新になる
+  (zsh は `~/.zcompdump` キャッシュのため反映は新しいシェルから)。
+
 ## 2026-06-30
 
 ### Added

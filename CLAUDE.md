@@ -42,7 +42,8 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 ## ツール / コマンド
 
 - `make build` — `go build -o bin/agent-tasks .`
-- `make install` — build + symlink (CLI を `~/.local/bin`、skill を `~/.claude/skills` へ)
+- `make install` — build + symlink (CLI を `~/.local/bin`、skill を `~/.claude/skills` へ) + 補完再生成
+  (`install-completions` を含む。補完は静的ファイルなので、機能追加後は `make install` で最新化する)
 - `make test` / `make fmt` / `make vet`
 - インストール済み symlink (この環境では設定済み):
   - `~/.claude/skills/agent-tasks` → `skills/agent-tasks`

@@ -12,7 +12,7 @@
 ## インストール
 
 `make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (`~/.claude/skills`)
-を symlink する (`~/.local/bin` が PATH にある前提):
+を symlink し、bash/zsh の補完スクリプトも書き出す (`~/.local/bin` が PATH にある前提):
 
 ```sh
 make install
@@ -20,6 +20,9 @@ make install
 
 - skill は symlink なので編集すれば即反映。
 - CLI は Go バイナリ (依存は最小限) なので、ソースを変えたら `make build` で再ビルドする。
+- **補完は静的ファイル**なので、コマンドやフラグを増やしたら `make install` で再生成する
+  (CLI 自体は symlink で最新だが補完だけ古くなるため)。zsh は `~/.zcompdump` キャッシュの都合で
+  反映は新しいシェルから (即時にしたいときは `rm -f ~/.zcompdump && compinit`)。
 
 ## 使い方
 

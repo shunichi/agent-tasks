@@ -245,8 +245,8 @@ func TestStartCommandFor(t *testing.T) {
 		if ok != c.wantOK {
 			t.Errorf("status=%s: ok=%v want %v", c.status, ok, c.wantOK)
 		}
-		if ok && got != "start 0042" {
-			t.Errorf("status=%s: got %q want %q", c.status, got, "start 0042")
+		if ok && got != "start task 0042" {
+			t.Errorf("status=%s: got %q want %q", c.status, got, "start task 0042")
 		}
 	}
 }

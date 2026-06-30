@@ -29,7 +29,7 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
-- `agent-tasks tui`: 一覧で選択中タスクの **`start <NNNN>` をクリップボードへコピー**する `c` キーを
+- `agent-tasks tui`: 一覧で選択中タスクの **`start task <NNNN>` をクリップボードへコピー**する `c` キーを
   追加 (任意の pane の claude に貼って着手できる)。コピーは OS のクリップボードコマンド
   (`wl-copy` / `xclip` / `xsel` / `pbcopy` / `clip.exe`) でシステムクリップボードへ直接書き、無い環境
   (SSH 先など) では OSC52 にフォールバックする。非同期実行で UI をブロックせず、実際の成否を

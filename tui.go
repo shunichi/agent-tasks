@@ -342,7 +342,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyFilter()
 			}
 		case "c":
-			// 選択タスクの `start <NNNN>` をクリップボードへコピーする (任意の pane の
+			// 選択タスクの `start task <NNNN>` をクリップボードへコピーする (任意の pane の
 			// claude に貼って着手できる)。着手の意味がある todo / blocked のみ対象。
 			// コピーは外部コマンドの起動を伴い得るので tea.Cmd で非同期実行し、実際の
 			// 成否を copyResultMsg で受けてフラッシュ表示する (UI をブロックしない)。
@@ -369,12 +369,12 @@ func (m *tuiModel) selectedTask() (Task, bool) {
 	return m.rows[m.cursor], true
 }
 
-// startCommandFor は TUI からコピーする start コマンド文字列を返す。着手の意味があるのは
-// todo / blocked のタスクのみ (それ以外は ok=false)。
+// startCommandFor は TUI からコピーする start コマンド文字列 ("start task <N>") を返す。
+// 着手の意味があるのは todo / blocked のタスクのみ (それ以外は ok=false)。
 func startCommandFor(t Task) (string, bool) {
 	switch t.Status {
 	case "todo", "blocked":
-		return "start " + t.ID, true
+		return "start task " + t.ID, true
 	}
 	return "", false
 }
@@ -636,7 +636,7 @@ func helpEntries() [][2]string {
 		{"PgUp/PgDn, K/J", "詳細をスクロール"},
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},
-		{"c", "選択タスクの start <NNNN> をクリップボードへコピー"},
+		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},

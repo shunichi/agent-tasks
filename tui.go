@@ -214,12 +214,23 @@ func (m *tuiModel) syncDetail() {
 		return
 	}
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
-		m.vp.SetContent(tuiNoSelection)
+		m.vp.SetContent(m.wrapDetail(tuiNoSelection))
 		m.vp.GotoTop()
 		return
 	}
-	m.vp.SetContent(tuiDetail(m.rows[m.cursor]))
+	m.vp.SetContent(m.wrapDetail(tuiDetail(m.rows[m.cursor])))
 	m.vp.GotoTop()
+}
+
+// wrapDetail は詳細本文を viewport 幅で折り返す。bubbles の viewport は長い行を
+// 折り返さず、はみ出した分を横方向に切り捨てて表示するため、ここで明示的に折り返して
+// 「行が切れて読めない」のを防ぐ (横分割・縦分割どちらでも効く)。
+func (m *tuiModel) wrapDetail(s string) string {
+	w := m.vp.Width
+	if w < 1 {
+		return s
+	}
+	return lipgloss.NewStyle().Width(w).Render(s)
 }
 
 const tuiNoSelection = "(タスクなし)"
@@ -359,8 +370,13 @@ func (m *tuiModel) layout() {
 		return
 	}
 
-	// 分割の向き: 横に十分な幅があれば横分割 (詳細を右)、狭ければ縦分割 (詳細を下、tig 風)。
-	m.vertical = m.width < tuiSplitMinWidth
+	// 分割の向き: 一覧をタイトルが収まる「自然幅」にしたとき詳細ペインに残る実効幅で決める。
+	// 残り幅が読み幅 (tuiMinDetailWidth) に満たないなら、一覧を切り詰めてまで横に並べず、
+	// 縦分割 (詳細を下、tig 風) にしてウィンドウ全幅を詳細に与える (横方向の切り詰め回避)。
+	// ウィンドウ幅だけでなく一覧の自然幅も加味するので、「幅はあるが一覧が広くて詳細が
+	// 狭い」場合も下積みになる。
+	leftW, detailW, vertical := detailLayout(m.width, m.listNaturalWidth())
+	m.vertical = vertical
 
 	if m.vertical {
 		// 縦分割: 一覧を上、詳細を下に積む。間に区切り線 1 行。
@@ -376,20 +392,32 @@ func (m *tuiModel) layout() {
 		return
 	}
 
-	// 横分割: リストはタイトルが収まる「自然幅」まで広げ、固定上限で頭打ちにしない
-	// (十分な幅があるのにタイトルが切れるのを防ぐ)。ただし詳細側に最低限の幅は確保する。
+	// 横分割: 一覧 (左, 自然幅) / 区切り / 詳細 (右, 残り)。
 	m.listH = contentH
-	natural := m.listNaturalWidth()
-	minDetail := clampInt(m.width/3, 36, 64) // 詳細ペインに残す最小幅
-	upper := clampInt(m.width-3-minDetail, 24, m.width)
-	m.leftW = clampInt(natural, 24, upper)
-	m.vp.Width = max1(m.width - m.leftW - 3) // セパレータ "│" + 前後の余白
+	m.leftW = leftW
+	m.vp.Width = max1(detailW)
 	m.vp.Height = contentH
 	m.fixScroll()
 }
 
-// tuiSplitMinWidth はこれ未満の幅では縦分割 (詳細を下) にする閾値。
-const tuiSplitMinWidth = 100
+// detailLayout は横分割を仮定したときの一覧幅 (左) と詳細ペインの実効幅、そして縦分割に
+// 倒すべきか (詳細がウィンドウ全幅を必要とするほど狭いか) を返す。layout から切り出して
+// 単体テストしやすくしている。一覧は自然幅 (タイトルが収まる幅) を基準にし、最小幅
+// tuiMinListWidth とウィンドウ幅で挟む。
+func detailLayout(width, natural int) (listW, detailW int, vertical bool) {
+	listW = clampInt(natural, tuiMinListWidth, max1(width))
+	detailW = width - listW - 3 // セパレータ "│" + 前後の余白
+	vertical = detailW < tuiMinDetailWidth
+	return
+}
+
+const (
+	// tuiMinDetailWidth は詳細ペインを読むのに最低限欲しい表示幅。横分割で一覧を自然幅に
+	// したとき詳細がこれを下回るなら縦分割 (詳細を下) にする。
+	tuiMinDetailWidth = 50
+	// tuiMinListWidth は横分割で一覧に確保する最小幅。
+	tuiMinListWidth = 24
+)
 
 func max1(v int) int {
 	if v < 1 {

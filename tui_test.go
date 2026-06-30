@@ -196,30 +196,71 @@ func TestDetailToggleAndQuit(t *testing.T) {
 	}
 }
 
-// TestLayoutOrientation は分割の向きを検証する: 広い端末は横分割 (詳細を右、
-// リストはタイトルに応じて広がる)、狭い/縦長端末は縦分割 (詳細を下)。
-func TestLayoutOrientation(t *testing.T) {
-	tasks := append(mkTasks(), Task{Project: "alpha", ID: "0009", Status: "todo",
-		Title: strings.Repeat("長い", 30)}) // 横幅を要求する長いタイトル
+// TestDetailLayout は分割の向きの決定 (純関数) を検証する。一覧を自然幅にしたとき
+// 詳細ペインに残る実効幅が読み幅 (tuiMinDetailWidth) 以上なら横分割、満たなければ
+// 一覧を切り詰めず縦分割 (詳細を下) に倒す。
+func TestDetailLayout(t *testing.T) {
+	tests := []struct {
+		name           string
+		width, natural int
+		wantVertical   bool
+	}{
+		{"広い端末+短いタイトル → 横分割", 180, 40, false},
+		{"広い端末+長いタイトルでも両立 → 横分割", 200, 95, false},
+		{"一覧が広く詳細を確保できない → 縦分割", 120, 135, true},
+		{"幅が中途半端で詳細が最小未満 → 縦分割", 70, 40, true},
+		{"境界: 詳細がちょうど最小 → 横分割", tuiMinListWidth + 3 + tuiMinDetailWidth, tuiMinListWidth, false},
+		{"境界: 1 足りない → 縦分割", tuiMinListWidth + 3 + tuiMinDetailWidth - 1, tuiMinListWidth, true},
+	}
+	for _, tt := range tests {
+		listW, detailW, vertical := detailLayout(tt.width, tt.natural)
+		if vertical != tt.wantVertical {
+			t.Errorf("%s: vertical=%v want %v (listW=%d detailW=%d)", tt.name, vertical, tt.wantVertical, listW, detailW)
+		}
+		if !vertical && detailW < tuiMinDetailWidth {
+			t.Errorf("%s: 横分割なのに詳細幅が最小未満: detailW=%d", tt.name, detailW)
+		}
+	}
+}
 
-	// 広い端末: 横分割。リストは固定上限ではなく内容に応じて広がり、詳細にも幅が残る。
+// TestLayoutOrientation はモデル経由で分割の向きを検証する: 広い端末は横分割
+// (詳細を右、リストは内容に応じて広がる)、一覧が広すぎて詳細を確保できない端末や
+// 狭い端末は縦分割 (詳細を下、全幅)。
+func TestLayoutOrientation(t *testing.T) {
+	// 固定上限 64 を超えるが、広い端末なら詳細にも幅が残る中程度のタイトル (表示幅 80)。
+	tasks := append(mkTasks(), Task{Project: "alpha", ID: "0009", Status: "todo",
+		Title: strings.Repeat("ab", 40)})
+
+	// 広い端末: 横分割。リストは固定上限 64 ではなく内容に応じて広がり、詳細にも幅が残る。
 	wide := &tuiModel{all: tasks, effProject: ""}
 	wide.applyFilter()
 	var wm tea.Model = wide
-	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	wm, _ = wm.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	w := wm.(*tuiModel)
 	if w.vertical {
 		t.Fatal("広い端末では横分割のはず")
 	}
 	if w.leftW <= 64 {
-		t.Fatalf("広い端末では旧固定上限 64 を超えて広がるはず: leftW=%d", w.leftW)
+		t.Fatalf("広い端末ではリストが内容に応じて 64 を超えて広がるはず: leftW=%d", w.leftW)
 	}
-	if w.vp.Width < 36 {
-		t.Fatalf("詳細ペインに最小幅が残っていない: vpW=%d", w.vp.Width)
+	if w.vp.Width < tuiMinDetailWidth {
+		t.Fatalf("横分割では詳細ペインに最小幅が残るはず: vpW=%d", w.vp.Width)
 	}
 
-	// 狭い/縦長端末: 縦分割 (詳細を下)。リストは全幅、詳細は下に高さを持つ。
+	// 一覧の自然幅が広すぎて詳細に読み幅を確保できない端末: 縦分割 (詳細を下) に倒す。
+	// (旧挙動: タイトルを切り詰めてでも横並び。新挙動: 切り詰めず下に積む。)
+	squeeze := &tuiModel{all: append(mkTasks(), Task{Project: "alpha", ID: "0009",
+		Status: "todo", Title: strings.Repeat("長い", 40)}), effProject: ""} // 表示幅 160
+	squeeze.applyFilter()
+	var sm tea.Model = squeeze
+	sm, _ = sm.Update(tea.WindowSizeMsg{Width: 130, Height: 50})
+	sm, _ = sm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !sm.(*tuiModel).vertical {
+		t.Fatal("一覧が広く詳細を確保できないときは縦分割のはず")
+	}
+
+	// 狭い端末: 縦分割 (詳細を下)。リストは全幅、詳細は下に高さを持つ。
 	narrow := &tuiModel{all: tasks, effProject: ""}
 	narrow.applyFilter()
 	var nm tea.Model = narrow
@@ -234,6 +275,23 @@ func TestLayoutOrientation(t *testing.T) {
 	}
 	if n.vp.Height < 1 || n.listH < 1 || n.listH+n.vp.Height >= 50 {
 		t.Fatalf("縦分割の高さ配分が不正: listH=%d vpH=%d", n.listH, n.vp.Height)
+	}
+}
+
+// TestWrapDetailNoClip は詳細本文が viewport 幅で折り返され、どの行も幅を超えない
+// (= 横方向に切り詰められない) ことを確認する。
+func TestWrapDetailNoClip(t *testing.T) {
+	m := &tuiModel{}
+	m.vp.Width = 40
+	long := strings.Repeat("word ", 60) // 折り返しが必要な長い 1 行
+	out := m.wrapDetail(long)
+	if !strings.Contains(out, "\n") {
+		t.Fatal("長い行が折り返されていない")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if dispWidth(line) > 40 {
+			t.Fatalf("折り返し後も行が幅を超える: dispWidth=%d line=%q", dispWidth(line), line)
+		}
 	}
 }
 

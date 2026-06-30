@@ -38,6 +38,11 @@ type Task struct {
 	BlockedAt     string // 保留にした日時 (ISO8601。経過算出の基点。updated とは別)
 	BlockedReason string // 保留理由 (一覧表示用の構造化フィールド。履歴は進捗ログ)
 
+	// Archived はこのタスクが <project>/archive/ に退避されているか。通常の走査
+	// (loadTasksReport) はアーカイブを読まないので、ここを読むのは loadArchivedTasks 経由
+	// (list --archived / show --archived / doctor の重複検査) のときだけ true になる。
+	Archived bool
+
 	Path string // ファイルの絶対パス
 }
 
@@ -98,7 +103,12 @@ func normalizeID(id string) string {
 	return id
 }
 
-// loadTasks は store 配下の <project>/*.md を全て読み、project / id 順で返す。
+// archiveDirName は project ディレクトリ内でアーカイブ済みタスクを退避するサブディレクトリ名。
+// 通常の走査 (loadTasksReport / loadTasks) はここを読まないので、退避したタスクは
+// list / -a / doctor の通常表示から外れる。明示的に見たいときだけ loadArchivedTasks で読む。
+const archiveDirName = "archive"
+
+// loadTasks は store 配下の <project>/*.md (アーカイブ除く) を全て読み、project / id 順で返す。
 func loadTasks(dir string) ([]Task, error) {
 	tasks, _, err := loadTasksReport(dir)
 	return tasks, err
@@ -112,8 +122,21 @@ type LoadFailure struct {
 	Err  error
 }
 
-// loadTasksReport は loadTasks 本体。読めたタスクに加え、読めなかったファイルも返す。
+// loadTasksReport は loadTasks 本体。読めたタスク (アクティブのみ) に加え、読めなかった
+// ファイルも返す。アーカイブ (<project>/archive/) は対象外 (loadArchivedTasks で読む)。
 func loadTasksReport(dir string) ([]Task, []LoadFailure, error) {
+	return collectTasks(dir, true, false)
+}
+
+// loadArchivedTasks はアーカイブ済みタスク (<project>/archive/*.md) だけを読む。
+// list --archived / show --archived / doctor の重複検査 (アクティブと番号が被らないか) で使う。
+func loadArchivedTasks(dir string) ([]Task, []LoadFailure, error) {
+	return collectTasks(dir, false, true)
+}
+
+// collectTasks は store 配下の各 project から、active (<project>/*.md) と
+// archive (<project>/archive/*.md) を選択的に読み、project / id 順 (同 id は active 優先) で返す。
+func collectTasks(dir string, includeActive, includeArchive bool) ([]Task, []LoadFailure, error) {
 	var tasks []Task
 	var failures []LoadFailure
 	entries, err := os.ReadDir(dir)
@@ -126,43 +149,70 @@ func loadTasksReport(dir string) ([]Task, []LoadFailure, error) {
 		}
 		project := projEntry.Name()
 		projDir := filepath.Join(dir, project)
-		files, err := os.ReadDir(projDir)
-		if err != nil {
-			failures = append(failures, LoadFailure{projDir, err})
-			continue
+		if includeActive {
+			readTasksInDir(projDir, project, false, &tasks, &failures)
 		}
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
-				continue
-			}
-			path := filepath.Join(projDir, f.Name())
-			t, err := parseTask(path)
-			if err != nil {
-				failures = append(failures, LoadFailure{path, err})
-				continue
-			}
-			if t.Project == "" {
-				t.Project = project
-			}
-			if t.ID == "" {
-				t.ID = strings.TrimSuffix(f.Name(), ".md")
-			}
-			if t.Status == "" {
-				t.Status = "todo"
-			}
-			if t.Title == "" {
-				t.Title = "(no title)"
-			}
-			tasks = append(tasks, t)
+		if includeArchive {
+			readTasksInDir(filepath.Join(projDir, archiveDirName), project, true, &tasks, &failures)
 		}
 	}
 	slices.SortFunc(tasks, func(a, b Task) int {
 		return cmp.Or(
 			cmp.Compare(a.Project, b.Project),
 			compareID(a.ID, b.ID),
+			boolCompare(a.Archived, b.Archived), // 同 id (active+archive 同時取得時) は active を先に
 		)
 	})
 	return tasks, failures, nil
+}
+
+// readTasksInDir は d 直下の *.md を読み tasks/failures に積む。archived はそのディレクトリの
+// タスクに付ける印 (active=false / archive=true)。d が存在しない (アーカイブ未作成など) ときは
+// 失敗にせず黙って何もしない。サブディレクトリ (active 走査時の archive/ など) は読み飛ばす。
+func readTasksInDir(d, project string, archived bool, tasks *[]Task, failures *[]LoadFailure) {
+	files, err := os.ReadDir(d)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			*failures = append(*failures, LoadFailure{d, err})
+		}
+		return
+	}
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(d, f.Name())
+		t, err := parseTask(path)
+		if err != nil {
+			*failures = append(*failures, LoadFailure{path, err})
+			continue
+		}
+		if t.Project == "" {
+			t.Project = project
+		}
+		if t.ID == "" {
+			t.ID = strings.TrimSuffix(f.Name(), ".md")
+		}
+		if t.Status == "" {
+			t.Status = "todo"
+		}
+		if t.Title == "" {
+			t.Title = "(no title)"
+		}
+		t.Archived = archived
+		*tasks = append(*tasks, t)
+	}
+}
+
+// boolCompare は false < true で比較する (アクティブを先、アーカイブを後に並べる用)。
+func boolCompare(a, b bool) int {
+	if a == b {
+		return 0
+	}
+	if a {
+		return 1
+	}
+	return -1
 }
 
 // compareID は ID を数値順で比較する。両方が非負整数としてパースできれば数値比較を

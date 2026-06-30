@@ -40,6 +40,8 @@ make install
 | 連続実行 | 「0042 と 0045 をまとめてやって」「/agent-tasks batch 0042 0045」(直列に start→done) |
 | 完了 | 「0001 を完了」「/agent-tasks done 0001」 |
 | 保留 | 「0001 を保留」「/agent-tasks block 0001」 |
+| アーカイブ | 「0001 をアーカイブ」「/agent-tasks archive 0001」(削除せず退避。一覧から外す) |
+| アーカイブ解除 | 「0001 を戻して」「/agent-tasks unarchive 0001」 |
 | worktree 設定の展開 | 「worktree 設定を入れて」「/agent-tasks scaffold」(firebase/rails を検出して雛形生成) |
 
 **並行開発**: 別々のエージェントセッションでそれぞれ別タスクを `start` すると、タスクごとに
@@ -55,8 +57,11 @@ agent-tasks --all                # done も含める (-a も可)
 agent-tasks --status in-progress # status で絞り込み
 agent-tasks --watch              # 一覧を自動更新表示 (-w)
 agent-tasks tui                  # 一覧+詳細をインタラクティブに閲覧 (自動更新。端末専用)
-agent-tasks show 0001            # 1 タスクの全文
+agent-tasks --archived           # アーカイブ済みタスクだけを一覧 (通常は非表示)
+agent-tasks show 0001            # 1 タスクの全文 (--archived で退避済みを開く)
 agent-tasks edit 0001            # 1 タスクをエディタで開く
+agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ移動。一覧から外す)
+agent-tasks unarchive 0001       # 退避したタスクを元に戻す
 agent-tasks status               # ストアの未同期状態を1行表示
 agent-tasks sync                 # ストアを add/commit/push して同期
 agent-tasks doctor               # id 重複・不整合を点検

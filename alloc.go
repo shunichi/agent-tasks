@@ -140,12 +140,23 @@ func allocTaskFile(projDir, slug string) (id, path string, err error) {
 	}
 }
 
-// maxTaskID は projDir 直下の *.md のうちファイル名先頭連番 (NNNN) の最大値を返す。
-// ロックファイル等の非タスクファイルは leadingID が空なので自然に無視される。
-// 空ディレクトリ / 読み取り失敗時は 0 (次の採番は 0001)。予約直後の空ファイルも
-// leadingID を持つので採番に算入され、連続採番でも番号が重ならない。
+// maxTaskID は projDir のタスク id の最大値を返す。アクティブ (projDir 直下) に加え、
+// アーカイブ (projDir/archive/) も対象にする — 番号は再利用しない方針なので、退避済みの
+// 番号と被らないよう採番にはアーカイブの最大値も算入する。
+// 空 / 読み取り失敗時は 0 (次の採番は 0001)。
 func maxTaskID(projDir string) int {
-	entries, err := os.ReadDir(projDir)
+	max := maxIDInDir(projDir)
+	if a := maxIDInDir(filepath.Join(projDir, archiveDirName)); a > max {
+		max = a
+	}
+	return max
+}
+
+// maxIDInDir は d 直下の *.md のうちファイル名先頭連番 (NNNN) の最大値を返す。
+// ロックファイル等の非タスクファイルは leadingID が空なので自然に無視される。
+// 予約直後の空ファイルも leadingID を持つので算入され、連続採番でも番号が重ならない。
+func maxIDInDir(d string) int {
+	entries, err := os.ReadDir(d)
 	if err != nil {
 		return 0
 	}

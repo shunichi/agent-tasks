@@ -34,6 +34,8 @@ var completionSubcommands = []completionSubcommand{
 	{"worktree-remove", "worktree 撤去フック + git worktree remove"},
 	{"scaffold-worktree", "worktree 設定の雛形を展開"},
 	{"doctor", "id 重複/不一致を点検"},
+	{"archive", "タスクを退避 (削除せず一覧から外す)"},
+	{"unarchive", "退避したタスクを元に戻す"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"statusline", "実行中タスクを status line に表示"},
@@ -101,6 +103,7 @@ func cmdCompletionValues(args []string) error {
 	case "ids":
 		project := ""
 		withTitle := false
+		archived := false
 		s := newArgScan(rest)
 		for {
 			a, ok := s.token()
@@ -117,6 +120,9 @@ func cmdCompletionValues(args []string) error {
 			case "--with-title":
 				// 各 id にタブ区切りでタイトルを添える (zsh の説明付き補完用)。
 				withTitle = true
+			case "--archived":
+				// アクティブではなくアーカイブ済み (<project>/archive/) の id を列挙 (unarchive 補完用)。
+				archived = true
 			default:
 				return usagef("completion-values ids: unexpected argument %q", a)
 			}
@@ -128,10 +134,14 @@ func cmdCompletionValues(args []string) error {
 			project = currentProject()
 		}
 		if project != "" {
+			dir := filepath.Join(storeDir(), project)
+			if archived {
+				dir = filepath.Join(dir, archiveDirName)
+			}
 			if withTitle {
-				printTaskIDsWithTitle(os.Stdout, project)
+				printTaskIDsWithTitle(os.Stdout, dir)
 			} else {
-				printTaskIDs(os.Stdout, project)
+				printTaskIDs(os.Stdout, dir)
 			}
 		}
 		return nil
@@ -160,11 +170,12 @@ func printProjects(w io.Writer) {
 	}
 }
 
-// printTaskIDs は project 配下のタスク id を昇順で1行ずつ出力する。
+// printTaskIDs は dir 直下のタスク id を昇順で1行ずつ出力する。
 // id はファイル名先頭の連番 (<NNNN>-*.md) から取る (frontmatter を読まず高速)。
-// project ディレクトリが無い/読めないときは静かに何も出さない。
-func printTaskIDs(w io.Writer, project string) {
-	entries, err := os.ReadDir(filepath.Join(storeDir(), project))
+// dir が無い/読めないときは静かに何も出さない (アクティブなら <project>/、アーカイブなら
+// <project>/archive/ を呼び出し側が渡す)。
+func printTaskIDs(w io.Writer, dir string) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
@@ -183,12 +194,11 @@ func printTaskIDs(w io.Writer, project string) {
 	}
 }
 
-// printTaskIDsWithTitle は project 配下のタスクを id 昇順で "<id>\t<title>" 形式で出力する。
+// printTaskIDsWithTitle は dir 直下のタスクを id 昇順で "<id>\t<title>" 形式で出力する。
 // タイトルを得るため frontmatter を読む (printTaskIDs より重いが、zsh の説明付き補完用)。
-// 読めないファイルは飛ばし、project ディレクトリが無い/読めないときは静かに何も出さない。
-func printTaskIDsWithTitle(w io.Writer, project string) {
-	projDir := filepath.Join(storeDir(), project)
-	entries, err := os.ReadDir(projDir)
+// 読めないファイルは飛ばし、dir が無い/読めないときは静かに何も出さない。
+func printTaskIDsWithTitle(w io.Writer, dir string) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
@@ -198,7 +208,7 @@ func printTaskIDsWithTitle(w io.Writer, project string) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
-		t, err := parseTask(filepath.Join(projDir, e.Name()))
+		t, err := parseTask(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
@@ -219,7 +229,7 @@ func bashCompletionScript() string {
 	statuses := strings.Join(completionStatusValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --recent --json --color --help"
+	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --recent --archived --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -261,8 +271,11 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|session-link)
+        show|edit|session-link|archive|unarchive)
             if [[ "$cur" != -* && "$prev" != "--session" ]]; then
+                # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
+                local idopt=""
+                [[ "$sub" == "unarchive" ]] && idopt="--archived"
                 # サブコマンド後の位置引数を数える (フラグとその値を除く)。
                 local -a pos=()
                 local j skip=0
@@ -277,9 +290,9 @@ _agent_tasks() {
                     esac
                 done
                 if (( ${#pos[@]} == 0 )); then
-                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null) $(agent-tasks completion-values ids 2>/dev/null)" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null) $(agent-tasks completion-values ids $idopt 2>/dev/null)" -- "$cur") )
                 else
-                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values ids --project "${pos[0]}" 2>/dev/null)" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "$(agent-tasks completion-values ids --project "${pos[0]}" $idopt 2>/dev/null)" -- "$cur") )
                 fi
                 return
             fi
@@ -290,8 +303,9 @@ _agent_tasks() {
     case "$sub" in
         list)              flags="%[4]s" ;;
         tui)               flags="--status --project --all-projects --all --interval --color --help" ;;
-        show)              flags="--json --color --help" ;;
+        show)              flags="--archived --json --color --help" ;;
         edit)              flags="--color --help" ;;
+        archive|unarchive) flags="--color --help" ;;
         doctor)            flags="--project --color --help" ;;
         sync)              flags="--no-push --push --color --help" ;;
         scaffold-worktree) flags="--list --dir --force --color --help" ;;
@@ -332,12 +346,14 @@ func zshCompletionScript() string {
     ps=(${(f)"$(agent-tasks completion-values projects 2>/dev/null)"})
     compadd -a ps
 }
-# _agent_tasks_ids [<project>]: project (省略時は現在 project) のタスク id を、
+# _agent_tasks_ids [<project>] [<archived>]: project (省略時は現在 project) のタスク id を、
 # タイトルを説明に添えて補完する ("0001  タイトル" と表示し、挿入されるのは id のみ)。
+# 第2引数が非空ならアーカイブ済みの id を出す (unarchive 補完用)。
 (( $+functions[_agent_tasks_ids] )) || _agent_tasks_ids() {
     local proj=$1
+    local arch=$2
     local -a lines ids descs
-    lines=(${(f)"$(agent-tasks completion-values ids ${proj:+--project $proj} --with-title 2>/dev/null)"})
+    lines=(${(f)"$(agent-tasks completion-values ids ${proj:+--project $proj} ${arch:+--archived} --with-title 2>/dev/null)"})
     local l
     for l in $lines; do
         ids+=${l%%$'\t'*}
@@ -379,6 +395,7 @@ _agent_tasks() {
                 '--interval[更新間隔(秒)]' \
                 '--active[着手中のみ]' \
                 '--recent[最近完了 N 件]' \
+                '--archived[アーカイブ済みのみ]' \
                 '--json[JSON 出力]' \
                 '--color[色出力]' '--help[ヘルプ]'
         else
@@ -398,6 +415,7 @@ _agent_tasks() {
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \
                 '--recent[最近完了 N 件]:count:' \
+                '--archived[アーカイブ済みのみ]' \
                 '--json[JSON 出力]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
@@ -410,15 +428,18 @@ _agent_tasks() {
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit)
+        show|edit|archive|unarchive)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then
-                    _values 'option' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
+                    _values 'option' '--archived[アーカイブ済みを開く]' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
                 else
                     _values 'option' '--color[色出力]' '--help[ヘルプ]'
                 fi
             else
+                # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
+                local arch=""
+                [[ $sub == unarchive ]] && arch=1
                 # サブコマンド以降の位置引数を集める (フラグと値を除く)。
                 # C 言語形式の for (( )) は zsh の補完文脈で表示を壊すため foreach を使う。
                 local -a pos; local w skip=0
@@ -431,10 +452,10 @@ _agent_tasks() {
                     esac
                 done
                 if (( ${#pos} == 0 )); then
-                    _agent_tasks_projects   # 第1引数: project 名 …
-                    _agent_tasks_ids        # … または現在 project の id
+                    _agent_tasks_projects        # 第1引数: project 名 …
+                    _agent_tasks_ids "" $arch    # … または現在 project の id
                 else
-                    _agent_tasks_ids ${pos[1]}  # 第2引数: pos[1] の project の id
+                    _agent_tasks_ids ${pos[1]} $arch  # 第2引数: pos[1] の project の id
                 fi
             fi
             ;;

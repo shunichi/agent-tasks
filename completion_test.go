@@ -133,13 +133,13 @@ func TestPrintTaskIDs(t *testing.T) {
 	}
 	t.Setenv("AGENT_TASKS_STORE", dir)
 	var buf bytes.Buffer
-	printTaskIDs(&buf, "webapp")
+	printTaskIDs(&buf, proj)
 	if got, want := buf.String(), "0001\n0002\n0003\n"; got != want {
 		t.Errorf("printTaskIDs = %q, want %q", got, want)
 	}
-	// 存在しない project は静かに空 (補完を壊さない)。
+	// 存在しないディレクトリは静かに空 (補完を壊さない)。
 	var empty bytes.Buffer
-	printTaskIDs(&empty, "nope")
+	printTaskIDs(&empty, filepath.Join(dir, "nope"))
 	if empty.Len() != 0 {
 		t.Errorf("存在しない project は空であるべき: %q", empty.String())
 	}
@@ -161,7 +161,7 @@ func TestPrintTaskIDsWithTitle(t *testing.T) {
 	write("0001-a.md", "---\nid: \"0001\"\ntitle: 最初のタスク\n---\n")
 	t.Setenv("AGENT_TASKS_STORE", dir)
 	var buf bytes.Buffer
-	printTaskIDsWithTitle(&buf, "webapp")
+	printTaskIDsWithTitle(&buf, proj)
 	if got, want := buf.String(), "0001\t最初のタスク\n0002\t二番目\n"; got != want {
 		t.Errorf("printTaskIDsWithTitle = %q, want %q", got, want)
 	}

@@ -168,10 +168,22 @@ func loadTasksReport(dir string) ([]Task, []LoadFailure, error) {
 	slices.SortFunc(tasks, func(a, b Task) int {
 		return cmp.Or(
 			cmp.Compare(a.Project, b.Project),
-			cmp.Compare(a.ID, b.ID),
+			compareID(a.ID, b.ID),
 		)
 	})
 	return tasks, failures, nil
+}
+
+// compareID は ID を数値順で比較する。両方が非負整数としてパースできれば数値比較を
+// 第1キーにし (例: "9999" < "10000"。4桁を超えても順序が破綻しない)、同値または
+// パースできない側があれば文字列比較にフォールバックする。
+func compareID(a, b string) int {
+	na, ea := strconv.Atoi(a)
+	nb, eb := strconv.Atoi(b)
+	if ea == nil && eb == nil {
+		return cmp.Or(cmp.Compare(na, nb), cmp.Compare(a, b))
+	}
+	return cmp.Compare(a, b)
 }
 
 // Duplicate は同一 (project, id) を共有する複数ファイルを表す検出結果。

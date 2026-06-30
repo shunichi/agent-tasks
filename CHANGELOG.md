@@ -29,6 +29,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks sync` に **scoped 同期**を追加。`sync <id>` / `sync <project> <id>` / `sync --path <p>`
+  で**そのタスクファイルだけ**を stage・commit する (引数なしは従来どおり全体 = `add -A`)。
+  並列セッションが他タスクを書きかけでも巻き込まず、確認なしの自動同期に使える。
+
 - `agent-tasks tui`: 一覧+詳細をインタラクティブに閲覧する常駐ビューワーを追加 (Bubble Tea)。
   起動直後は**一覧のみ**を表示し、`Enter` で選択タスクの詳細 (frontmatter + 本文 + PR/所要時間サマリ) を
   開く。詳細表示中の `q`/`Esc` は詳細を閉じ、一覧のみのときの `q`/`Esc` で終了する。
@@ -46,6 +50,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   symlink で常に最新だが補完は静的ファイルのため、従来は機能追加後に補完だけ古いまま残っていた。
   今後は `make install` 一度でバイナリ + skill + 補完がすべて最新になる
   (zsh は `~/.zcompdump` キャッシュのため反映は新しいシェルから)。
+
+- `agent-tasks sync` を並列セッションで安全にした。複数セッションの同時 sync を**ストアロックで
+  直列化** (git の index.lock 衝突を回避)、push 競合 (non-fast-forward) は `pull --rebase --autostash`
+  で取り込み直して**自動リトライ**、dirty な作業ツリーでも `--autostash` で rebase する。これにより
+  scoped 同期 (上記 Added) と合わせて auto-sync を安全に有効化できる。
 
 ## 2026-06-30
 

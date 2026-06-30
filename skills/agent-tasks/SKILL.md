@@ -504,13 +504,23 @@ create/start/done/block でファイルを更新したあと、ストアを comm
 - **未同期の確認**: `agent-tasks status` でストアの未コミット/未 push の状況を1行で確認できる
   (例: `未コミット 3 ファイル / 未 push 2 コミット (origin/main)`、同期済みなら `クリーン (同期済み)`)。
   未同期があれば exit 1 を返すので、「sync が必要か」を事前に判断したいときに使う。
-- **基本は CLI に任せる**: `agent-tasks sync` がストアで `add -A` → コミットメッセージ自動生成 →
-  `commit` → `pull --rebase` → `push` まで行う。push したくない時は `agent-tasks sync --no-push`
+- **基本は CLI に任せる**: `agent-tasks sync` がストアで `add` → コミットメッセージ自動生成 →
+  `commit` → `pull --rebase --autostash` → `push` まで行う。push したくない時は `agent-tasks sync --no-push`
   (commit で止める)。upstream 未設定なら初回 `push -u origin <branch>` で追跡を設定する。
+  並列セッションの sync はストアロックで直列化され、push 競合 (non-fast-forward) は取り込み直して
+  自動リトライする。
+- **scoped sync (推奨。並列で安全)**: `agent-tasks sync <id>` (または `sync <project> <id>` /
+  `sync --path <相対パス>`) は**そのタスクファイルだけ**を stage・commit する。引数なし `sync` は
+  従来どおり**全体** (`add -A`)。**並列で別セッションが他タスクを書きかけのときは scoped を使う**
+  (`add -A` は書きかけを巻き込むため)。
 - コミットメッセージは変更ファイルから自動生成される (例: `tasks: agent-tasks/0005 (in-progress)`、
   複数なら `tasks: update N tasks` + 本文に列挙)。
-- **いつ実行するか**: ユーザーが「同期」「push」と言ったとき、または create/done などストア更新を伴う
-  操作の区切りで「ストアを sync するか」を一言促す (勝手に push しない。明示の指示か確認の上で実行)。
+- **いつ実行するか**:
+  - **scoped sync (`sync <id>`) は確認なしで自動実行してよい**。create/start/done/block で 1 タスクを
+    更新した直後など、自分が触ったタスクだけを同期する用途。ロック + scoped add で並列セッションと
+    干渉しないため、毎回ユーザーに確認しなくてよい。
+  - **全体 sync (引数なし `sync` = `add -A`) はユーザーに一言確認してから**実行する (他セッションの
+    書きかけや無関係な変更まで巻き込み得るため)。ユーザーが「同期」「push」と言ったときも全体でよい。
 - `pull --rebase` でコンフリクトした場合や push が失敗した場合は CLI がエラーを返すので、
   内容をユーザーに伝えてストア (`~/agent-tasks-store`) での手動解決を促す。
 - CLI が無い環境では手動: `cd ~/agent-tasks-store && git add -A && git commit && git pull --rebase && git push`。

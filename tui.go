@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aymanbagabas/go-osc52/v2"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -104,13 +105,14 @@ type tuiModel struct {
 	all  []Task // ストア全タスク (project/id 昇順)
 	rows []Task // フィルタ適用後の表示行
 
-	cursor     int  // rows のインデックス
-	top        int  // 一覧のスクロール先頭 (表示窓の先頭行)
-	listH      int  // 一覧ペインの表示行数 (レイアウトで更新)
-	leftW      int  // 一覧ペインの桁幅 (レイアウトで更新)
-	showDetail bool // 詳細ペインを表示中か (起動直後は false = リストのみ。Enter で表示)
-	showHelp   bool // ヘルプ (キーバインド一覧) を表示中か (? で開閉)
-	vertical   bool // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
+	cursor     int    // rows のインデックス
+	top        int    // 一覧のスクロール先頭 (表示窓の先頭行)
+	listH      int    // 一覧ペインの表示行数 (レイアウトで更新)
+	leftW      int    // 一覧ペインの桁幅 (レイアウトで更新)
+	showDetail bool   // 詳細ペインを表示中か (起動直後は false = リストのみ。Enter で表示)
+	showHelp   bool   // ヘルプ (キーバインド一覧) を表示中か (? で開閉)
+	flash      string // 一時メッセージ (コピー結果など)。次のキー入力で消える
+	vertical   bool   // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
 	vp         viewport.Model
 	ready      bool
 	width      int
@@ -258,6 +260,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
+		m.flash = "" // 一時メッセージは次のキー入力で消す
 		// ヘルプ表示中は ?/q/Esc で閉じるだけ (他キーは無効化)。Ctrl+C は常に終了。
 		if m.showHelp {
 			switch msg.String() {
@@ -329,12 +332,53 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.applyFilter()
 			}
+		case "c":
+			// 選択タスクの `start <NNNN>` をクリップボードへコピーする (任意の pane の
+			// claude に貼って着手できる)。着手の意味がある todo / blocked のみ対象。
+			if t, ok := m.selectedTask(); ok {
+				if cmdStr, startable := startCommandFor(t); startable {
+					if err := copyToClipboard(cmdStr); err != nil {
+						m.flash = "コピー失敗: " + err.Error()
+					} else {
+						m.flash = "コピーしました: " + cmdStr
+					}
+				} else {
+					m.flash = "コピー対象は todo / blocked のタスクのみです"
+				}
+			}
 		case "r":
 			m.reload()
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// selectedTask は選択中の行のタスクを返す。行が無ければ ok=false。
+func (m *tuiModel) selectedTask() (Task, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return Task{}, false
+	}
+	return m.rows[m.cursor], true
+}
+
+// startCommandFor は TUI からコピーする start コマンド文字列を返す。着手の意味があるのは
+// todo / blocked のタスクのみ (それ以外は ok=false)。
+func startCommandFor(t Task) (string, bool) {
+	switch t.Status {
+	case "todo", "blocked":
+		return "start " + t.ID, true
+	}
+	return "", false
+}
+
+// copyToClipboard はテキストを OSC52 エスケープで端末のクリップボードへ送る。外部コマンド
+// 不要で SSH 越しでも効き、ブロックしない。bubbletea の stdout バッファと混ざらないよう
+// 端末 (stderr) へ直接書く。tmux/端末が OSC52 を許可していないとクリップボードに入らない
+// ことがあるが、その場合もフラッシュ表示で文字列は確認できる。
+func copyToClipboard(s string) error {
+	_, err := osc52.New(s).WriteTo(os.Stderr)
+	return err
 }
 
 // cycleStatus は status フィルタを循環させる (全 → todo → in-progress → blocked → review → done → 全)。
@@ -499,6 +543,9 @@ func (m *tuiModel) renderHeader() string {
 	if m.loadErr != nil {
 		line += statusStyle("blocked").Render("  読み取りエラー")
 	}
+	if m.flash != "" {
+		line += "  " + tuiPointStyle.Render(m.flash)
+	}
 	return tuiTrunc(line, m.width)
 }
 
@@ -508,9 +555,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.showHelp:
 		keys = "?/q/Esc 閉じる"
 	case m.showDetail:
-		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  c コピー  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  c コピー  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
 	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
 }
@@ -524,6 +571,7 @@ func helpEntries() [][2]string {
 		{"PgUp/PgDn, K/J", "詳細をスクロール"},
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},
+		{"c", "選択タスクの start <NNNN> をクリップボードへコピー"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},

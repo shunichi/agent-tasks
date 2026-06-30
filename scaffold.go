@@ -35,8 +35,13 @@ var scaffoldFiles = []scaffoldFile{
 func cmdScaffoldWorktree(args []string) error {
 	var stack, dir string
 	force, list, printOnly := false, false, false
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch {
 		case a == "--force":
 			force = true
 		case a == "--list":
@@ -44,18 +49,24 @@ func cmdScaffoldWorktree(args []string) error {
 		case a == "--print" || a == "--dry-run":
 			printOnly = true
 		case a == "--dir":
-			if i+1 >= len(args) {
-				return usagef("--dir requires a value")
+			v, err := s.value("--dir")
+			if err != nil {
+				return err
 			}
-			i++
-			dir = args[i]
+			dir = v
 		case strings.HasPrefix(a, "-"):
 			return usagef("unknown option: %s", a)
-		case stack == "":
-			stack = a
 		default:
-			return usagef("scaffold-worktree は <stack> を1つだけ取る")
+			s.positional(a)
 		}
+	}
+	switch pos := s.rest(); len(pos) {
+	case 0:
+		// stack 未指定 (自動検出に任せる)
+	case 1:
+		stack = pos[0]
+	default:
+		return usagef("scaffold-worktree は <stack> を1つだけ取る")
 	}
 
 	stacks, err := availableStacks()

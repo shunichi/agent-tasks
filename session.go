@@ -450,24 +450,28 @@ func cmdSessionLink(args []string) error {
 	// --session で明示する (cwd 逆引きの曖昧性を回避)。言えなければ省略し、hook が書いた
 	// sess マーカーを cwd で逆引きするフォールバックに任せる。
 	var explicitSession string
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--session":
-			if i+1 >= len(args) {
-				return usagef("--session には値が必要")
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch {
+		case a == "--session":
+			v, err := s.value("--session")
+			if err != nil {
+				return err
 			}
-			i++
-			explicitSession = args[i]
+			explicitSession = v
 		default:
-			if v, ok := strings.CutPrefix(args[i], "--session="); ok {
+			if v, ok := strings.CutPrefix(a, "--session="); ok {
 				explicitSession = v
 				continue
 			}
-			rest = append(rest, args[i])
+			s.positional(a)
 		}
 	}
-	project, id, err := resolveProjectID(rest)
+	project, id, err := resolveProjectID(s.rest())
 	if err != nil {
 		return err
 	}

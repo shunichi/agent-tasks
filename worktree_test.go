@@ -259,3 +259,169 @@ func TestRunPostCreateNoHook(t *testing.T) {
 		t.Error("ran = true, want false")
 	}
 }
+
+func TestRunPostRemove(t *testing.T) {
+	main := initRepo(t)
+	wt := t.TempDir()
+	// post-remove は cwd と env を確認できるよう成果物を worktree 内に書き出す。
+	hook := filepath.Join(main, ".worktree-post-remove")
+	writeFile(t, hook, "#!/bin/sh\necho \"$AGENT_TASKS_PROJECT\" > removed.txt\npwd >> removed.txt\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ran, err := runPostRemove(main, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("post-remove が実行されなかった")
+	}
+	out, err := os.ReadFile(filepath.Join(wt, "removed.txt"))
+	if err != nil {
+		t.Fatalf("成果物が無い: %v", err)
+	}
+	if got, want := firstLine(string(out)), filepath.Base(main); got != want {
+		t.Errorf("AGENT_TASKS_PROJECT = %q, want %q", got, want)
+	}
+
+	// post-create と違いマーカーは無いので、2 回目も実行される (撤去直前に 1 回呼ぶ前提)。
+	if err := os.Remove(filepath.Join(wt, "removed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	ran2, err := runPostRemove(main, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran2 {
+		t.Error("post-remove はマーカーを持たず毎回実行されるべき")
+	}
+	if _, err := os.Stat(filepath.Join(wt, "removed.txt")); err != nil {
+		t.Error("2 回目も成果物が書かれるべき")
+	}
+}
+
+func TestRunPostRemoveNoHook(t *testing.T) {
+	main := initRepo(t)
+	ran, err := runPostRemove(main, t.TempDir())
+	if err != nil {
+		t.Fatalf("フックが無いときはエラーにせず no-op: %v", err)
+	}
+	if ran {
+		t.Error("ran = true, want false")
+	}
+}
+
+func TestRunPostRemovePropagatesError(t *testing.T) {
+	main := initRepo(t)
+	hook := filepath.Join(main, ".worktree-post-remove")
+	writeFile(t, hook, "#!/bin/sh\nexit 3\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran, err := runPostRemove(main, t.TempDir())
+	if !ran {
+		t.Error("実行はされた (ran=true) べき")
+	}
+	if err == nil {
+		t.Error("フックが非ゼロ終了したらエラーを返すべき")
+	}
+}
+
+// cmdWorktreeRemove は実 worktree を作り、撤去直前にフックを走らせてから撤去する。
+func TestCmdWorktreeRemove(t *testing.T) {
+	main := initRepo(t)
+	// worktree remove は HEAD が要る (空 repo だと不可) ので 1 コミット置く。
+	writeFile(t, filepath.Join(main, "README"), "x")
+	for _, a := range [][]string{{"add", "-A"}, {"commit", "-qm", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", main}, a...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", a, err, out)
+		}
+	}
+	// 撤去直前にフックが worktree 内で動いた証跡をメイン repo 側に書き出す
+	// (worktree は消えるので、痕跡は worktree の外に残す)。
+	proof := filepath.Join(main, "post-remove-ran")
+	hook := filepath.Join(main, ".worktree-post-remove")
+	writeFile(t, hook, "#!/bin/sh\necho ran > "+proof+"\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := filepath.Join(filepath.Dir(main), filepath.Base(main)+"--rm")
+	if out, err := exec.Command("git", "-C", main, "worktree", "add", "-q", wt).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { exec.Command("git", "-C", main, "worktree", "remove", "--force", wt).Run() })
+
+	if err := cmdWorktreeRemove([]string{wt}); err != nil {
+		t.Fatalf("cmdWorktreeRemove: %v", err)
+	}
+	// フックが走った証跡。
+	if _, err := os.Stat(proof); err != nil {
+		t.Errorf("post-remove フックが実行されていない: %v", err)
+	}
+	// worktree が撤去されている。
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("worktree が撤去されていない: %s (err=%v)", wt, err)
+	}
+}
+
+// フックがエラー終了したら撤去を中止する (--force 無し)。
+func TestCmdWorktreeRemoveAbortsOnHookError(t *testing.T) {
+	main := initRepo(t)
+	writeFile(t, filepath.Join(main, "README"), "x")
+	for _, a := range [][]string{{"add", "-A"}, {"commit", "-qm", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", main}, a...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", a, err, out)
+		}
+	}
+	hook := filepath.Join(main, ".worktree-post-remove")
+	writeFile(t, hook, "#!/bin/sh\nexit 1\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(filepath.Dir(main), filepath.Base(main)+"--rmerr")
+	if out, err := exec.Command("git", "-C", main, "worktree", "add", "-q", wt).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { exec.Command("git", "-C", main, "worktree", "remove", "--force", wt).Run() })
+
+	if err := cmdWorktreeRemove([]string{wt}); err == nil {
+		t.Error("フックがエラー終了したら撤去を中止 (エラーを返す) べき")
+	}
+	// worktree は残っている (撤去されていない)。
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("フック失敗時は worktree を残すべき: %v", err)
+	}
+}
+
+func TestCwdInside(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "a", "b")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+
+	// dir 配下 (自身・サブディレクトリ) は inside。
+	for _, p := range []string{dir, sub} {
+		if err := os.Chdir(p); err != nil {
+			t.Fatal(err)
+		}
+		if !cwdInside(dir) {
+			t.Errorf("cwd=%s は %s の中と判定されるべき", p, dir)
+		}
+	}
+	// 外 (兄弟ディレクトリ) は inside でない。
+	outside := t.TempDir()
+	if err := os.Chdir(outside); err != nil {
+		t.Fatal(err)
+	}
+	if cwdInside(dir) {
+		t.Errorf("cwd=%s は %s の外と判定されるべき", outside, dir)
+	}
+}

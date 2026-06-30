@@ -1,0 +1,56 @@
+#!/bin/sh
+# agent-tasks worktree post-remove フック (Rails テンプレ)。
+# done で `git worktree remove` する直前に、worktree がまだ在るうちに 1 度実行される
+# (cwd = その worktree)。post-create が worktree ごとに作った副作用
+# (worktree 固有 DB / puma-dev 登録など) を後始末する。post-create と対。
+#
+# 重要: DB 名・APP_NAME の導出は post-create と「同じロジック・同じ CONFIG」にすること。
+# 片方だけ変えると後始末対象がずれて DB が孤児化する。
+#
+# 渡される env: AGENT_TASKS_WORKTREE / AGENT_TASKS_MAIN / AGENT_TASKS_PROJECT
+# 後始末は best-effort。1 つ失敗しても残りを試したいので set -e はしない。
+
+# ============================================================================
+# CONFIG — post-create と同じ値にする
+# ============================================================================
+DB_CLONE_SOURCE=myapp_development
+SERVER_MODE=port   # port | pumadev (post-create と揃える)
+
+# ---- 導出 (post-create と同一) ----
+WT_NAME=$(basename "${AGENT_TASKS_WORKTREE:-$PWD}")
+DB_SUFFIX=_$(printf '%s' "$WT_NAME" | tr -c 'a-zA-Z0-9' '_')
+dev_db="${DB_CLONE_SOURCE%_development}_development$DB_SUFFIX"
+test_db="${DB_CLONE_SOURCE%_development}_test$DB_SUFFIX"
+
+# ---- DB の後始末 ----
+# worktree 固有 DB を落とす。接続が残っていると失敗するので best-effort。
+for db in "$dev_db" "$test_db"; do
+  if dropdb --if-exists "$db" 2>/dev/null; then
+    echo "dropped DB: $db"
+  else
+    echo "DB '$db' を落とせませんでした (接続が残っている等。手動: dropdb $db)"
+  fi
+done
+# 並列テストで TEST_ENV_NUMBER 付きの test DB ($test_db2, $test_db3, ...) を作っている場合は、
+# それらも落とす (DB 名のパターンはプロジェクトの parallel test 設定に合わせて調整):
+#   psql -tAc "SELECT datname FROM pg_database WHERE datname LIKE '${test_db}%'" \
+#     | while read -r d; do dropdb --if-exists "$d"; done
+
+# ---- puma-dev 登録の後始末 ----
+if [ "$SERVER_MODE" = pumadev ]; then
+  APP_NAME="${AGENT_TASKS_PROJECT:-app}-$WT_NAME"
+  if command -v pdl >/dev/null 2>&1; then
+    if pdl unlink "$APP_NAME" 2>/dev/null; then
+      echo "pdl unlink: $APP_NAME"
+    else
+      echo "pdl unlink に失敗 (手動: pdl unlink $APP_NAME)"
+    fi
+  else
+    echo "puma-dev: 手動で登録解除してください (例: rm ~/.puma-dev/$APP_NAME)"
+  fi
+fi
+
+# ---- Redis ----
+# DB 番号方式 (redis://.../<n>) は worktree を撤去すれば番号が再利用されるだけなので後始末不要。
+# namespace/prefix 分離を使っている場合のみ、必要なら該当キーを削除する (例):
+#   redis-cli --scan --pattern "wt:$WT_NAME:*" | xargs -r redis-cli del

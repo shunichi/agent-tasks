@@ -31,6 +31,7 @@ var completionSubcommands = []completionSubcommand{
 	{"status", "ストアの未同期状態を表示"},
 	{"sync", "ストアを add/commit/push して同期"},
 	{"worktree-init", "worktree 作成後フックを実行"},
+	{"worktree-remove", "worktree 撤去フック + git worktree remove"},
 	{"scaffold-worktree", "worktree 設定の雛形を展開"},
 	{"doctor", "id 重複/不一致を点検"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
@@ -295,6 +296,7 @@ _agent_tasks() {
         sync)              flags="--no-push --push --color --help" ;;
         scaffold-worktree) flags="--list --dir --force --color --help" ;;
         worktree-init)     flags="--force --color --help" ;;
+        worktree-remove)   flags="--force --hook-only --color --help" ;;
         session-hook)      flags="--print-config --color --help" ;;
         session-link)      flags="--session --project --color --help" ;;
         statusline)        flags="--print-config --color --help" ;;
@@ -460,6 +462,12 @@ _agent_tasks() {
         worktree-init)
             _arguments \
                 '--force[再実行する]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        worktree-remove)
+            _arguments \
+                '--force[未コミット/フック失敗を無視して撤去]' \
+                '--hook-only[フックだけ実行し撤去しない]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         session-hook|statusline)

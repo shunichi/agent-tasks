@@ -228,6 +228,74 @@ func TestDetailLayout(t *testing.T) {
 	}
 }
 
+// TestHelpToggle はヘルプの開閉と、ヘルプ表示中の挙動を検証する:
+// ? で開閉 / q・Esc で閉じる (終了しない) / 表示中は他キーが無効。
+func TestHelpToggle(t *testing.T) {
+	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	press := func(s string) tea.Cmd {
+		var cmd tea.Cmd
+		model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+		return cmd
+	}
+
+	if model.(*tuiModel).showHelp {
+		t.Fatal("起動直後はヘルプ非表示のはず")
+	}
+
+	// ? で開く。主要キーの説明が描画される。
+	press("?")
+	if !model.(*tuiModel).showHelp {
+		t.Fatal("? でヘルプが開くはず")
+	}
+	out := model.View()
+	for _, want := range []string{"キーバインド", "Enter", "status フィルタ", "agent-tasks tui"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ヘルプに %q が描画されていない\n--- View ---\n%s", want, out)
+		}
+	}
+
+	// 表示中の他キー (down) は無効 = 選択も動かず、ヘルプも開いたまま。
+	before := model.(*tuiModel).cursor
+	press("down")
+	if !model.(*tuiModel).showHelp {
+		t.Fatal("ヘルプ表示中の他キーで閉じてはいけない")
+	}
+	if model.(*tuiModel).cursor != before {
+		t.Fatalf("ヘルプ表示中は選択が動かないはず: %d → %d", before, model.(*tuiModel).cursor)
+	}
+
+	// ? を再度押すと閉じる。
+	press("?")
+	if model.(*tuiModel).showHelp {
+		t.Fatal("? の再押下でヘルプが閉じるはず")
+	}
+
+	// q でも閉じる。かつ終了コマンドは返さない (リストへ戻るだけ)。
+	press("?")
+	cmd := press("q")
+	if model.(*tuiModel).showHelp {
+		t.Fatal("q でヘルプが閉じるはず")
+	}
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("ヘルプを閉じるだけで終了してはいけない")
+		}
+	}
+
+	// 極小サイズでヘルプを開いても落ちない / 空にならない。
+	for _, sz := range []tea.WindowSizeMsg{{Width: 40, Height: 8}, {Width: 10, Height: 4}, {Width: 1, Height: 1}} {
+		model, _ = model.Update(sz)
+		model.(*tuiModel).showHelp = true
+		if model.View() == "" {
+			t.Fatalf("ヘルプ表示が空 (size %dx%d)", sz.Width, sz.Height)
+		}
+	}
+}
+
 // TestLayoutOrientation はモデル経由で分割の向きを検証する: 広い端末は横分割
 // (詳細を右、リストは内容に応じて広がる)、一覧が広すぎて詳細を確保できない端末や
 // 狭い端末は縦分割 (詳細を下、全幅)。

@@ -53,6 +53,11 @@ type Task struct {
 	// (list --archived / show --archived / doctor の重複検査) のときだけ true になる。
 	Archived bool
 
+	// Incomplete は作成途中の中途半端なファイル (frontmatter に title が無い) を示す。
+	// alloc-id が採番時に作る空の予約ファイル、または create の書き込み途中で観測した状態。
+	// 一覧表示 (list/json/recent/tui) からは除外するが、doctor では隠さない (未記入予約の検出用)。
+	Incomplete bool
+
 	Path string // ファイルの絶対パス
 }
 
@@ -208,6 +213,11 @@ func readTasksInDir(d, project string, archived bool, tasks *[]Task, failures *[
 		}
 		if t.Title == "" {
 			t.Title = "(no title)"
+		}
+		// 空ファイル (0 バイト) = alloc-id の未記入予約 = 作成途中。印を付け、表示側で除外する
+		// (書き込み後は size>0 になる。frontmatter を持つ既存タスクは title 欠けでも除外しない)。
+		if info, e := f.Info(); e == nil && info.Size() == 0 {
+			t.Incomplete = true
 		}
 		t.Archived = archived
 		*tasks = append(*tasks, t)

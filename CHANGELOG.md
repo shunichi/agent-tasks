@@ -32,7 +32,9 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   「今すぐ対応が要るもの」から並ぶよう **入力待ち → レビュー待ち → 実行中 → その他** の固定順で
   セクション分けする (入力待ち = in-progress で SESSION 待ち、レビュー待ち = status review、
   実行中 = in-progress で SESSION 処理中、その他 = todo/blocked/done や SESSION 未取得の in-progress)。
-  空セクションは出さない。project 名は各カード側に表示する。
+  空セクションは出さない。
+- `agent-tasks serve` の各状態セクション内を、さらに **project 別のサブグループ**に分けて表示する
+  (project 名の小見出し + 件数)。合わせて、タスク特定に重要な **ID を目立つ色 (太字・金色)** にした。
 
 ### Added
 

@@ -228,10 +228,17 @@ type dashRow struct {
 	PRs           []string // prs: の URL 群
 }
 
+// dashProjGroup は状態セクション内の project 別サブグループ。
+type dashProjGroup struct {
+	Project string
+	Rows    []dashRow
+}
+
 type dashGroup struct {
-	Key   string // セクションキー (waiting/review/working/other。CSS クラスにも使う)
-	Label string // 見出しラベル (日本語)
-	Rows  []dashRow
+	Key      string // セクションキー (waiting/review/working/other。CSS クラスにも使う)
+	Label    string // 見出しラベル (日本語)
+	Count    int    // セクション内の総タスク数 (見出しの件数表示用)
+	Projects []dashProjGroup
 }
 
 type dashData struct {
@@ -317,11 +324,23 @@ func buildDashData(rows []Task, interval int, now time.Time) dashData {
 		key := taskSection(t.Status, r.SessionState)
 		bySection[key] = append(bySection[key], r)
 	}
-	// 固定順にセクションを出す。空セクションは飛ばす。
+	// 固定順にセクションを出す。空セクションは飛ばす。各セクション内は project 別に
+	// サブグループ化する (rows は project→id 順なので、project が変わる境目で束ねればよい)。
 	for _, sec := range dashSections {
-		if rows := bySection[sec.Key]; len(rows) > 0 {
-			d.Groups = append(d.Groups, dashGroup{Key: sec.Key, Label: sec.Label, Rows: rows})
+		rows := bySection[sec.Key]
+		if len(rows) == 0 {
+			continue
 		}
+		g := dashGroup{Key: sec.Key, Label: sec.Label, Count: len(rows)}
+		var cur *dashProjGroup
+		for _, r := range rows {
+			if cur == nil || cur.Project != r.Project {
+				g.Projects = append(g.Projects, dashProjGroup{Project: r.Project})
+				cur = &g.Projects[len(g.Projects)-1]
+			}
+			cur.Rows = append(cur.Rows, r)
+		}
+		d.Groups = append(d.Groups, g)
 	}
 	return d
 }
@@ -370,6 +389,13 @@ const dashHTML = `<!doctype html>
   section.sec-working h2::before { background: #3fb950; }
   section.sec-other   h2::before { background: #6b7280; }
   section h2 .cnt { color: var(--dim); font-weight: 400; }
+  .proj-group { margin: 0 0 0.6rem; }
+  h3.proj {
+    font-size: 0.78rem; color: var(--dim); font-weight: 600;
+    margin: 0.5rem 0.25rem 0.35rem; display: flex; align-items: center; gap: 0.35rem;
+  }
+  h3.proj::before { content: "▸"; color: var(--border); }
+  h3.proj .cnt { color: var(--border); font-weight: 400; }
   .card {
     background: var(--card); border: 1px solid var(--border);
     border-left: 3px solid var(--border);
@@ -381,8 +407,10 @@ const dashHTML = `<!doctype html>
   .card.s-review      { border-left-color: #a371f7; }
   .card.s-done        { border-left-color: #3fb950; }
   .row1 { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
-  .proj { color: var(--dim); font-size: 0.8rem; }
-  .id { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+  .id {
+    color: #ffd479; font-weight: 700; font-variant-numeric: tabular-nums;
+    font-size: 0.9rem; letter-spacing: 0.02em;
+  }
   .badge {
     font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px;
     border: 1px solid var(--border); white-space: nowrap;
@@ -416,26 +444,30 @@ const dashHTML = `<!doctype html>
 </header>
 {{range .Groups}}
 <section class="sec-{{.Key}}">
-  <h2>{{.Label}} <span class="cnt">({{len .Rows}})</span></h2>
-  {{range .Rows}}
-  <article class="card s-{{.StatusClass}}">
-    <div class="row1">
-      <span class="proj">{{.Project}}</span>
-      <span class="id">#{{.ID}}</span>
-      <span class="badge st-{{.StatusClass}}">{{.Status}}</span>
-      {{if .SessionState}}<span class="badge sess-{{.SessionState}}">{{.SessionState}}</span>{{end}}
-      {{if .BlockedFor}}<span class="badge blk">⏸ {{.BlockedFor}}</span>{{end}}
-    </div>
-    <div class="title">{{.Title}}</div>
-    {{if .BlockedReason}}<div class="reason">{{.BlockedReason}}</div>{{end}}
-    {{if or .SessionURL .PRs}}
-    <div class="links">
-      {{if .SessionURL}}<a href="{{.SessionURL}}" target="_blank" rel="noopener">session</a>{{end}}
-      {{range .PRs}}<a href="{{.}}" target="_blank" rel="noopener">PR</a>{{end}}
-    </div>
+  <h2>{{.Label}} <span class="cnt">({{.Count}})</span></h2>
+  {{range .Projects}}
+  <div class="proj-group">
+    <h3 class="proj">{{.Project}} <span class="cnt">({{len .Rows}})</span></h3>
+    {{range .Rows}}
+    <article class="card s-{{.StatusClass}}">
+      <div class="row1">
+        <span class="id">#{{.ID}}</span>
+        <span class="badge st-{{.StatusClass}}">{{.Status}}</span>
+        {{if .SessionState}}<span class="badge sess-{{.SessionState}}">{{.SessionState}}</span>{{end}}
+        {{if .BlockedFor}}<span class="badge blk">⏸ {{.BlockedFor}}</span>{{end}}
+      </div>
+      <div class="title">{{.Title}}</div>
+      {{if .BlockedReason}}<div class="reason">{{.BlockedReason}}</div>{{end}}
+      {{if or .SessionURL .PRs}}
+      <div class="links">
+        {{if .SessionURL}}<a href="{{.SessionURL}}" target="_blank" rel="noopener">session</a>{{end}}
+        {{range .PRs}}<a href="{{.}}" target="_blank" rel="noopener">PR</a>{{end}}
+      </div>
+      {{end}}
+      <div class="upd">updated {{.Updated}}</div>
+    </article>
     {{end}}
-    <div class="upd">updated {{.Updated}}</div>
-  </article>
+  </div>
   {{end}}
 </section>
 {{end}}

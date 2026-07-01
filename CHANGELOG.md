@@ -27,6 +27,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-02
 
+### Changed
+- `agent-tasks serve` の HTML を project 別グループから **状態別セクション**表示に変更。
+  「今すぐ対応が要るもの」から並ぶよう **入力待ち → レビュー待ち → 実行中 → その他** の固定順で
+  セクション分けする (入力待ち = in-progress で SESSION 待ち、レビュー待ち = status review、
+  実行中 = in-progress で SESSION 処理中、その他 = todo/blocked/done や SESSION 未取得の in-progress)。
+  空セクションは出さない。project 名は各カード側に表示する。
+
 ### Added
 
 - `agent-tasks serve`: 同一 LAN のスマホから全 project のタスク一覧を閲覧できる簡易 HTTP サーバを追加。

@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks session-prune` を追加。state dir (`~/.local/state/agent-tasks/sessions/`) に溜まる
+  古いマーカー/link を掃除する。対応タスクが無い/done の worktree マーカー・link と、生存 link から
+  参照されず一定日数 (既定 7、`--older-than` で調整) 更新の無い sess マーカーを削除。`--dry-run` で
+  対象のみ表示。稼働・保留中 (in-progress/blocked/review/todo) のマーカーや新しい sess マーカーは
+  残す。揮発情報 (次の hook で再生成) なのでストアには一切触れない。
+
 - **コードを変更しない「人手タスク」(`kind: human`)** を登録できるようにした。frontmatter に
   `kind: human` を持つタスク (デプロイ設定の手動変更・顧客確認・データ移行・レビュー依頼など) は、
   着手しても **worktree / branch を作らず、コンフリクトチェックの対象外**になる (コード領域を

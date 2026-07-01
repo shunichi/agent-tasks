@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -263,5 +264,127 @@ func TestTaskSessionState(t *testing.T) {
 	}
 	if st, ok := taskSessionState(task); !ok || st.State != sessEnded {
 		t.Fatalf("worktree が新しい: %+v ok=%v, want ended", st, ok)
+	}
+}
+
+// TestPlanSessionPrune は掃除対象の判定を網羅する:
+//   - 対応タスクが done / 存在しない worktree マーカー・link は対象。
+//   - in-progress / blocked のタスクのマーカーは残す。
+//   - sess マーカーは「生存 link から未参照 かつ retention 超」だけ対象 (参照中や新しいものは残す)。
+//   - 壊れて読めない sess マーカーは十分古い扱い (未参照なら対象)。
+//   - 上記に当たらないファイル (.tmp-*) は触らない。
+func TestPlanSessionPrune(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	dir := sessionStateDir()
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-8 * 24 * time.Hour)   // retention(7d) 超
+	young := now.Add(-1 * 24 * time.Hour) // retention 内
+	mkSess := func(id string, tm time.Time) {
+		st := sessionState{State: sessWorking, Updated: tm.Format(time.RFC3339), SessionID: id}
+		if err := writeSessionMarker(sessionMarkerKey(id), st); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// in-progress タスク: マーカー・link・(古い) sess マーカーすべて残る。
+	if err := writeSessionState("proj--0001", sessWorking, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSessionLink("proj--0001", "sid-live", now); err != nil {
+		t.Fatal(err)
+	}
+	mkSess("sid-live", old) // 古いが in-progress タスクに参照されるので残る
+
+	// done タスク: worktree マーカー・link・未参照になった sess マーカーは対象。
+	if err := writeSessionState("proj--0002", sessEnded, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSessionLink("proj--0002", "sid-done", now); err != nil {
+		t.Fatal(err)
+	}
+	mkSess("sid-done", old)
+
+	// 対応タスクの無い (存在しない) worktree マーカー・link は対象。
+	if err := writeSessionState("proj--0099", sessWorking, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSessionLink("proj--0099", "sid-gone", now); err != nil {
+		t.Fatal(err)
+	}
+
+	// blocked タスクのマーカーは残す (保留中を壊さない)。
+	if err := writeSessionState("proj--0003", sessWaiting, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+
+	mkSess("sid-young", young) // 未参照だが新しい → 残る
+	// 壊れた sess マーカー (未参照) → 十分古い扱いで対象。
+	if err := os.WriteFile(filepath.Join(dir, "sess-sid-broken.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 上記どれにも当たらないファイル → 触らない。
+	if err := os.WriteFile(filepath.Join(dir, ".tmp-foo"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := []Task{
+		{Status: "in-progress", Worktree: "../proj--0001"},
+		{Status: "done", Worktree: "../proj--0002"},
+		{Status: "blocked", Worktree: "../proj--0003"},
+	}
+	got, err := planSessionPrune(tasks, now, 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("planSessionPrune: %v", err)
+	}
+	var names []string
+	for _, f := range got {
+		names = append(names, f.Name)
+	}
+	want := []string{
+		"proj--0002.json", "proj--0002.link.json",
+		"proj--0099.json", "proj--0099.link.json",
+		"sess-sid-broken.json", "sess-sid-done.json",
+	}
+	slices.Sort(names)
+	slices.Sort(want)
+	if !slices.Equal(names, want) {
+		t.Errorf("掃除対象 = %v\n           want %v", names, want)
+	}
+}
+
+// TestCmdSessionPrune はコマンド経路を検証する: --dry-run は消さず、既定実行は消す。
+func TestCmdSessionPrune(t *testing.T) {
+	store := t.TempDir()
+	t.Setenv("AGENT_TASKS_STORE", store)
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	dir := sessionStateDir()
+	// done タスクを 1 件用意 (loadTasks が読む)。
+	if err := os.MkdirAll(filepath.Join(store, "proj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	task := "---\nid: \"0002\"\nproject: proj\nstatus: done\nworktree: ../proj--0002\n---\n"
+	if err := os.WriteFile(filepath.Join(store, "proj", "0002-x.md"), []byte(task), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// done タスクのマーカー (対象になる)。
+	if err := writeSessionState("proj--0002", sessEnded, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(dir, "proj--0002.json")
+
+	// --dry-run: 消さない。
+	if err := cmdSessionPrune([]string{"--dry-run"}); err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatalf("--dry-run でマーカーが消えた: %v", err)
+	}
+	// 既定実行: 消す。
+	if err := cmdSessionPrune(nil); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("実行後もマーカーが残っている (err=%v)", err)
 	}
 }

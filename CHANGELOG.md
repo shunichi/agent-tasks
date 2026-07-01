@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks open [<project>] <id>`: タスクに紐づく **worktree (作業ツリー) をエディタで開く**
+  サブコマンドを追加。frontmatter の `worktree:` (コードリポジトリ root からの相対パス) を現在の
+  リポジトリ root を基点に絶対パスへ解決して開く (絶対パスならそのまま)。エディタの決定は `edit` と
+  同じ (`AGENT_TASKS_EDITOR` > `VISUAL` > `EDITOR`、既定 `code`)。worktree 未記録や撤去済み
+  (done で削除) のときは分かりやすくエラーにする。ストアのタスクファイルを開く `edit` とは別コマンド。
+
 - タスクの**文字列検索**を追加。CLI は `--search <q>` (別名 `--grep`) で**タイトル部分一致**
   (大文字小文字を区別しない)、`--content` (別名 `--full`) を併用すると**本文も対象**にする。
   既存の status/project/done フィルタや `--json` / `--recent` と併用可。フッターに検索条件を注記。

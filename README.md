@@ -64,6 +64,7 @@ agent-tasks --archived           # アーカイブ済みタスクだけを一覧
 agent-tasks report --month       # その月に完了したタスクを markdown で出力 (--week / --since --until も可)
 agent-tasks show 0001            # 1 タスクの全文 (--archived で退避済みを開く)
 agent-tasks edit 0001            # 1 タスクをエディタで開く
+agent-tasks open 0001            # タスクの worktree (作業ツリー) をエディタで開く
 agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ移動。一覧から外す)
 agent-tasks unarchive 0001       # 退避したタスクを元に戻す
 agent-tasks issue 0001           # タスクを GitHub issue として共有 (起票/本文更新。要 gh)

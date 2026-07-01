@@ -152,6 +152,8 @@ func dispatch(args []string) error {
 		return cmdIssue(args)
 	case "report":
 		return cmdReport(args)
+	case "open":
+		return cmdOpen(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -184,6 +186,8 @@ USAGE:
   agent-tasks show [<project>] <id> [--archived] [--json]  1タスクの全文を表示 (--json で機械可読
                                      オブジェクト。--archived でアーカイブ済みタスクを開く)
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
+  agent-tasks open [<project>] <id>  タスクの worktree (作業ツリー) をエディタで開く
+                                     (worktree: を解決。エディタは edit と同じ。撤去済みならエラー)
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
                                      (未同期があれば exit 1。sync が要るかの確認に使う)
   agent-tasks sync [[<project>] <id>] [--path <p>]... [--no-push]

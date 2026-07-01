@@ -36,6 +36,7 @@ var completionSubcommands = []completionSubcommand{
 	{"scaffold-worktree", "worktree 設定の雛形を展開"},
 	{"doctor", "id 重複/不一致を点検"},
 	{"archive", "タスクを退避 (削除せず一覧から外す)"},
+	{"auto-archive", "完了後に一定期間経過した done を一括退避"},
 	{"unarchive", "退避したタスクを元に戻す"},
 	{"issue", "タスクを GitHub issue として共有"},
 	{"report", "一定期間の完了タスクを markdown で出力"},
@@ -311,6 +312,7 @@ _agent_tasks() {
         show)              flags="--archived --json --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
+        auto-archive)      flags="--older-than --project --projects --all-projects --dry-run --color --help" ;;
         issue)             flags="--repo --color --help" ;;
         doctor)            flags="--project --color --help" ;;
         sync)              flags="--no-push --push --color --help" ;;
@@ -485,6 +487,15 @@ _agent_tasks() {
                     _agent_tasks_ids ${pos[1]} $arch  # 第2引数: pos[1] の project の id
                 fi
             fi
+            ;;
+        auto-archive)
+            _arguments \
+                '--older-than[完了後この日数を過ぎた done を対象 (既定 30)]:days:' \
+                '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
+                '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
+                '--all-projects[全 project を横断]' \
+                '--dry-run[対象一覧のみ表示 (移動しない)]' \
+                '--color[色出力]:mode:(%[3]s)'
             ;;
         completion)
             _values 'shell' %[4]s

@@ -148,6 +148,8 @@ func dispatch(args []string) error {
 		return cmdAllocID(args)
 	case "archive":
 		return cmdArchive(args)
+	case "auto-archive":
+		return cmdAutoArchive(args)
 	case "unarchive":
 		return cmdUnarchive(args)
 	case "issue":
@@ -227,6 +229,11 @@ USAGE:
                                      現在 project。--pull で採番前にストアを pull --rebase
   agent-tasks archive [<project>] <id>   タスクを <project>/archive/ へ退避 (削除しない)。通常の
                                      list / -a / doctor に出なくなる。閲覧は list/show の --archived
+  agent-tasks auto-archive [--older-than <days>] [--project <name>|--all-projects] [--dry-run]
+                                     完了後に一定日数 (既定 30) を過ぎた done タスクを一括で
+                                     <project>/archive/ へ退避 (古い完了タスクを一覧から片付ける)。
+                                     completed_at 無しや review/in-progress は対象外。スコープは
+                                     list と同じ。--dry-run で対象一覧のみ表示 (移動しない)
   agent-tasks unarchive [<project>] <id> アーカイブ済みタスクを通常ディレクトリへ戻す
   agent-tasks report [--month [YYYY-MM]] [--week [YYYY-MM-DD]] [--since <d> --until <d>]
                                      一定期間に完了したタスク (done かつ completed_at が期間内) を

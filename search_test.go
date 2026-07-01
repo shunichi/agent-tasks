@@ -54,7 +54,7 @@ func TestSelectTasksSearch(t *testing.T) {
 	write("0001", "検索対象のタスク")
 	write("0002", "別のもの")
 
-	rows, _, _, err := selectTasks("", []string{"webapp"}, false, false, false, "検索対象", false)
+	rows, _, _, err := selectTasks("", []string{"webapp"}, false, false, false, "検索対象", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

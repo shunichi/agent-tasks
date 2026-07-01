@@ -120,7 +120,7 @@ func cmdAutoArchive(args []string) error {
 	}
 
 	// done だけを読み (showAll は status 指定時は無関係)、完了後 days 日を過ぎたものに絞る。
-	rows, _, _, err := selectTasks("done", filterProjects, true, allProjects, false, "", false)
+	rows, _, _, err := selectTasks("done", filterProjects, true, allProjects, false, "", false, "")
 	if err != nil {
 		return err
 	}

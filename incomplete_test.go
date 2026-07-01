@@ -58,7 +58,7 @@ func TestSelectTasksHidesIncomplete(t *testing.T) {
 	writeStoreFile(t, filepath.Join(proj, "0002-reserved.md"), "")
 
 	// allProjects=true で cwd の project 判定に依存させない。
-	rows, _, _, err := selectTasks("", nil, false, true, false, "", false)
+	rows, _, _, err := selectTasks("", nil, false, true, false, "", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,7 @@ type taskJSON struct {
 	Project       string   `json:"project"`
 	Title         string   `json:"title"`
 	Status        string   `json:"status"`
+	Kind          string   `json:"kind,omitempty"` // "human" のときだけ出す (code は省略)
 	Agent         string   `json:"agent,omitempty"`
 	Session       string   `json:"session,omitempty"`
 	Issue         string   `json:"issue,omitempty"`
@@ -42,7 +43,7 @@ type taskJSON struct {
 // (マーカーが無ければ "unknown")、blocked_for は blocked かつ blocked_at が妥当なときだけ付ける。
 func toTaskJSON(t Task, now time.Time) taskJSON {
 	j := taskJSON{
-		ID: t.ID, Project: t.Project, Title: t.Title, Status: t.Status,
+		ID: t.ID, Project: t.Project, Title: t.Title, Status: t.Status, Kind: t.Kind,
 		Agent: t.Agent, Session: t.Session, Issue: t.Issue, Branch: t.Branch, Worktree: t.Worktree,
 		Created: t.Created, Updated: t.Updated,
 		StartedAt: t.StartedAt, CompletedAt: t.CompletedAt,
@@ -51,7 +52,8 @@ func toTaskJSON(t Task, now time.Time) taskJSON {
 		Tracker:  t.Tracker,
 		Archived: t.Archived,
 	}
-	if t.Status == "in-progress" {
+	if t.Status == "in-progress" && !t.IsHuman() {
+		// human タスクはセッション (エージェント) を持たないので session_state は付けない。
 		if st, ok := taskSessionState(t); ok {
 			j.SessionState = st.State
 		} else {

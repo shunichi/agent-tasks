@@ -360,6 +360,9 @@ func sessionCell(t Task, c colors) cell {
 	if t.Status != "in-progress" {
 		return cell{"", ""}
 	}
+	if t.IsHuman() {
+		return cell{"-", c.dim} // 人手タスクはセッション (エージェント) を持たない
+	}
 	st, ok := taskSessionState(t)
 	if !ok {
 		return cell{"?", c.dim}

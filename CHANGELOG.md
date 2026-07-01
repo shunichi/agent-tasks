@@ -29,6 +29,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks serve`: 同一 LAN のスマホから全 project のタスク一覧を閲覧できる簡易 HTTP サーバを追加。
+  `-w --all-projects` 相当の情報を HTML で返す。既定は `127.0.0.1:8080` (localhost のみ)、`--addr :8080`
+  のように host を省くと `0.0.0.0` = LAN 公開 (認証なし・LAN 内前提)。起動時にスマホから開く URL を案内する。
+  `--interval` 秒ごとに meta refresh で自動更新 (既定 5、0 で無効)。スマホ向けレスポンシブなカード表示で、
+  SESSION 状態 (working/waiting/ended)・blocked 経過・各タスクの Claude セッション URL / PR リンクを出す。
+  依存は増やさず `net/http` + `html/template` のみ。
+
 - `agent-tasks session-prune` を追加。state dir (`~/.local/state/agent-tasks/sessions/`) に溜まる
   古いマーカー/link を掃除する。対応タスクが無い/done の worktree マーカー・link と、生存 link から
   参照されず一定日数 (既定 7、`--older-than` で調整) 更新の無い sess マーカーを削除。`--dry-run` で

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-osc52/v2"
@@ -574,6 +575,11 @@ func clipboardTool() (name string, args []string, ok bool) {
 func runClipboard(name string, args []string, s string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(s)
+	// 選択を供給し続けて常駐するツール (wl-copy / xclip) は、tmux popup 内で起動すると
+	// popup のプロセスグループに属し、popup が閉じるときに kill される → クリップボードが
+	// 空になる。Setsid で新セッション (別プロセスグループ) に切り離し、親端末が閉じても
+	// 常駐が生き残るようにする (nohup/setsid 相当。速やかに終了するツールには無害)。
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -614,8 +620,10 @@ func (m *tuiModel) View() string {
 		sep := tuiSepStyle.Render(strings.Repeat("─", max1(m.width)))
 		body = lipgloss.JoinVertical(lipgloss.Left, m.renderList(), sep, m.vp.View())
 	default:
-		// 横分割: 一覧 (左) / 区切り線 / 詳細 (右)。
-		sep := tuiSepStyle.Height(m.listH).Render(strings.Repeat("│\n", m.listH))
+		// 横分割: 一覧 (左) / 区切り線 / 詳細 (右)。区切り線は listH 行ちょうどにする
+		// (末尾に改行を残すと 1 行増え、body が listH+1 行になって View 全体が height+1 行に
+		// なり、実端末では最上部のヘッダが 1 行分スクロールで押し出されて消える)。
+		sep := tuiSepStyle.Height(m.listH).Render(strings.TrimSuffix(strings.Repeat("│\n", m.listH), "\n"))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(), sep, m.vp.View())
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderFooter())
@@ -760,9 +768,6 @@ func (m *tuiModel) renderHeader() string {
 	if m.loadErr != nil {
 		line += statusStyle("blocked").Render("  読み取りエラー")
 	}
-	if m.flash != "" {
-		line += "  " + tuiPointStyle.Render(m.flash)
-	}
 	return tuiTrunc(line, m.width)
 }
 
@@ -777,6 +782,13 @@ func (m *tuiModel) renderFooter() string {
 		keys = "↑↓/^n^p 選択  jk 行  ^u^d 半画面  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
 		keys = "↑↓/jk 選択  Enter 詳細  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
+	}
+	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
+	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
+	// キー説明が truncate されても、先頭の flash は残る。
+	if m.flash != "" {
+		line := tuiPointStyle.Render(m.flash) + "  " + tuiFooterStyle.Render(keys)
+		return tuiTrunc(line, m.width)
 	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
 }

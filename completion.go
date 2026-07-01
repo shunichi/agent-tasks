@@ -37,6 +37,7 @@ var completionSubcommands = []completionSubcommand{
 	{"archive", "タスクを退避 (削除せず一覧から外す)"},
 	{"unarchive", "退避したタスクを元に戻す"},
 	{"issue", "タスクを GitHub issue として共有"},
+	{"report", "一定期間の完了タスクを markdown で出力"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"statusline", "実行中タスクを status line に表示"},
@@ -304,6 +305,7 @@ _agent_tasks() {
     case "$sub" in
         list)              flags="%[4]s" ;;
         tui)               flags="--status --project --all-projects --all --interval --color --help" ;;
+        report)            flags="--month --week --since --until --project --all-projects --color --help" ;;
         show)              flags="--archived --json --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
@@ -428,6 +430,16 @@ _agent_tasks() {
                 '--status[status で絞り込み]:status:(%[2]s)' \
                 '--project[project を指定]:project:_agent_tasks_projects' \
                 '--interval[更新間隔(秒)]:seconds:' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        report)
+            _arguments \
+                '--month[月 (YYYY-MM、既定は今月)]:month:' \
+                '--week[週 (YYYY-MM-DD を含む週)]:date:' \
+                '--since[開始日 (YYYY-MM-DD)]:date:' \
+                '--until[終了日 (YYYY-MM-DD、その日を含む)]:date:' \
+                '--project[project を指定]:project:_agent_tasks_projects' \
+                '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         show|edit|archive|unarchive|issue)

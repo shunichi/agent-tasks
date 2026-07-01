@@ -150,6 +150,8 @@ func dispatch(args []string) error {
 		return cmdUnarchive(args)
 	case "issue":
 		return cmdIssue(args)
+	case "report":
+		return cmdReport(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -218,6 +220,10 @@ USAGE:
   agent-tasks archive [<project>] <id>   タスクを <project>/archive/ へ退避 (削除しない)。通常の
                                      list / -a / doctor に出なくなる。閲覧は list/show の --archived
   agent-tasks unarchive [<project>] <id> アーカイブ済みタスクを通常ディレクトリへ戻す
+  agent-tasks report [--month [YYYY-MM]] [--week [YYYY-MM-DD]] [--since <d> --until <d>]
+                                     一定期間に完了したタスク (done かつ completed_at が期間内) を
+                                     markdown で出力 (既定は今月)。所要時間と合計/平均サマリ付き。
+                                     スコープは list と同じ (--project / --all-projects で横断はセクション分け)
   agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
                                      (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
                                      --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要

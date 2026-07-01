@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks report`: 一定期間に完了したタスク (done かつ `completed_at` が期間内) を **markdown** で
+  出力するサブコマンドを追加。`--month [YYYY-MM]` (既定は今月) / `--week [YYYY-MM-DD]` /
+  `--since <d> --until <d>` で期間を指定。各タスクに ID・タイトル・開始・完了・所要時間 (リードタイム) を
+  表で出し、合計件数・所要合計/平均のサマリを添える。スコープは list と同じ (既定は現在 project、
+  `--all-projects` で横断し project ごとにセクション分け)。
+
 - タスクに関連する外部 issue tracker / 課題管理の URL を記録する `tracker:` フィールドを追加
   (YAML リスト、複数可)。`prs:` (PR 専用) とは別枠の汎用フィールドで、任意ホストの URL を入れられる。
   `show` の末尾と `--json` に一覧を表示し、`doctor` が URL 形式を軽く検査する。

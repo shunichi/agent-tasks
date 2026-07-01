@@ -90,21 +90,28 @@ func currentProject() string {
 	return filepath.Base(root)
 }
 
-// resolveListScope は list の project フィルタ対象と横断フラグを決める。
-// 優先順位: --project 明示 > --all-projects > 既定 (現在 project)。
+// resolveListScope は list の project フィルタ対象 (集合) と横断フラグを決める。
+// 優先順位: --project 明示 (1 つ以上) > --all-projects > 既定 (現在 project)。
 // 現在 project が空 (git 外で判定不能) のときは横断にフォールバックする。
-// project が "" を返したときは横断 (全 project) を意味する。
-func resolveListScope(filterProject string, allProjects bool, current string) (project string, cross bool) {
+// 返す projects が空 (len 0) のときは横断 (全 project)、1 つ以上ならその集合だけを表示する。
+// filterProjects に複数 project を渡せば、その部分集合だけを横断表示する (--all-projects の部分版)。
+func resolveListScope(filterProjects []string, allProjects bool, current string) (projects []string, cross bool) {
 	switch {
-	case filterProject != "":
-		return filterProject, false // 別 project の明示指定も許す
+	case len(filterProjects) > 0:
+		return filterProjects, false // 明示指定 (単一/複数とも)。別 project も許す
 	case allProjects:
-		return "", true
+		return nil, true
 	case current == "":
-		return "", true // git 外: 判定不能なので横断
+		return nil, true // git 外: 判定不能なので横断
 	default:
-		return current, false // 既定: 現在 project のみ
+		return []string{current}, false // 既定: 現在 project のみ
 	}
+}
+
+// matchProjects は project がスコープ集合 effProjects に含まれるかを返す。
+// effProjects が空 (nil/len 0) は横断 (全 project) を意味し、常に true。
+func matchProjects(project string, effProjects []string) bool {
+	return len(effProjects) == 0 || slices.Contains(effProjects, project)
 }
 
 // normalizeID は入力 ID を照合用に正規化する。数値なら4桁ゼロ埋めにそろえ

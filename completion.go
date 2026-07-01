@@ -231,7 +231,7 @@ func bashCompletionScript() string {
 	statuses := strings.Join(completionStatusValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --watch -w --interval --active --recent --archived --json --color --help"
+	topFlags := "--all-projects --all -a --status --project --projects --watch -w --interval --active --recent --archived --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -246,7 +246,7 @@ _agent_tasks() {
     case "$prev" in
         --status)   COMPREPLY=( $(compgen -W "%[1]s" -- "$cur") ); return ;;
         --color)    COMPREPLY=( $(compgen -W "%[2]s" -- "$cur") ); return ;;
-        --project)  COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null)" -- "$cur") ); return ;;
+        --project|--projects)  COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null)" -- "$cur") ); return ;;
         completion) COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
     esac
 
@@ -304,8 +304,8 @@ _agent_tasks() {
     local flags="--color --help"
     case "$sub" in
         list)              flags="%[4]s" ;;
-        tui)               flags="--status --project --all-projects --all --interval --color --help" ;;
-        report)            flags="--month --week --since --until --project --all-projects --color --help" ;;
+        tui)               flags="--status --project --projects --all-projects --all --interval --color --help" ;;
+        report)            flags="--month --week --since --until --project --projects --all-projects --color --help" ;;
         show)              flags="--archived --json --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
@@ -374,7 +374,7 @@ _agent_tasks() {
     # 値を取る大域フラグの直後は、サブコマンドの有無に関わらず値を補完する
     # (例: サブコマンド無しの "agent-tasks --project <TAB>")。bash 版の $prev 処理に対応。
     case ${words[CURRENT-1]} in
-        --project) _agent_tasks_projects; return ;;
+        --project|--projects) _agent_tasks_projects; return ;;
         --status)  compadd %[2]s; return ;;
         --color)   compadd %[3]s; return ;;
     esac
@@ -394,7 +394,8 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--all[done も含める]' '-a[done も含める]' \
                 '--status[status で絞り込み]' \
-                '--project[project を指定]' \
+                '--project[project を指定 (繰り返し可)]' \
+                '--projects[project をカンマ区切りで複数指定]' \
                 '--watch[自動更新]' '-w[自動更新]' \
                 '--interval[更新間隔(秒)]' \
                 '--active[着手中のみ]' \
@@ -414,7 +415,8 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '(--all -a)'{--all,-a}'[done も含める]' \
                 '--status[status で絞り込み]:status:(%[2]s)' \
-                '--project[project を指定]:project:_agent_tasks_projects' \
+                '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
+                '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
                 '(--watch -w)'{--watch,-w}'[自動更新]' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \
@@ -428,7 +430,8 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '(--all -a)'{--all,-a}'[done も含める]' \
                 '--status[status で絞り込み]:status:(%[2]s)' \
-                '--project[project を指定]:project:_agent_tasks_projects' \
+                '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
+                '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
@@ -438,7 +441,8 @@ _agent_tasks() {
                 '--week[週 (YYYY-MM-DD を含む週)]:date:' \
                 '--since[開始日 (YYYY-MM-DD)]:date:' \
                 '--until[終了日 (YYYY-MM-DD、その日を含む)]:date:' \
-                '--project[project を指定]:project:_agent_tasks_projects' \
+                '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
+                '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
                 '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;

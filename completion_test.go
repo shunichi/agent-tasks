@@ -90,7 +90,7 @@ func TestZshScriptAvoidsCStyleForInPositional(t *testing.T) {
 func TestZshScriptCompletesTopLevelFlagValues(t *testing.T) {
 	zsh := zshCompletionScript()
 	for _, want := range []string{
-		"--project) _agent_tasks_projects",
+		"--project|--projects) _agent_tasks_projects",
 		"case ${words[CURRENT-1]} in",
 	} {
 		if !strings.Contains(zsh, want) {

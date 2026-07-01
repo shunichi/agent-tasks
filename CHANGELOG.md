@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- 指定した**複数 project だけを横断表示**できるようにした (`--all-projects` の部分集合版)。
+  `--project` を**繰り返し**指定 (`--project a --project b`) するか、`--projects a,b,c` (カンマ区切り) で
+  その集合だけを横断する。単一 `--project` と `--all-projects` の既存挙動は不変 (後方互換)。
+  list / `--json` / `--recent` / `report` / `tui` すべてに適用され、フッター注記が対象 project 群を示す
+  (実効スコープを単一 string から集合に一般化)。bash/zsh 補完も `--project` 繰り返し / `--projects` に対応。
+
 - `agent-tasks tui`: `o` キーで選択タスクの **PR (`prs:`) を既定ブラウザで開く**ようにした
   (複数 PR があれば全部開く)。OS の URL オープナー (`xdg-open` / `open` / `wslview`) を検出し、
   alt-screen を邪魔しないよう非同期でバックグラウンド起動する。PR が無いタスクや対応オープナーが

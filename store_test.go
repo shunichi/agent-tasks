@@ -219,23 +219,25 @@ func TestResolveTaskPathShortID(t *testing.T) {
 func TestResolveListScope(t *testing.T) {
 	cases := []struct {
 		name        string
-		filterProj  string
+		filterProj  []string
 		allProjects bool
 		current     string
-		wantProj    string
+		wantProj    []string
 		wantCross   bool
 	}{
-		{"既定は現在 project", "", false, "webapp", "webapp", false},
-		{"--all-projects で横断", "", true, "webapp", "", true},
-		{"--project 明示は別 project でも従う", "other", false, "webapp", "other", false},
-		{"--project は --all-projects より優先", "other", true, "webapp", "other", false},
-		{"git 外は横断にフォールバック", "", false, "", "", true},
-		{"git 外でも --project は効く", "other", false, "", "other", false},
+		{"既定は現在 project", nil, false, "webapp", []string{"webapp"}, false},
+		{"--all-projects で横断", nil, true, "webapp", nil, true},
+		{"--project 明示は別 project でも従う", []string{"other"}, false, "webapp", []string{"other"}, false},
+		{"--project は --all-projects より優先", []string{"other"}, true, "webapp", []string{"other"}, false},
+		{"複数 project は部分集合横断", []string{"a", "b"}, false, "webapp", []string{"a", "b"}, false},
+		{"複数 project は --all-projects より優先", []string{"a", "b"}, true, "webapp", []string{"a", "b"}, false},
+		{"git 外は横断にフォールバック", nil, false, "", nil, true},
+		{"git 外でも --project は効く", []string{"other"}, false, "", []string{"other"}, false},
 	}
 	for _, tc := range cases {
 		gotProj, gotCross := resolveListScope(tc.filterProj, tc.allProjects, tc.current)
-		if gotProj != tc.wantProj || gotCross != tc.wantCross {
-			t.Errorf("%s: resolveListScope(%q, %v, %q) = (%q, %v), want (%q, %v)",
+		if !slices.Equal(gotProj, tc.wantProj) || gotCross != tc.wantCross {
+			t.Errorf("%s: resolveListScope(%v, %v, %q) = (%v, %v), want (%v, %v)",
 				tc.name, tc.filterProj, tc.allProjects, tc.current,
 				gotProj, gotCross, tc.wantProj, tc.wantCross)
 		}

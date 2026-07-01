@@ -171,7 +171,8 @@ USAGE:
   agent-tasks --all-projects         全 project を横断して一覧
   agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
-  agent-tasks --project <name>       project を指定 (別 project も可)
+  agent-tasks --project <name>       project を指定 (別 project も可。繰り返し指定でその集合だけを横断)
+  agent-tasks --projects a,b,c       複数 project をカンマ区切りでまとめて横断 (--project の集合版)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
   agent-tasks --recent [N]           最近完了したタスクを completed_at 降順で上位 N 件 (既定 10)
   agent-tasks --archived             アーカイブ済みタスクだけを一覧 (通常は非表示。--recent と排他)
@@ -245,7 +246,8 @@ ENV:
 }
 
 func cmdList(args []string) error {
-	var filterStatus, filterProject string
+	var filterStatus string
+	var filterProjects []string
 	showAll := false
 	allProjects := false
 	archived := false
@@ -268,11 +270,19 @@ func cmdList(args []string) error {
 			}
 			filterStatus = v
 		case "--project":
+			// 繰り返し可。複数指定でその集合だけを横断表示する (後方互換: 単一指定は従来どおり)。
 			v, err := s.value("--project")
 			if err != nil {
 				return err
 			}
-			filterProject = v
+			filterProjects = append(filterProjects, v)
+		case "--projects":
+			// カンマ区切りでまとめて指定する糖衣 (--project a --project b と同じ集合)。
+			v, err := s.value("--projects")
+			if err != nil {
+				return err
+			}
+			filterProjects = append(filterProjects, splitProjects(v)...)
 		case "--all", "-a":
 			showAll = true
 		case "--all-projects":
@@ -318,7 +328,7 @@ func cmdList(args []string) error {
 
 	// --recent は done を completed_at 降順で上位 N 件。--json と併用可 (status フィルタは無視し done)。
 	if recent {
-		rows, err := selectRecent(filterProject, allProjects, recentN)
+		rows, err := selectRecent(filterProjects, allProjects, recentN)
 		if err != nil {
 			return err
 		}
@@ -331,7 +341,7 @@ func cmdList(args []string) error {
 
 	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。
 	if jsonOut {
-		rows, _, _, err := selectTasks(filterStatus, filterProject, showAll, allProjects, archived)
+		rows, _, _, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived)
 		if err != nil {
 			return err
 		}
@@ -340,17 +350,29 @@ func cmdList(args []string) error {
 
 	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
 	if watch && isTTY(os.Stdout) {
-		return watchList(filterStatus, filterProject, showAll, allProjects, archived, interval)
+		return watchList(filterStatus, filterProjects, showAll, allProjects, archived, interval)
 	}
-	return runList(os.Stdout, filterStatus, filterProject, showAll, allProjects, archived)
+	return runList(os.Stdout, filterStatus, filterProjects, showAll, allProjects, archived)
+}
+
+// splitProjects は "--projects a,b, c" のカンマ区切りを trim して非空要素だけの集合にする。
+func splitProjects(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // selectTasks はストアを読み、list のスコープ/フラグで絞り込んだ行を返す
-// (テーブル出力と JSON 出力で共有)。effProject は実効 project スコープ
-// (空文字 = 横断)、current は現在 project (フッター注記の判定に使う)。
-func selectTasks(filterStatus, filterProject string, showAll, allProjects, archived bool) (rows []Task, effProject, current string, err error) {
+// (テーブル出力と JSON 出力で共有)。effProjects は実効 project スコープ集合
+// (空 = 横断、1 つ = 単一 project、複数 = 部分集合横断)、current は現在 project
+// (フッター注記の判定に使う)。filterProjects に複数渡すと部分集合横断になる。
+func selectTasks(filterStatus string, filterProjects []string, showAll, allProjects, archived bool) (rows []Task, effProjects []string, current string, err error) {
 	current = currentProject()
-	effProject, _ = resolveListScope(filterProject, allProjects, current)
+	effProjects, _ = resolveListScope(filterProjects, allProjects, current)
 
 	dir := storeDir()
 	var tasks []Task
@@ -361,7 +383,7 @@ func selectTasks(filterStatus, filterProject string, showAll, allProjects, archi
 		tasks, err = loadTasks(dir)
 	}
 	if err != nil {
-		return nil, effProject, current, fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
+		return nil, effProjects, current, fmt.Errorf("タスクディレクトリを読めません: %s (%w)", dir, err)
 	}
 
 	// 既定では done を隠す。--all 指定時、--status で絞った時、--archived (完全なアーカイブ閲覧) では隠さない。
@@ -373,7 +395,7 @@ func selectTasks(filterStatus, filterProject string, showAll, allProjects, archi
 		if filterStatus != "" && t.Status != filterStatus {
 			continue
 		}
-		if effProject != "" && t.Project != effProject {
+		if !matchProjects(t.Project, effProjects) {
 			continue
 		}
 		if hideDone && t.Status == "done" {
@@ -381,21 +403,30 @@ func selectTasks(filterStatus, filterProject string, showAll, allProjects, archi
 		}
 		rows = append(rows, t)
 	}
-	return rows, effProject, current, nil
+	return rows, effProjects, current, nil
+}
+
+// scopeLabel は実効 project スコープ集合を注記/エラー用の文字列にする
+// (単一は "project: X"、複数は "projects: a, b")。空集合 (横断) では呼ばない前提。
+func scopeLabel(effProjects []string) string {
+	if len(effProjects) == 1 {
+		return "project: " + effProjects[0]
+	}
+	return "projects: " + strings.Join(effProjects, ", ")
 }
 
 // runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
 // ちらつかない上書き再描画に使う。
-func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjects, archived bool) error {
-	rows, effProject, current, err := selectTasks(filterStatus, filterProject, showAll, allProjects, archived)
+func runList(w io.Writer, filterStatus string, filterProjects []string, showAll, allProjects, archived bool) error {
+	rows, effProjects, current, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived)
 	if err != nil {
 		return err
 	}
 	dir := storeDir()
 	// 既定 (明示なし) で現在 project に絞れたか。フッターの案内に使う。
-	defaulted := filterProject == "" && !allProjects && current != ""
+	defaulted := len(filterProjects) == 0 && !allProjects && current != ""
 	// 既定で横断にフォールバックしたか (git 外)。
-	fellBack := filterProject == "" && !allProjects && current == ""
+	fellBack := len(filterProjects) == 0 && !allProjects && current == ""
 
 	counts := map[string]int{}
 	for _, t := range rows {
@@ -407,8 +438,8 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 		if archived {
 			scopeNote = "アーカイブに"
 		}
-		if effProject != "" {
-			fmt.Fprintf(w, "%s該当タスクなし (project: %s, dir: %s)\n", scopeNote, effProject, dir)
+		if len(effProjects) > 0 {
+			fmt.Fprintf(w, "%s該当タスクなし (%s, dir: %s)\n", scopeNote, scopeLabel(effProjects), dir)
 			if defaulted {
 				fmt.Fprintln(w, "横断するには --all-projects、別 project は --project <name>")
 			}
@@ -463,10 +494,12 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 	}
 	fmt.Fprintf(w, "\n%stotal %d%s  %s\n", c.dim, len(rows), c.reset, strings.Join(parts, "  "))
 
-	// スコープの注記: 既定で現在 project に絞った / git 外で横断にフォールバックした旨を伝える。
+	// スコープの注記: 既定で現在 project に絞った / 複数 project 指定 / git 外で横断にフォールバック。
 	switch {
 	case defaulted:
 		fmt.Fprintf(w, "%s(project: %s のみ。横断は --all-projects)%s\n", c.dim, current, c.reset)
+	case len(effProjects) > 1:
+		fmt.Fprintf(w, "%s(%s のみ。全 project は --all-projects)%s\n", c.dim, scopeLabel(effProjects), c.reset)
 	case fellBack:
 		fmt.Fprintf(w, "%s(git リポジトリ外のため全 project を表示)%s\n", c.dim, c.reset)
 	}
@@ -483,7 +516,7 @@ func runList(w io.Writer, filterStatus, filterProject string, showAll, allProjec
 // ちらつき対策: 画面全消去 (\033[2J) はせず、1 フレームをバッファに組み立ててから
 // writeFrame で「カーソルを左上へ戻して上書き」する。全消去だと消去〜再描画の間に空白
 // フレームが見えてチカチカするため。
-func watchList(filterStatus, filterProject string, showAll, allProjects, archived bool, interval time.Duration) error {
+func watchList(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, interval time.Duration) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
@@ -499,7 +532,7 @@ func watchList(filterStatus, filterProject string, showAll, allProjects, archive
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
-		if err := runList(&buf, filterStatus, filterProject, showAll, allProjects, archived); err != nil {
+		if err := runList(&buf, filterStatus, filterProjects, showAll, allProjects, archived); err != nil {
 			fmt.Fprintf(&buf, "%serror: %v%s\n", c.block, err, c.reset)
 		}
 		writeFrame(buf.String())

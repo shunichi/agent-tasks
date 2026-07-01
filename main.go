@@ -116,6 +116,8 @@ func dispatch(args []string) error {
 		return cmdList(args)
 	case "tui":
 		return cmdTUI(args)
+	case "serve":
+		return cmdServe(args)
 	case "show":
 		return cmdShow(args)
 	case "edit":
@@ -189,6 +191,11 @@ USAGE:
   agent-tasks tui                    一覧+詳細をインタラクティブに閲覧する常駐ビューワー (自動更新)。
                                      ↑↓で選択し右に詳細。a:done切替 s:status p:project r:更新 q:終了。
                                      --status/--project/--all-projects/--all/--interval を受ける (端末専用)
+  agent-tasks serve [--addr <addr>] [--interval <秒>]  同一 LAN のスマホから閲覧する簡易 HTTP サーバ。
+                                     全 project の一覧を HTML で返す (既定 127.0.0.1:8080。--addr :8080 の
+                                     ように host を省くと 0.0.0.0 = LAN 公開)。--interval 秒ごとに meta
+                                     refresh で自動更新 (既定 5、0 で無効)。--project/--all-projects/--all/
+                                     --status/--kind で絞り込み可 (既定は全 project 横断)。認証なし (LAN 前提)
   agent-tasks --json                 一覧を JSON 配列で出力 (機械可読。既存フィルタと併用可)
   agent-tasks show [<project>] <id> [--archived] [--json]  1タスクの全文を表示 (--json で機械可読
                                      オブジェクト。--archived でアーカイブ済みタスクを開く)

@@ -26,6 +26,7 @@ type completionSubcommand struct{ name, desc string }
 var completionSubcommands = []completionSubcommand{
 	{"list", "現在 project のタスク一覧 (既定)"},
 	{"tui", "一覧+詳細をインタラクティブに閲覧 (自動更新)"},
+	{"serve", "同一 LAN のスマホから閲覧する簡易 HTTP サーバ"},
 	{"show", "1 タスクの全文を表示"},
 	{"edit", "ストア/タスクをエディタで開く"},
 	{"open", "タスクの worktree をエディタで開く"},

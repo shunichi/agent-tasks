@@ -157,6 +157,56 @@ func TestViewDoesNotPanic(t *testing.T) {
 
 // TestDetailToggleAndQuit は仕様: 起動直後はリストのみ / Enter で詳細表示 /
 // 詳細表示中の q・Esc は詳細を閉じる / リストのみでの q・Esc は終了、を検証する。
+// TestTigNavKeys は tig 風のキー: Ctrl+n/Ctrl+p でタスク移動、詳細表示中の j/k は詳細
+// スクロール (選択を動かさない)、一覧のみの j/k は選択移動、を確認する (0088)。
+func TestTigNavKeys(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	tasks := []Task{
+		{Project: "alpha", ID: "0001", Status: "todo", Title: "A"},
+		{Project: "alpha", ID: "0002", Status: "todo", Title: "B"},
+		{Project: "alpha", ID: "0003", Status: "todo", Title: "C"},
+	}
+	m := &tuiModel{all: tasks, effProjects: []string{"alpha"}}
+	m.applyFilter()
+	var model tea.Model = m
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	cur := func() int { return model.(*tuiModel).cursor }
+
+	// Ctrl+n / Ctrl+p で選択移動 (一覧のみ)。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if cur() != 1 {
+		t.Fatalf("Ctrl+n で次へ動くはず: cursor=%d", cur())
+	}
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if cur() != 0 {
+		t.Fatalf("Ctrl+p で前へ動くはず: cursor=%d", cur())
+	}
+
+	// 一覧のみでは j が選択移動。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if cur() != 1 {
+		t.Fatalf("一覧のみの j は選択移動のはず: cursor=%d", cur())
+	}
+
+	// 詳細を開く → j/k は選択を動かさない (詳細スクロール)。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.(*tuiModel).showDetail {
+		t.Fatal("Enter で詳細表示になるはず")
+	}
+	before := cur()
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	if cur() != before {
+		t.Fatalf("詳細表示中の j/k は選択を動かさないはず: before=%d after=%d", before, cur())
+	}
+
+	// 詳細表示中でも Ctrl+n は選択移動。
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if cur() != before+1 {
+		t.Fatalf("詳細表示中でも Ctrl+n で選択移動するはず: before=%d after=%d", before, cur())
+	}
+}
+
 func TestDetailToggleAndQuit(t *testing.T) {
 	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()

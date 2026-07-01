@@ -27,6 +27,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-01
 
+### Changed
+
+- skill (`/agent-tasks`): 着手時に Claude セッション名を **`タスク <NNNN>: <title>`** にする案内を追加。
+  web / スマホアプリのセッション一覧で「今どのタスクか」が分かる。spawn で開く子セッションは
+  起動時に `claude -n` で**自動命名**、直接 start の現在セッションは Claude が `/rename タスク <NNNN>: <title>`
+  の 1 行を提示してユーザーが実行する (スラッシュコマンドは Claude が自動実行できないため。
+  変更は Claude Desktop / claude.ai/code のクラウド側セッション名にも同期される)。
+
 ### Added
 
 - タスクを GitHub issue として共有する機能を追加 (store → issue の一方向)。

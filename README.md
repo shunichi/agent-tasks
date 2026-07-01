@@ -59,6 +59,7 @@ agent-tasks --status in-progress # status で絞り込み
 agent-tasks --watch              # 一覧を自動更新表示 (-w)
 agent-tasks tui                  # 一覧+詳細をインタラクティブに閲覧 (自動更新。端末専用)
 agent-tasks --archived           # アーカイブ済みタスクだけを一覧 (通常は非表示)
+agent-tasks report --month       # その月に完了したタスクを markdown で出力 (--week / --since --until も可)
 agent-tasks show 0001            # 1 タスクの全文 (--archived で退避済みを開く)
 agent-tasks edit 0001            # 1 タスクをエディタで開く
 agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ移動。一覧から外す)

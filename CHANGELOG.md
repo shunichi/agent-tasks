@@ -23,16 +23,16 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-02
+
 ### Changed
 
 - skill (`/agent-tasks`): start 着手時の `session-rename` を **手順 0 (最初)** に引き上げ、
   「`start <NNNN>` を受けたら、タスク内容の取得・チェックより前に**まず** `agent-tasks session-rename <NNNN>`
   を叩く」よう明確化した。send-keys は入力欄が空なうち (指示直後) が最も競合しにくいため。batch も
   各タスクの処理に入ったらまず rename する形に揃えた。
-
-## 2026-07-02
-
-### Changed
 - `agent-tasks serve` の HTML を project 別グループから **状態別セクション**表示に変更。
   「今すぐ対応が要るもの」から並ぶよう **入力待ち → レビュー待ち → 実行中 → その他** の固定順で
   セクション分けする (入力待ち = in-progress で SESSION 待ち、レビュー待ち = status review、

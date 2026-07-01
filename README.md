@@ -57,6 +57,7 @@ agent-tasks --all-projects       # 全 project を横断
 agent-tasks --project a --project b  # 指定した複数 project だけを横断 (--projects a,b でも可)
 agent-tasks --all                # done も含める (-a も可)
 agent-tasks --status in-progress # status で絞り込み
+agent-tasks --search <語>        # タイトル部分一致で検索 (--content で本文も。TUI は / で検索)
 agent-tasks --watch              # 一覧を自動更新表示 (-w)
 agent-tasks tui                  # 一覧+詳細をインタラクティブに閲覧 (自動更新。端末専用)
 agent-tasks --archived           # アーカイブ済みタスクだけを一覧 (通常は非表示)

@@ -231,7 +231,7 @@ func bashCompletionScript() string {
 	statuses := strings.Join(completionStatusValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --projects --watch -w --interval --active --recent --archived --json --color --help"
+	topFlags := "--all-projects --all -a --status --project --projects --search --grep --content --full --watch -w --interval --active --recent --archived --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -396,6 +396,8 @@ _agent_tasks() {
                 '--status[status で絞り込み]' \
                 '--project[project を指定 (繰り返し可)]' \
                 '--projects[project をカンマ区切りで複数指定]' \
+                '--search[タイトル検索]' '--grep[タイトル検索]' \
+                '--content[本文も検索]' '--full[本文も検索]' \
                 '--watch[自動更新]' '-w[自動更新]' \
                 '--interval[更新間隔(秒)]' \
                 '--active[着手中のみ]' \
@@ -417,6 +419,8 @@ _agent_tasks() {
                 '--status[status で絞り込み]:status:(%[2]s)' \
                 '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
                 '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
+                '(--search --grep)'{--search,--grep}'[タイトル検索]:query:' \
+                '(--content --full)'{--content,--full}'[本文も検索対象にする]' \
                 '(--watch -w)'{--watch,-w}'[自動更新]' \
                 '--interval[更新間隔(秒)]:seconds:' \
                 '--active[着手中のみ]' \

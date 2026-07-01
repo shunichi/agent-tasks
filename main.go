@@ -171,6 +171,7 @@ USAGE:
   agent-tasks --all-projects         全 project を横断して一覧
   agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
+  agent-tasks --search <q>            タイトル部分一致で検索 (大小無視。--grep も可)。--content で本文も対象
   agent-tasks --project <name>       project を指定 (別 project も可。繰り返し指定でその集合だけを横断)
   agent-tasks --projects a,b,c       複数 project をカンマ区切りでまとめて横断 (--project の集合版)
   agent-tasks --watch | -w           一覧を一定間隔で自動更新表示 (--interval <秒>、既定 2。Ctrl-C で終了)
@@ -248,6 +249,8 @@ ENV:
 func cmdList(args []string) error {
 	var filterStatus string
 	var filterProjects []string
+	var searchQuery string
+	searchContent := false
 	showAll := false
 	allProjects := false
 	archived := false
@@ -283,6 +286,14 @@ func cmdList(args []string) error {
 				return err
 			}
 			filterProjects = append(filterProjects, splitProjects(v)...)
+		case "--search", "--grep":
+			v, err := s.value(a)
+			if err != nil {
+				return err
+			}
+			searchQuery = v
+		case "--content", "--full":
+			searchContent = true
 		case "--all", "-a":
 			showAll = true
 		case "--all-projects":
@@ -328,7 +339,7 @@ func cmdList(args []string) error {
 
 	// --recent は done を completed_at 降順で上位 N 件。--json と併用可 (status フィルタは無視し done)。
 	if recent {
-		rows, err := selectRecent(filterProjects, allProjects, recentN)
+		rows, err := selectRecent(filterProjects, allProjects, recentN, searchQuery, searchContent)
 		if err != nil {
 			return err
 		}
@@ -341,7 +352,7 @@ func cmdList(args []string) error {
 
 	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。
 	if jsonOut {
-		rows, _, _, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived)
+		rows, _, _, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent)
 		if err != nil {
 			return err
 		}
@@ -350,9 +361,9 @@ func cmdList(args []string) error {
 
 	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
 	if watch && isTTY(os.Stdout) {
-		return watchList(filterStatus, filterProjects, showAll, allProjects, archived, interval)
+		return watchList(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent, interval)
 	}
-	return runList(os.Stdout, filterStatus, filterProjects, showAll, allProjects, archived)
+	return runList(os.Stdout, filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent)
 }
 
 // splitProjects は "--projects a,b, c" のカンマ区切りを trim して非空要素だけの集合にする。
@@ -370,7 +381,7 @@ func splitProjects(v string) []string {
 // (テーブル出力と JSON 出力で共有)。effProjects は実効 project スコープ集合
 // (空 = 横断、1 つ = 単一 project、複数 = 部分集合横断)、current は現在 project
 // (フッター注記の判定に使う)。filterProjects に複数渡すと部分集合横断になる。
-func selectTasks(filterStatus string, filterProjects []string, showAll, allProjects, archived bool) (rows []Task, effProjects []string, current string, err error) {
+func selectTasks(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool) (rows []Task, effProjects []string, current string, err error) {
 	current = currentProject()
 	effProjects, _ = resolveListScope(filterProjects, allProjects, current)
 
@@ -398,6 +409,9 @@ func selectTasks(filterStatus string, filterProjects []string, showAll, allProje
 		if !matchProjects(t.Project, effProjects) {
 			continue
 		}
+		if !matchQuery(t, query, searchContent) {
+			continue
+		}
 		if hideDone && t.Status == "done" {
 			continue
 		}
@@ -417,8 +431,8 @@ func scopeLabel(effProjects []string) string {
 
 // runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
 // ちらつかない上書き再描画に使う。
-func runList(w io.Writer, filterStatus string, filterProjects []string, showAll, allProjects, archived bool) error {
-	rows, effProjects, current, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived)
+func runList(w io.Writer, filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool) error {
+	rows, effProjects, current, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent)
 	if err != nil {
 		return err
 	}
@@ -507,6 +521,14 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 	if archived {
 		fmt.Fprintf(w, "%s(アーカイブ表示。通常の一覧には出ません。戻すには unarchive <id>)%s\n", c.dim, c.reset)
 	}
+	// 検索でフィルタしているときはクエリと対象 (タイトル/本文) を注記する。
+	if query != "" {
+		target := "タイトル"
+		if searchContent {
+			target = "タイトル+本文"
+		}
+		fmt.Fprintf(w, "%s(検索: %q [%s])%s\n", c.dim, query, target, c.reset)
+	}
 	return nil
 }
 
@@ -516,7 +538,7 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 // ちらつき対策: 画面全消去 (\033[2J) はせず、1 フレームをバッファに組み立ててから
 // writeFrame で「カーソルを左上へ戻して上書き」する。全消去だと消去〜再描画の間に空白
 // フレームが見えてチカチカするため。
-func watchList(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, interval time.Duration) error {
+func watchList(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool, interval time.Duration) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
@@ -532,7 +554,7 @@ func watchList(filterStatus string, filterProjects []string, showAll, allProject
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
-		if err := runList(&buf, filterStatus, filterProjects, showAll, allProjects, archived); err != nil {
+		if err := runList(&buf, filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent); err != nil {
 			fmt.Fprintf(&buf, "%serror: %v%s\n", c.block, err, c.reset)
 		}
 		writeFrame(buf.String())

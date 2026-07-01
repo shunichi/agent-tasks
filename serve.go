@@ -215,6 +215,7 @@ func lanIPRank(ip string) int {
 // --- ビュー生成 -------------------------------------------------------------
 
 type dashRow struct {
+	Project       string
 	ID            string
 	Status        string
 	StatusClass   string
@@ -228,8 +229,9 @@ type dashRow struct {
 }
 
 type dashGroup struct {
-	Project string
-	Rows    []dashRow
+	Key   string // セクションキー (waiting/review/working/other。CSS クラスにも使う)
+	Label string // 見出しラベル (日本語)
+	Rows  []dashRow
 }
 
 type dashData struct {
@@ -240,12 +242,37 @@ type dashData struct {
 	Refresh  bool
 }
 
+// dashSections は状態別セクションの固定表示順とラベル。「今すぐ対応が要るもの」から並べる:
+// 入力待ち → レビュー待ち → 実行中 → その他。空セクションは描画時に飛ばす。
+var dashSections = []struct{ Key, Label string }{
+	{"waiting", "入力待ち"},
+	{"review", "レビュー待ち"},
+	{"working", "実行中"},
+	{"other", "その他"},
+}
+
 // statusClass は status を CSS クラス名に使える形へ (in-progress はそのままハイフンで可)。
 func statusClass(status string) string {
 	if status == "" {
 		return "unknown"
 	}
 	return status
+}
+
+// taskSection は行が入る状態セクションのキーを返す (1 行は 1 セクションのみ)。
+// in-progress かつ SESSION マーカーが waiting/working のものだけ waiting/working に入れ、
+// status=review は review、それ以外 (todo/blocked/done や unknown/ended の in-progress) は other。
+func taskSection(status, sessionState string) string {
+	switch sessionState {
+	case sessWaiting:
+		return "waiting"
+	case sessWorking:
+		return "working"
+	}
+	if status == "review" {
+		return "review"
+	}
+	return "other"
 }
 
 // isHTTPURL は文字列が http(s) URL としてリンクしてよい形かをゆるく判定する。
@@ -260,14 +287,12 @@ func buildDashData(rows []Task, interval int, now time.Time) dashData {
 		Interval: interval,
 		Refresh:  interval > 0,
 	}
-	// rows は project → id 順にソート済み。project ごとにグループ化する。
-	var cur *dashGroup
+	// rows は project → id 順にソート済み。状態セクションごとに振り分け、入力順を保つ
+	// (各セクション内は project → id 順になる)。
+	bySection := map[string][]dashRow{}
 	for _, t := range rows {
-		if cur == nil || cur.Project != t.Project {
-			d.Groups = append(d.Groups, dashGroup{Project: t.Project})
-			cur = &d.Groups[len(d.Groups)-1]
-		}
 		r := dashRow{
+			Project:       t.Project,
 			ID:            t.ID,
 			Status:        t.Status,
 			StatusClass:   statusClass(t.Status),
@@ -289,7 +314,14 @@ func buildDashData(rows []Task, interval int, now time.Time) dashData {
 		if isHTTPURL(t.Session) {
 			r.SessionURL = t.Session
 		}
-		cur.Rows = append(cur.Rows, r)
+		key := taskSection(t.Status, r.SessionState)
+		bySection[key] = append(bySection[key], r)
+	}
+	// 固定順にセクションを出す。空セクションは飛ばす。
+	for _, sec := range dashSections {
+		if rows := bySection[sec.Key]; len(rows) > 0 {
+			d.Groups = append(d.Groups, dashGroup{Key: sec.Key, Label: sec.Label, Rows: rows})
+		}
 	}
 	return d
 }
@@ -328,9 +360,15 @@ const dashHTML = `<!doctype html>
   header .meta { color: var(--dim); font-size: 0.8rem; margin-top: 0.15rem; }
   section { padding: 0 0.75rem; }
   section h2 {
-    font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--dim); margin: 1.1rem 0.25rem 0.5rem; font-weight: 600;
+    font-size: 0.9rem; letter-spacing: 0.02em;
+    color: var(--fg); margin: 1.2rem 0.25rem 0.5rem; font-weight: 700;
+    display: flex; align-items: center; gap: 0.4rem;
   }
+  section h2::before { content: ""; width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--dim); }
+  section.sec-waiting h2::before { background: #f0883e; }
+  section.sec-review  h2::before { background: #a371f7; }
+  section.sec-working h2::before { background: #3fb950; }
+  section.sec-other   h2::before { background: #6b7280; }
   section h2 .cnt { color: var(--dim); font-weight: 400; }
   .card {
     background: var(--card); border: 1px solid var(--border);
@@ -343,6 +381,7 @@ const dashHTML = `<!doctype html>
   .card.s-review      { border-left-color: #a371f7; }
   .card.s-done        { border-left-color: #3fb950; }
   .row1 { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+  .proj { color: var(--dim); font-size: 0.8rem; }
   .id { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
   .badge {
     font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px;
@@ -376,11 +415,12 @@ const dashHTML = `<!doctype html>
   <div class="meta">{{.Count}} tasks · {{.Now}}{{if .Refresh}} · 自動更新 {{.Interval}}s{{end}}</div>
 </header>
 {{range .Groups}}
-<section>
-  <h2>{{.Project}} <span class="cnt">({{len .Rows}})</span></h2>
+<section class="sec-{{.Key}}">
+  <h2>{{.Label}} <span class="cnt">({{len .Rows}})</span></h2>
   {{range .Rows}}
   <article class="card s-{{.StatusClass}}">
     <div class="row1">
+      <span class="proj">{{.Project}}</span>
       <span class="id">#{{.ID}}</span>
       <span class="badge st-{{.StatusClass}}">{{.Status}}</span>
       {{if .SessionState}}<span class="badge sess-{{.SessionState}}">{{.SessionState}}</span>{{end}}

@@ -7,37 +7,81 @@ import (
 	"time"
 )
 
-func TestBuildDashDataGroupsAndComputed(t *testing.T) {
-	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+func TestTaskSectionClassify(t *testing.T) {
+	cases := []struct {
+		status, sess, want string
+	}{
+		{"in-progress", sessWaiting, "waiting"},
+		{"in-progress", sessWorking, "working"},
+		{"in-progress", "unknown", "other"}, // マーカー未取得は working 扱いしない
+		{"in-progress", "ended", "other"},
+		{"review", "", "review"},
+		{"todo", "", "other"},
+		{"blocked", "", "other"},
+		{"done", "", "other"},
+	}
+	for _, c := range cases {
+		if got := taskSection(c.status, c.sess); got != c.want {
+			t.Errorf("taskSection(%q,%q) = %q, want %q", c.status, c.sess, got, c.want)
+		}
+	}
+}
+
+func TestBuildDashDataStateSectionsOrder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_TASKS_STATE_DIR", dir)
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	// SESSION マーカーを用意して waiting/working を作る (worktree basename がキー)。
+	if err := writeSessionState("p--0001", sessWaiting, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSessionState("p--0003", sessWorking, "", now); err != nil {
+		t.Fatal(err)
+	}
 	rows := []Task{
-		{ID: "0001", Project: "alpha", Title: "T1", Status: "todo", Updated: "2026-07-01T00:00:00+09:00"},
-		{ID: "0002", Project: "alpha", Title: "T2", Status: "blocked", BlockedAt: "2026-06-30T00:00:00+00:00", BlockedReason: "確認待ち", Updated: "u"},
-		{ID: "0003", Project: "beta", Title: "T3", Status: "in-progress", Worktree: "../beta--0003", Updated: "u"},
+		{ID: "0001", Project: "p", Title: "待ち", Status: "in-progress", Worktree: "../p--0001", Updated: "u"},
+		{ID: "0002", Project: "p", Title: "レビュー", Status: "review", Updated: "u"},
+		{ID: "0003", Project: "p", Title: "実行中", Status: "in-progress", Worktree: "../p--0003", Updated: "u"},
+		{ID: "0004", Project: "p", Title: "todo", Status: "todo", Updated: "u"},
+		{ID: "0005", Project: "p", Title: "マーカー無 in-progress", Status: "in-progress", Worktree: "../p--0005", Updated: "u"},
 	}
 	d := buildDashData(rows, 5, now)
 
-	if d.Count != 3 {
-		t.Fatalf("Count = %d, want 3", d.Count)
+	if d.Count != 5 {
+		t.Fatalf("Count = %d, want 5", d.Count)
 	}
-	if !d.Refresh || d.Interval != 5 {
-		t.Errorf("Refresh/Interval = %v/%d, want true/5", d.Refresh, d.Interval)
+	// waiting → review → working → other の固定順。other には todo と unknown の in-progress が入る。
+	var gotKeys []string
+	for _, g := range d.Groups {
+		gotKeys = append(gotKeys, g.Key)
 	}
-	if len(d.Groups) != 2 {
-		t.Fatalf("Groups = %d, want 2 (alpha, beta)", len(d.Groups))
+	wantKeys := []string{"waiting", "review", "working", "other"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("group keys = %v, want %v", gotKeys, wantKeys)
 	}
-	if d.Groups[0].Project != "alpha" || len(d.Groups[0].Rows) != 2 {
-		t.Errorf("group0 = %q(%d rows), want alpha(2)", d.Groups[0].Project, len(d.Groups[0].Rows))
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Fatalf("group keys = %v, want %v", gotKeys, wantKeys)
+		}
 	}
-	// blocked 行に経過と理由が入る。
-	blocked := d.Groups[0].Rows[1]
-	if blocked.BlockedFor == "" || blocked.BlockedReason != "確認待ち" {
-		t.Errorf("blocked row = %+v, want BlockedFor 有 / reason 確認待ち", blocked)
+	// other には 2 件 (0004 todo, 0005 unknown in-progress)。
+	if got := len(d.Groups[3].Rows); got != 2 {
+		t.Errorf("other セクションの件数 = %d, want 2", got)
 	}
-	// in-progress 行に session_state が入る (マーカー無し → unknown)。
-	inprog := d.Groups[1].Rows[0]
-	if inprog.SessionState != "unknown" {
-		t.Errorf("in-progress session_state = %q, want unknown", inprog.SessionState)
+	// カードは project を持つ。
+	if d.Groups[0].Rows[0].Project != "p" {
+		t.Errorf("カードに project が無い: %+v", d.Groups[0].Rows[0])
+	}
+}
+
+func TestBuildDashDataEmptySectionsSkipped(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	// review だけ → review セクション 1 つだけ (空の waiting/working/other は出さない)。
+	rows := []Task{{ID: "0001", Project: "p", Title: "R", Status: "review", Updated: "u"}}
+	d := buildDashData(rows, 5, now)
+	if len(d.Groups) != 1 || d.Groups[0].Key != "review" {
+		t.Fatalf("Groups = %+v, want review 1 つだけ", d.Groups)
 	}
 }
 
@@ -53,10 +97,12 @@ func TestBuildDashDataNoRefreshAndSessionURL(t *testing.T) {
 	if d.Refresh {
 		t.Error("interval 0 では Refresh は false であるべき")
 	}
+	// review セクション (先) の行は http URL なのでリンクする。
 	if got := d.Groups[0].Rows[0].SessionURL; got != "https://claude.ai/session_abc" {
 		t.Errorf("SessionURL = %q, want claude.ai URL", got)
 	}
-	if got := d.Groups[0].Rows[1].SessionURL; got != "" {
+	// other セクション (後) の todo は http でない session なのでリンクしない。
+	if got := d.Groups[1].Rows[0].SessionURL; got != "" {
 		t.Errorf("http でない session はリンクしない, got %q", got)
 	}
 }

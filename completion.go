@@ -41,6 +41,7 @@ var completionSubcommands = []completionSubcommand{
 	{"report", "一定期間の完了タスクを markdown で出力"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
+	{"session-rename", "現在の Claude セッション名をタスク名に変える (tmux)"},
 	{"statusline", "実行中タスクを status line に表示"},
 	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
 	{"where", "データディレクトリのパスを表示"},
@@ -274,7 +275,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|open|session-link|archive|unarchive|issue)
+        show|edit|open|session-link|session-rename|archive|unarchive|issue)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -318,6 +319,7 @@ _agent_tasks() {
         worktree-remove)   flags="--force --hook-only --color --help" ;;
         session-hook)      flags="--print-config --color --help" ;;
         session-link)      flags="--session --project --color --help" ;;
+        session-rename)    flags="--project --color --help" ;;
         statusline)        flags="--print-config --color --help" ;;
         alloc-id)          flags="--slug --project --pull --color --help" ;;
         completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
@@ -535,6 +537,30 @@ _agent_tasks() {
                     if (( skip )); then skip=0; continue; fi
                     case $w in
                         --session|--project|--color) skip=1 ;;
+                        -*) ;;
+                        *) pos+=$w ;;
+                    esac
+                done
+                if (( ${#pos} == 0 )); then
+                    _agent_tasks_projects
+                    _agent_tasks_ids
+                else
+                    _agent_tasks_ids ${pos[1]}
+                fi
+            fi
+            ;;
+        session-rename)
+            # [<project>] <id> の位置引数 + フラグ (--project)。
+            if [[ ${words[CURRENT]} == -* ]]; then
+                _values 'option' \
+                    '--project[project を指定]' \
+                    '--color[色出力]' '--help[ヘルプ]'
+            else
+                local -a pos; local w skip=0
+                for w in ${words[3,CURRENT-1]}; do
+                    if (( skip )); then skip=0; continue; fi
+                    case $w in
+                        --project|--color) skip=1 ;;
                         -*) ;;
                         *) pos+=$w ;;
                     esac

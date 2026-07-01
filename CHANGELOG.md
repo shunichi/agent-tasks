@@ -29,6 +29,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks session-rename [<project>] <id>`: 現在の Claude セッション名を **`task <NNNN>: <title>`**
+  に変えるサブコマンドを追加。tmux 内なら**自分の pane (`$TMUX_PANE`) へ `send-keys` で
+  `/rename …` を打ち込む** (Claude はスラッシュコマンドをツールから直接呼べないための回避)。本物の
+  `/rename` 経路なので web / スマホアプリのセッション名 (Bridge 同期先) にも反映される。tmux 外では
+  `/rename …` 行を出力してユーザーに実行を促すフォールバック。skill は着手指示の直後 (worktree より前、
+  入力欄が空なうち) にこれを 1 回叩く。batch (1 セッション使い回し) では各タスク着手ごとに呼んで
+  セッション名を追従させる。
+
 - `agent-tasks open [<project>] <id>`: タスクに紐づく **worktree (作業ツリー) をエディタで開く**
   サブコマンドを追加。frontmatter の `worktree:` (コードリポジトリ root からの相対パス) を現在の
   リポジトリ root を基点に絶対パスへ解決して開く (絶対パスならそのまま)。エディタの決定は `edit` と
@@ -69,11 +77,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   できる)。**詳細表示中は `j`/`k` を詳細の 1 行スクロール**に切り替える (一覧のみのときは従来どおり選択移動)。
   `Ctrl+d`/`Ctrl+u` の半画面スクロールは従来どおり。フッター/ヘルプの説明も更新。
 
-- skill (`/agent-tasks`): 着手時に Claude セッション名を **`タスク <NNNN>: <title>`** にする案内を追加。
-  web / スマホアプリのセッション一覧で「今どのタスクか」が分かる。spawn で開く子セッションは
-  起動時に `claude -n` で**自動命名**、直接 start の現在セッションは Claude が `/rename タスク <NNNN>: <title>`
-  の 1 行を提示してユーザーが実行する (スラッシュコマンドは Claude が自動実行できないため。
-  変更は Claude Desktop / claude.ai/code のクラウド側セッション名にも同期される)。
+- skill (`/agent-tasks`): 着手時に Claude セッション名を **`タスク <NNNN>: <title>`** にする手順を追加。
+  web / スマホアプリのセッション一覧 (Bridge 同期先) で「今どのタスクか」が分かる。
+  spawn で開く子は起動時に `claude -n` で**自動命名**。直接 start / batch (1 セッション使い回し) の
+  現在セッションは、**tmux 内なら自分の pane へ `tmux send-keys` で `/rename タスク <NNNN>: <title>` を
+  打ち込んで自動リネーム**する (本物の `/rename` 経路を通すのでスマホ表示=クラウド側にも同期される)。
+  tmux 外ではユーザーへ `/rename …` の 1 行を提示するフォールバック。
+  (`/rename` を起こすツール/フックは無いため send-keys がほぼ唯一の自動手段。Issue #54325 / #29355 参照。)
 
 ### Added
 

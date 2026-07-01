@@ -280,6 +280,38 @@ func TestDetailLayout(t *testing.T) {
 	}
 }
 
+// TestDetailViewFitsHeight は詳細表示中の View 出力がちょうど端末 height 行に収まることを
+// 検証する。height+1 行になると実端末では超過分がスクロールし、最上部のヘッダ (status 行)
+// が押し出されて消える。横分割の区切り線の末尾改行で 1 行増えていた回帰の防止。
+func TestDetailViewFitsHeight(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h int
+	}{
+		{"横分割(wide)", 200, 20},
+		{"横分割(wide2)", 120, 40},
+		{"縦分割(narrow)", 60, 30},
+		{"縦分割(short)", 60, 12},
+	}
+	for _, c := range cases {
+		m := &tuiModel{all: mkTasks(), effProjects: []string{"alpha"}}
+		m.applyFilter()
+		var model tea.Model = m
+		model, _ = model.Update(tea.WindowSizeMsg{Width: c.w, Height: c.h})
+		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 詳細を開く
+		if !model.(*tuiModel).showDetail {
+			t.Fatalf("%s: 詳細表示に入るはず", c.name)
+		}
+		lines := strings.Split(model.View(), "\n")
+		if len(lines) != c.h {
+			t.Errorf("%s: View が %d 行 (height=%d 期待)。超過するとヘッダがスクロールで消える", c.name, len(lines), c.h)
+		}
+		if !strings.Contains(lines[0], "status:") {
+			t.Errorf("%s: 先頭行がヘッダ (status 行) でない: %q", c.name, lines[0])
+		}
+	}
+}
+
 // TestStartCommandFor は start コマンド文字列の生成規則を検証する。
 // 着手の意味がある todo / blocked のみ "start <id>" を返し、それ以外は ok=false。
 func TestStartCommandFor(t *testing.T) {
@@ -349,13 +381,13 @@ func TestCopyResultFlash(t *testing.T) {
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	// 成功 → ヘッダに表示。
+	// 成功 → footer に表示。
 	model, _ = model.Update(copyResultMsg{text: "start 0001"})
 	if !strings.Contains(model.(*tuiModel).flash, "start 0001") {
 		t.Fatalf("成功時に start 0001 がフラッシュされるはず: flash=%q", model.(*tuiModel).flash)
 	}
 	if !strings.Contains(model.View(), "start 0001") {
-		t.Fatal("ヘッダにコピー結果が出ていない")
+		t.Fatal("footer にコピー結果が出ていない")
 	}
 	// 次のキー入力で消える。
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
@@ -366,6 +398,32 @@ func TestCopyResultFlash(t *testing.T) {
 	model, _ = model.Update(copyResultMsg{text: "start 0001", err: errTest})
 	if f := model.(*tuiModel).flash; !strings.Contains(f, "失敗") {
 		t.Fatalf("失敗時は失敗メッセージのはず: flash=%q", f)
+	}
+}
+
+// TestFlashVisibleInNarrowDetail はコピー結果のフラッシュが、狭い端末で詳細を開いた状態
+// (縦分割。tmux popup 相当) でも表示され続けることを検証する。フラッシュは footer 先頭に
+// 最優先で置く (ヘッダの status 情報を潰さず、狭くてキー説明が truncate されても残る) 回帰防止。
+func TestFlashVisibleInNarrowDetail(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		w, h int
+	}{
+		{"横分割(wide)", 120, 40},
+		{"縦分割(narrow)", 60, 40},
+	} {
+		m := &tuiModel{all: mkTasks(), effProjects: nil}
+		m.applyFilter()
+		var model tea.Model = m
+		model, _ = model.Update(tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter}) // 詳細を開く
+		if !model.(*tuiModel).showDetail {
+			t.Fatalf("%s: 詳細表示に入るはず", tc.name)
+		}
+		model, _ = model.Update(copyResultMsg{text: "start task 0001"})
+		if !strings.Contains(model.View(), "コピーしました") {
+			t.Errorf("%s: 詳細表示中でもフラッシュがヘッダに出るはず (View に見当たらない)", tc.name)
+		}
 	}
 }
 

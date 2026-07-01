@@ -160,6 +160,9 @@ func (m *tuiModel) applyFilter() {
 	hideDone := !m.showDone && m.filterStatus == ""
 	rows := m.rows[:0:0]
 	for _, t := range m.all {
+		if t.Incomplete {
+			continue // 作成途中 (title 未記入) の予約は表示しない
+		}
 		if m.effProject != "" && t.Project != m.effProject {
 			continue
 		}

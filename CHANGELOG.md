@@ -27,6 +27,19 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-02
 
+### Added
+
+- **コードを変更しない「人手タスク」(`kind: human`)** を登録できるようにした。frontmatter に
+  `kind: human` を持つタスク (デプロイ設定の手動変更・顧客確認・データ移行・レビュー依頼など) は、
+  着手しても **worktree / branch を作らず、コンフリクトチェックの対象外**になる (コード領域を
+  持たないため。着手側・被チェック側の両方)。既定 (省略) は従来型の code タスク。
+  - `list` で **`--kind human|code`** で絞り込み可能。一覧・TUI では human タスクに **`[人手]`**
+    プレフィックスを付けて識別し、SESSION 列は `-` (セッションを持たない) と表示する。
+  - `--json` / `show --json` の出力に `kind` を追加 (human のときのみ。code は省略)。human の
+    in-progress では `session_state` を出さない。
+  - `doctor` が `kind:` の未知の値 (human/code/空 以外の typo) を検出する。
+  - SKILL.md の create / start / recommend / done を種別対応に更新 (human は簡易フロー)。
+
 ### Fixed
 
 - tui: 詳細表示中に最上部のヘッダ (status 行) が消える不具合を修正。横分割の区切り線が末尾改行で

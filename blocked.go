@@ -36,6 +36,20 @@ func blockedTitle(t Task) string {
 	return t.Title + "  (" + truncateDisp(t.BlockedReason, 50) + ")"
 }
 
+// humanTitlePrefix は human (コードを触らない人手) タスクを一覧で識別するためのプレフィックス。
+const humanTitlePrefix = "[人手] "
+
+// displayTitle は一覧表示 (CLI テーブル / TUI) 用のタイトル装飾を返す。human タスクには識別
+// プレフィックスを付け、blocked タスクには保留理由を添える (blockedTitle)。検索 (matchQuery) は
+// 生の Title を対象にするので、この装飾はあくまで表示専用 (検索・JSON には影響しない)。
+func displayTitle(t Task) string {
+	s := blockedTitle(t)
+	if t.IsHuman() {
+		return humanTitlePrefix + s
+	}
+	return s
+}
+
 // BlockedIssue は blocked_at / blocked_reason と status の食い違いを表す doctor の検出結果。
 type BlockedIssue struct {
 	Project string

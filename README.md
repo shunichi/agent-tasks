@@ -33,6 +33,7 @@ make install
 | 操作 | 言い方の例 |
 | --- | --- |
 | 登録 | 「〜というタスクを作って」「/agent-tasks create」 |
+| 人手タスクの登録 | 「デプロイ設定を手で変えるタスク」「顧客確認のタスク」(コードを触らない `kind: human`。着手時に worktree を作らずコンフリクトチェック対象外) |
 | 一覧 | 「タスク一覧」「/agent-tasks list」 |
 | おすすめ | 「次に何をやるべき?」「/agent-tasks recommend」(着手候補を提示。着手はしない) |
 | 着手 | 「タスク 0001 に着手」「/agent-tasks start 0001」(git worktree で並行開発) |
@@ -50,6 +51,11 @@ make install
 git worktree + ブランチが切られ、衝突なく同時に開発できる。`spawn` は tmux の別 pane に新セッションを
 開いて `start` を任せる (fire-and-forget)。`batch` は逆に複数タスクを 1 セッションで直列に流す。
 
+**人手タスク (`kind: human`)**: デプロイ設定の手動変更・顧客確認・データ移行・レビュー依頼など、
+**コードを変更しない**作業も登録・記憶できる。human タスクは着手しても worktree を作らず、他タスクとの
+コンフリクトチェックの対象外になる (コード領域を持たないため)。一覧では `[人手]` プレフィックスで
+識別でき、`--kind human|code` で絞り込める。
+
 ### 閲覧 (ターミナルから)
 
 ```sh
@@ -58,6 +64,7 @@ agent-tasks --all-projects       # 全 project を横断
 agent-tasks --project a --project b  # 指定した複数 project だけを横断 (--projects a,b でも可)
 agent-tasks --all                # done も含める (-a も可)
 agent-tasks --status in-progress # status で絞り込み
+agent-tasks --kind human         # 種別で絞り込み (human=コードを触らない人手タスク / code=従来型)
 agent-tasks --search <語>        # タイトル部分一致で検索 (--content で本文も。TUI は / で検索)
 agent-tasks --watch              # 一覧を自動更新表示 (-w)
 agent-tasks tui                  # 一覧+詳細をインタラクティブに閲覧 (自動更新。端末専用)

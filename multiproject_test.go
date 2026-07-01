@@ -44,7 +44,7 @@ func TestSelectTasksMultiProject(t *testing.T) {
 	write("beta", "0001")
 	write("gamma", "0001")
 
-	rows, eff, _, err := selectTasks("", []string{"alpha", "gamma"}, false, false, false, "", false)
+	rows, eff, _, err := selectTasks("", []string{"alpha", "gamma"}, false, false, false, "", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

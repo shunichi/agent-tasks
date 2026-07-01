@@ -177,6 +177,7 @@ USAGE:
   agent-tasks --all-projects         全 project を横断して一覧
   agent-tasks --all | -a             done も含めて表示
   agent-tasks --status <status>      status で絞り込み (todo/in-progress/blocked/review/done)
+  agent-tasks --kind human|code      種別で絞り込み (human=コードを触らない人手タスク / code=従来型)
   agent-tasks --search <q>            タイトル部分一致で検索 (大小無視。--grep も可)。--content で本文も対象
   agent-tasks --project <name>       project を指定 (別 project も可。繰り返し指定でその集合だけを横断)
   agent-tasks --projects a,b,c       複数 project をカンマ区切りでまとめて横断 (--project の集合版)
@@ -263,6 +264,7 @@ func cmdList(args []string) error {
 	var filterStatus string
 	var filterProjects []string
 	var searchQuery string
+	var filterKind string
 	searchContent := false
 	showAll := false
 	allProjects := false
@@ -299,6 +301,15 @@ func cmdList(args []string) error {
 				return err
 			}
 			filterProjects = append(filterProjects, splitProjects(v)...)
+		case "--kind":
+			v, err := s.value("--kind")
+			if err != nil {
+				return err
+			}
+			if v != kindHuman && v != kindCode {
+				return usagef("--kind must be %s|%s (got %q)", kindHuman, kindCode, v)
+			}
+			filterKind = v
 		case "--search", "--grep":
 			v, err := s.value(a)
 			if err != nil {
@@ -365,7 +376,7 @@ func cmdList(args []string) error {
 
 	// --json は機械可読出力。watch/色付けより優先し、フィルタは共通の selectTasks で適用する。
 	if jsonOut {
-		rows, _, _, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent)
+		rows, _, _, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent, filterKind)
 		if err != nil {
 			return err
 		}
@@ -374,9 +385,9 @@ func cmdList(args []string) error {
 
 	// watch は端末のときだけループ表示。パイプ等では誤用防止のため 1 回出力して終える。
 	if watch && isTTY(os.Stdout) {
-		return watchList(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent, interval)
+		return watchList(filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent, filterKind, interval)
 	}
-	return runList(os.Stdout, filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent)
+	return runList(os.Stdout, filterStatus, filterProjects, showAll, allProjects, archived, searchQuery, searchContent, filterKind)
 }
 
 // splitProjects は "--projects a,b, c" のカンマ区切りを trim して非空要素だけの集合にする。
@@ -394,7 +405,7 @@ func splitProjects(v string) []string {
 // (テーブル出力と JSON 出力で共有)。effProjects は実効 project スコープ集合
 // (空 = 横断、1 つ = 単一 project、複数 = 部分集合横断)、current は現在 project
 // (フッター注記の判定に使う)。filterProjects に複数渡すと部分集合横断になる。
-func selectTasks(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool) (rows []Task, effProjects []string, current string, err error) {
+func selectTasks(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool, filterKind string) (rows []Task, effProjects []string, current string, err error) {
 	current = currentProject()
 	effProjects, _ = resolveListScope(filterProjects, allProjects, current)
 
@@ -417,6 +428,9 @@ func selectTasks(filterStatus string, filterProjects []string, showAll, allProje
 			continue // 作成途中 (title 未記入) の予約は一覧に出さない
 		}
 		if filterStatus != "" && t.Status != filterStatus {
+			continue
+		}
+		if filterKind != "" && effectiveKind(t) != filterKind {
 			continue
 		}
 		if !matchProjects(t.Project, effProjects) {
@@ -444,8 +458,8 @@ func scopeLabel(effProjects []string) string {
 
 // runList は一覧を 1 回読み込み・絞り込み・w に描画する。watch はバッファに描かせて
 // ちらつかない上書き再描画に使う。
-func runList(w io.Writer, filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool) error {
-	rows, effProjects, current, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent)
+func runList(w io.Writer, filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool, filterKind string) error {
+	rows, effProjects, current, err := selectTasks(filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent, filterKind)
 	if err != nil {
 		return err
 	}
@@ -507,7 +521,7 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 		if showBlocked {
 			cells = append(cells, blockedCell(t, c, now))
 		}
-		cells = append(cells, cell{blockedTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
+		cells = append(cells, cell{displayTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
 		tbl.add(cells...)
 	}
 	tbl.render(w, c)
@@ -551,7 +565,7 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 // ちらつき対策: 画面全消去 (\033[2J) はせず、1 フレームをバッファに組み立ててから
 // writeFrame で「カーソルを左上へ戻して上書き」する。全消去だと消去〜再描画の間に空白
 // フレームが見えてチカチカするため。
-func watchList(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool, interval time.Duration) error {
+func watchList(filterStatus string, filterProjects []string, showAll, allProjects, archived bool, query string, searchContent bool, filterKind string, interval time.Duration) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
@@ -567,7 +581,7 @@ func watchList(filterStatus string, filterProjects []string, showAll, allProject
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "%sagent-tasks --watch  %s  間隔 %s  (Ctrl-C で終了)%s\n\n",
 			c.dim, time.Now().Format("15:04:05"), interval, c.reset)
-		if err := runList(&buf, filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent); err != nil {
+		if err := runList(&buf, filterStatus, filterProjects, showAll, allProjects, archived, query, searchContent, filterKind); err != nil {
 			fmt.Fprintf(&buf, "%serror: %v%s\n", c.block, err, c.reset)
 		}
 		writeFrame(buf.String())
@@ -663,6 +677,7 @@ func cmdDoctor(args []string) error {
 	prIssues := findPRIssues(tasks)
 	issueProbs := findIssueProblems(tasks)
 	trackerProbs := findTrackerProblems(tasks)
+	kindProbs := findKindProblems(tasks)
 	// 作成途中 (title 未記入) の予約ファイル。一覧からは隠れるので、doctor で可視化する
 	// (放置された空予約の検出用。create 実行中のものが一時的に出ることはある)。
 	incompletes := slices.DeleteFunc(slices.Clone(tasks), func(t Task) bool { return !t.Incomplete })
@@ -673,7 +688,7 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(issueProbs) + len(trackerProbs) + len(incompletes) + len(failures)
+	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(issueProbs) + len(trackerProbs) + len(kindProbs) + len(incompletes) + len(failures)
 	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
@@ -742,8 +757,17 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, tp.Project, tp.ID, c.reset, tp.Detail, tp.Path)
 		}
 	}
-	if len(incompletes) > 0 {
+	if len(kindProbs) > 0 {
 		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%sタスク種別の値 (kind:):%s\n", c.bold, c.reset)
+		for _, kp := range kindProbs {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, kp.Project, kp.ID, c.reset, kp.Detail, kp.Path)
+		}
+	}
+	if len(incompletes) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(kindProbs) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s作成途中/空の予約ファイル (title 未記入。一覧には出ない。放置なら削除を検討):%s\n", c.bold, c.reset)
@@ -752,7 +776,7 @@ func cmdDoctor(args []string) error {
 		}
 	}
 	if len(failures) > 0 {
-		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(incompletes) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(kindProbs) > 0 || len(incompletes) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s読めなかったファイル (一覧から無言で落ちる):%s\n", c.bold, c.reset)
@@ -761,8 +785,8 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / issue %d / tracker %d / 作成途中 %d / 読込失敗 %d)\n",
-		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(issueProbs), len(trackerProbs), len(incompletes), len(failures))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / issue %d / tracker %d / kind %d / 作成途中 %d / 読込失敗 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(issueProbs), len(trackerProbs), len(kindProbs), len(incompletes), len(failures))
 	return &silentExit{code: 1}
 }
 

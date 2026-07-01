@@ -891,7 +891,7 @@ func (m *tuiModel) renderList() string {
 	titleColW := 0
 	if rightCol > 0 {
 		for _, t := range m.rows {
-			if dw := dispWidth(blockedTitle(t)); dw > titleColW {
+			if dw := dispWidth(displayTitle(t)); dw > titleColW {
 				titleColW = dw
 			}
 		}
@@ -937,7 +937,7 @@ func (m *tuiModel) renderList() string {
 			line.WriteByte(' ')
 		}
 
-		ttl := truncateDisp(blockedTitle(t), titleW)
+		ttl := truncateDisp(displayTitle(t), titleW)
 		ttlDisp := dispWidth(ttl)
 		if selected {
 			line.WriteString(tuiBoldStyle.Render(ttl))
@@ -1039,6 +1039,9 @@ func (m *tuiModel) listNaturalWidth() int {
 func tuiSessionLabel(t Task) string {
 	if t.Status != "in-progress" {
 		return ""
+	}
+	if t.IsHuman() {
+		return "-" // 人手タスクはセッションを持たない
 	}
 	st, ok := taskSessionState(t)
 	if !ok {

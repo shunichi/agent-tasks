@@ -54,6 +54,7 @@ var completionSubcommands = []completionSubcommand{
 // 列挙できるフラグ値 (静的補完で候補を出せるもの)。
 var (
 	completionStatusValues = []string{"todo", "in-progress", "blocked", "review", "done"}
+	completionKindValues   = []string{"human", "code"}
 	completionColorValues  = []string{"always", "auto", "never"}
 	completionShellValues  = []string{"bash", "zsh"}
 )
@@ -232,9 +233,10 @@ func printTaskIDsWithTitle(w io.Writer, dir string) {
 func bashCompletionScript() string {
 	subs := strings.Join(subcommandNames(), " ")
 	statuses := strings.Join(completionStatusValues, " ")
+	kinds := strings.Join(completionKindValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --project --projects --search --grep --content --full --watch -w --interval --active --recent --archived --json --color --help"
+	topFlags := "--all-projects --all -a --status --kind --project --projects --search --grep --content --full --watch -w --interval --active --recent --archived --json --color --help"
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -248,6 +250,7 @@ _agent_tasks() {
     # 値を取るフラグの直後は、その値の候補を出す。
     case "$prev" in
         --status)   COMPREPLY=( $(compgen -W "%[1]s" -- "$cur") ); return ;;
+        --kind)     COMPREPLY=( $(compgen -W "%[6]s" -- "$cur") ); return ;;
         --color)    COMPREPLY=( $(compgen -W "%[2]s" -- "$cur") ); return ;;
         --project|--projects)  COMPREPLY=( $(compgen -W "$(agent-tasks completion-values projects 2>/dev/null)" -- "$cur") ); return ;;
         completion) COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
@@ -331,7 +334,7 @@ _agent_tasks() {
     fi
 }
 complete -F _agent_tasks agent-tasks
-`, statuses, colors, shells, topFlags, subs)
+`, statuses, colors, shells, topFlags, subs, kinds)
 }
 
 func zshCompletionScript() string {
@@ -381,6 +384,7 @@ _agent_tasks() {
     case ${words[CURRENT-1]} in
         --project|--projects) _agent_tasks_projects; return ;;
         --status)  compadd %[2]s; return ;;
+        --kind)    compadd %[5]s; return ;;
         --color)   compadd %[3]s; return ;;
     esac
 
@@ -399,6 +403,7 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--all[done も含める]' '-a[done も含める]' \
                 '--status[status で絞り込み]' \
+                '--kind[種別で絞り込み (human/code)]' \
                 '--project[project を指定 (繰り返し可)]' \
                 '--projects[project をカンマ区切りで複数指定]' \
                 '--search[タイトル検索]' '--grep[タイトル検索]' \
@@ -422,6 +427,7 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '(--all -a)'{--all,-a}'[done も含める]' \
                 '--status[status で絞り込み]:status:(%[2]s)' \
+                '--kind[種別で絞り込み]:kind:(%[5]s)' \
                 '*--project[project を指定 (繰り返し可)]:project:_agent_tasks_projects' \
                 '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
                 '(--search --grep)'{--search,--grep}'[タイトル検索]:query:' \
@@ -599,7 +605,7 @@ _agent_tasks() {
     esac
 }
 _agent_tasks "$@"
-`, subLines.String(), statuses, colors, shellsForValues())
+`, subLines.String(), statuses, colors, shellsForValues(), strings.Join(completionKindValues, " "))
 }
 
 // shellsForValues は zsh の _values 用に "'bash' 'zsh'" のようにクォートして並べる。

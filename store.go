@@ -24,6 +24,12 @@ type Task struct {
 	Created  string
 	Updated  string
 
+	// Kind はタスクの種別。空 (省略) = 従来型の「code タスク」(エージェントが worktree で
+	// コードを実装する)。"human" = コードを触らない「人手タスク」(デプロイ設定変更・顧客確認・
+	// データ移行など)。human はコード領域を持たないので start で worktree を作らず、他タスクとの
+	// コンフリクトチェック対象外になる (着手側・被チェック側の両方)。frontmatter では kind: で表す。
+	Kind string
+
 	// このタスクに紐づく PR の URL。1 タスクで複数 PR (分割 PR / 追従修正) になり得るので
 	// リストで持つ。frontmatter では prs: の YAML ブロックリストで表す。session (着手した
 	// エージェントのセッション URL) とは別フィールドに分け、PR はここに集約する。
@@ -123,6 +129,48 @@ func normalizeID(id string) string {
 		return fmt.Sprintf("%04d", n)
 	}
 	return id
+}
+
+// タスク種別 (Task.Kind)。省略 (空) は kindCode 扱い。kindHuman はコードを触らない人手タスク。
+const (
+	kindHuman = "human" // コードを触らない人手タスク (worktree を作らず、コンフリクトチェック対象外)
+	kindCode  = "code"  // 既定 (frontmatter 省略時)。エージェントが worktree で実装する従来型
+)
+
+// IsHuman は「コードを触らない人手タスク」(kind: human) かを返す。
+// 既定 (kind 省略) は code タスクなので false。
+func (t Task) IsHuman() bool { return t.Kind == kindHuman }
+
+// effectiveKind は t の実効種別を返す (kind 省略 = code)。--kind フィルタの照合で使う。
+func effectiveKind(t Task) string {
+	if t.IsHuman() {
+		return kindHuman
+	}
+	return kindCode
+}
+
+// KindProblem は kind: の値が既定 (空) / human / code 以外 (typo など) のときの doctor 検出結果。
+type KindProblem struct {
+	Project string
+	ID      string
+	Detail  string
+	Path    string
+}
+
+// findKindProblems は kind: が未知の値になっているタスクを拾う。kind は skill が書く enum なので、
+// typo (例 "humann") が黙って code 扱いされ、人手タスクが worktree 作成/コンフリクトチェックの
+// 対象に戻ってしまう事故を doctor で防ぐ (他の enum フィールドと同じ防御線)。
+func findKindProblems(tasks []Task) []KindProblem {
+	var out []KindProblem
+	for _, t := range tasks {
+		switch t.Kind {
+		case "", kindHuman, kindCode:
+			// 有効 (空 = code 既定)
+		default:
+			out = append(out, KindProblem{t.Project, t.ID, "kind: が未知の値 (human|code か空のみ有効): " + t.Kind, t.Path})
+		}
+	}
+	return out
 }
 
 // archiveDirName は project ディレクトリ内でアーカイブ済みタスクを退避するサブディレクトリ名。
@@ -425,6 +473,8 @@ func parseTask(path string) (Task, error) {
 			t.Title = val
 		case "status":
 			t.Status = val
+		case "kind":
+			t.Kind = val
 		case "agent":
 			t.Agent = val
 		case "session":

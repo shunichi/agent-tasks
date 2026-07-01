@@ -138,6 +138,8 @@ func dispatch(args []string) error {
 		return cmdSessionLink(args)
 	case "session-rename":
 		return cmdSessionRename(args)
+	case "session-prune":
+		return cmdSessionPrune(args)
 	case "statusline":
 		return cmdStatusline(args)
 	case "completion":
@@ -215,6 +217,10 @@ USAGE:
   agent-tasks session-link [<project>] <id> [--session <id>]  現在のセッションをタスクに紐づける
                                      (start 手順が呼ぶ)。同一セッション start でも SESSION 状態が出る。
                                      --session で自分の session_id を明示 (省略時は cwd 逆引き)
+  agent-tasks session-prune [--older-than <days>] [--dry-run]  state dir の古いマーカー/link を掃除する。
+                                     対応タスクが無い/done の worktree マーカー・link、および参照されず
+                                     一定日数 (既定 7) 更新の無い sess マーカーを削除。--dry-run で対象のみ表示。
+                                     揮発情報 (次の hook で再生成) なのでストアには一切触れない
   agent-tasks statusline [--print-config]  Claude Code の status line から呼ぶ。stdin の JSON を読んで
                                      この pane が実行中のタスクを 1 行表示 (--print-config で設定例を出力)
   agent-tasks completion bash|zsh    シェル補完スクリプトを stdout に出力

@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -514,4 +516,184 @@ func cmdSessionLink(args []string) error {
 	}
 	fmt.Printf("linked %s → session %s (%s)\n", key, sessionID, via)
 	return nil
+}
+
+// --- session-prune: state dir に溜まる古いマーカー/link の掃除 ---
+//
+// hook / session-link が書くマーカー・link は state dir に書かれっぱなしで、タスク done や
+// worktree 撤去の後も残り、長期運用で単調増加する (正確性には無害。sessionCell は in-progress の
+// タスクしか読まない)。session-prune が安全に掃除する。ストア (タスク本体) には一切触れない。
+
+// sessionPruneDefaultDays は sess マーカーを「古い」とみなす既定日数。
+const sessionPruneDefaultDays = 7
+
+// prunableFile は掃除対象の 1 ファイル (state dir 内の名前と理由。表示・削除に使う)。
+type prunableFile struct {
+	Name   string
+	Reason string
+}
+
+// planSessionPrune は state dir を走査し、掃除してよいファイルを列挙する (破壊しない)。判定:
+//   - worktree マーカー <key>.json / link <key>.link.json:
+//     対応タスク (worktree キー) が存在しない or done なら対象。
+//     in-progress / blocked / review / todo のタスクのものは残す (稼働・保留中を壊さない)。
+//   - sess マーカー sess-<id>.json:
+//     生存する link のどれからも参照されず (= どの現役タスクにも紐づかず)、かつ Updated から
+//     retention 以上経過していれば対象。未参照でも retention 内なら残す (link 前の起動直後の
+//     セッションを守る)。壊れて読めないマーカーは zero 時刻 = 十分古い扱い (未参照なら掃除)。
+//
+// tasks は全 project のアクティブタスク。now / retention は sess マーカーの鮮度判定に使う。
+// state dir は sessionStateDir() (テストは AGENT_TASKS_STATE_DIR を t.TempDir() に向ける)。
+func planSessionPrune(tasks []Task, now time.Time, retention time.Duration) ([]prunableFile, error) {
+	active := map[string]string{} // worktree キー -> status
+	for _, t := range tasks {
+		if k := taskSessionKey(t); k != "" {
+			active[k] = t.Status
+		}
+	}
+	entries, err := os.ReadDir(sessionStateDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // state dir 未作成 = 掃除対象なし
+		}
+		return nil, err
+	}
+	aliveKey := func(key string) bool {
+		st, ok := active[key]
+		return ok && st != "done"
+	}
+	whyDead := func(key string) string {
+		if _, ok := active[key]; !ok {
+			return "対応タスクなし"
+		}
+		return "対応タスクが done"
+	}
+
+	var out []prunableFile
+	referenced := map[string]bool{} // 生存 link が指す session_id (sess マーカー保護用)
+	type sessInfo struct {
+		name    string
+		id      string
+		updated time.Time
+	}
+	var sessMarks []sessInfo
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		switch {
+		case strings.HasSuffix(name, ".link.json"):
+			key := strings.TrimSuffix(name, ".link.json")
+			if aliveKey(key) {
+				if l, ok := readSessionLink(key); ok {
+					referenced[l.SessionID] = true
+				}
+				continue
+			}
+			out = append(out, prunableFile{name, "link (" + whyDead(key) + ")"})
+		case strings.HasPrefix(name, "sess-") && strings.HasSuffix(name, ".json"):
+			key := strings.TrimSuffix(name, ".json") // "sess-<id>"
+			id := strings.TrimPrefix(key, "sess-")
+			var upd time.Time
+			if st, ok := readSessionState(key); ok {
+				upd = parseSessionTime(st.Updated)
+				if st.SessionID != "" {
+					id = st.SessionID
+				}
+			}
+			sessMarks = append(sessMarks, sessInfo{name, id, upd})
+		case strings.HasSuffix(name, ".json"):
+			key := strings.TrimSuffix(name, ".json")
+			if aliveKey(key) {
+				continue
+			}
+			out = append(out, prunableFile{name, "worktree マーカー (" + whyDead(key) + ")"})
+		}
+		// .tmp-* など上記に当たらないファイルは触らない (安全側)。
+	}
+
+	// sess マーカーは link 判定後に決める (生存 link の参照集合が要るため)。
+	days := int(retention / (24 * time.Hour))
+	for _, s := range sessMarks {
+		if referenced[s.id] {
+			continue // 現役タスクに紐づく → 残す
+		}
+		if now.Sub(s.updated) < retention {
+			continue // 新しい → 残す (link 前の起動直後を守る)
+		}
+		out = append(out, prunableFile{s.name, fmt.Sprintf("sess マーカー (未参照・%d 日超未更新)", days)})
+	}
+	slices.SortFunc(out, func(a, b prunableFile) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
+}
+
+// cmdSessionPrune は state dir の古いマーカー/link を掃除する。既定で削除し、--dry-run で対象のみ表示。
+// auto-archive と同じ流儀 (破壊的操作は --dry-run で事前確認)。
+func cmdSessionPrune(args []string) error {
+	days := sessionPruneDefaultDays
+	dryRun := false
+	s := newArgScan(args)
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch a {
+		case "--older-than":
+			v, err := s.value("--older-than")
+			if err != nil {
+				return err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return usagef("--older-than must be a non-negative integer (日数): %q", v)
+			}
+			days = n
+		case "--dry-run":
+			dryRun = true
+		default:
+			return usagef("unknown option: %s", a)
+		}
+	}
+	if pos := s.rest(); len(pos) > 0 {
+		return usagef("unexpected argument: %s", pos[0])
+	}
+
+	tasks, err := loadTasks(storeDir())
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	retention := time.Duration(days) * 24 * time.Hour
+	targets, err := planSessionPrune(tasks, now, retention)
+	if err != nil {
+		return err
+	}
+	dir := sessionStateDir()
+	if len(targets) == 0 {
+		fmt.Printf("掃除対象なし (state dir: %s)\n", dir)
+		return nil
+	}
+	if dryRun {
+		fmt.Printf("[dry-run] 掃除対象 %d 件 (state dir: %s):\n", len(targets), dir)
+		for _, f := range targets {
+			fmt.Printf("  %s  — %s\n", f.Name, f.Reason)
+		}
+		fmt.Println("(--dry-run 指定のため削除していません。実行するには --dry-run を外してください)")
+		return nil
+	}
+	var errs []error
+	removed := 0
+	for _, f := range targets {
+		if err := os.Remove(filepath.Join(dir, f.Name)); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", f.Name, err))
+			continue
+		}
+		fmt.Printf("removed %s  — %s\n", f.Name, f.Reason)
+		removed++
+	}
+	fmt.Printf("%d 件を掃除しました (state dir: %s)\n", removed, dir)
+	return errors.Join(errs...)
 }

@@ -43,6 +43,7 @@ var completionSubcommands = []completionSubcommand{
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"session-rename", "現在の Claude セッション名をタスク名に変える (tmux)"},
+	{"session-prune", "state dir の古いマーカー/link を掃除する"},
 	{"statusline", "実行中タスクを status line に表示"},
 	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
 	{"where", "データディレクトリのパスを表示"},
@@ -325,6 +326,7 @@ _agent_tasks() {
         session-hook)      flags="--print-config --color --help" ;;
         session-link)      flags="--session --project --color --help" ;;
         session-rename)    flags="--project --color --help" ;;
+        session-prune)     flags="--older-than --dry-run --color --help" ;;
         statusline)        flags="--print-config --color --help" ;;
         alloc-id)          flags="--slug --project --pull --color --help" ;;
         completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
@@ -501,6 +503,12 @@ _agent_tasks() {
                 '*--projects[project をカンマ区切りで複数指定]:projects:_agent_tasks_projects' \
                 '--all-projects[全 project を横断]' \
                 '--dry-run[対象一覧のみ表示 (移動しない)]' \
+                '--color[色出力]:mode:(%[3]s)'
+            ;;
+        session-prune)
+            _arguments \
+                '--older-than[この日数を過ぎた未参照 sess マーカーを対象 (既定 7)]:days:' \
+                '--dry-run[対象一覧のみ表示 (削除しない)]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
         completion)

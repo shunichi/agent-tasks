@@ -23,7 +23,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+### Added
+
+- `agent-tasks session-prune` を追加。state dir (`~/.local/state/agent-tasks/sessions/`) に溜まる
+  古いマーカー/link を掃除する。対応タスクが無い/done の worktree マーカー・link と、生存 link から
+  参照されず一定日数 (既定 7、`--older-than` で調整) 更新の無い sess マーカーを削除。`--dry-run` で
+  対象のみ表示。稼働・保留中 (in-progress/blocked/review/todo) のマーカーや新しい sess マーカーは
+  残す。揮発情報 (次の hook で再生成) なのでストアには一切触れない。
 
 ## 2026-07-02
 

@@ -23,7 +23,8 @@ import (
 // list と同じスコープ規則 (既定は現在 project、--all-projects で横断、--project 明示) を踏み、
 // store.go の loadTasks / parseTask と各種サマリヘルパ (prSummary/timestampSummary 等) を再利用する。
 func cmdTUI(args []string) error {
-	var filterStatus, filterProject string
+	var filterStatus string
+	var filterProjects []string
 	allProjects := false
 	showDone := false
 	interval := 2 * time.Second
@@ -46,7 +47,13 @@ func cmdTUI(args []string) error {
 			if err != nil {
 				return err
 			}
-			filterProject = v
+			filterProjects = append(filterProjects, v)
+		case "--projects":
+			v, err := s.value("--projects")
+			if err != nil {
+				return err
+			}
+			filterProjects = append(filterProjects, splitProjects(v)...)
 		case "--all-projects":
 			allProjects = true
 		case "--all", "-a":
@@ -75,13 +82,13 @@ func cmdTUI(args []string) error {
 	}
 
 	current := currentProject()
-	effProject, _ := resolveListScope(filterProject, allProjects, current)
+	effProjects, _ := resolveListScope(filterProjects, allProjects, current)
 
 	m := &tuiModel{
 		dir:           storeDir(),
-		effProject:    effProject,
+		effProjects:   effProjects,
 		current:       current,
-		projectPinned: filterProject != "", // --project 明示時は p トグルで横断に切り替えない
+		projectPinned: len(filterProjects) > 0, // --project 明示時は p トグルで横断に切り替えない
 		filterStatus:  filterStatus,
 		showDone:      showDone,
 		interval:      interval,
@@ -96,10 +103,10 @@ func cmdTUI(args []string) error {
 // tuiModel は TUI の状態。Bubble Tea の Model。
 type tuiModel struct {
 	dir           string
-	effProject    string // 実効 project スコープ ("" = 横断)
-	current       string // 現在 project (p トグルの戻り先)
-	projectPinned bool   // --project 明示。p トグルを無効化する
-	filterStatus  string // "" = 全 status
+	effProjects   []string // 実効 project スコープ集合 (空 = 横断、複数 = 部分集合横断)
+	current       string   // 現在 project (p トグルの戻り先)
+	projectPinned bool     // --project 明示。p トグルを無効化する
+	filterStatus  string   // "" = 全 status
 	showDone      bool
 	interval      time.Duration
 
@@ -163,7 +170,7 @@ func (m *tuiModel) applyFilter() {
 		if t.Incomplete {
 			continue // 作成途中 (title 未記入) の予約は表示しない
 		}
-		if m.effProject != "" && t.Project != m.effProject {
+		if !matchProjects(t.Project, m.effProjects) {
 			continue
 		}
 		if m.filterStatus != "" && t.Status != m.filterStatus {
@@ -345,10 +352,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFilter()
 		case "p":
 			if !m.projectPinned && m.current != "" {
-				if m.effProject == "" {
-					m.effProject = m.current
+				if len(m.effProjects) == 0 {
+					m.effProjects = []string{m.current} // 横断 → 現在 project のみ
 				} else {
-					m.effProject = ""
+					m.effProjects = nil // → 横断
 				}
 				m.applyFilter()
 			}
@@ -666,9 +673,9 @@ func statusStyle(status string) lipgloss.Style {
 }
 
 func (m *tuiModel) renderHeader() string {
-	scope := m.effProject
-	if scope == "" {
-		scope = "全 project"
+	scope := "全 project"
+	if len(m.effProjects) > 0 {
+		scope = strings.Join(m.effProjects, ",")
 	}
 	filt := "all"
 	if m.filterStatus != "" {
@@ -893,7 +900,8 @@ func (m *tuiModel) sessionColWidth() int {
 // sessW は SESSION 列幅 (0 = 非表示)、fixed は title より前の固定幅 (ポインタ + [project] + id +
 // status + [session] + 余白)。
 func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
-	cross = m.effProject == ""
+	// project 列は「単一 project に絞っているとき」以外は出す (横断=全件も、複数指定の部分集合も出す)。
+	cross = len(m.effProjects) != 1
 	if cross {
 		for _, t := range m.rows {
 			if dw := dispWidth(t.Project); dw > projW {

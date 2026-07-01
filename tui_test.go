@@ -42,7 +42,7 @@ func mkTasks() []Task {
 }
 
 func TestApplyFilterProjectScope(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: "alpha"}
+	m := &tuiModel{all: mkTasks(), effProjects: []string{"alpha"}}
 	m.applyFilter()
 	// alpha のうち done は既定で隠れる → 0001, 0002 の 2 件。
 	if len(m.rows) != 2 {
@@ -56,7 +56,7 @@ func TestApplyFilterProjectScope(t *testing.T) {
 }
 
 func TestApplyFilterShowDone(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: "alpha", showDone: true}
+	m := &tuiModel{all: mkTasks(), effProjects: []string{"alpha"}, showDone: true}
 	m.applyFilter()
 	if len(m.rows) != 3 {
 		t.Fatalf("showDone=true で alpha 全 3 件のはず, got %d", len(m.rows))
@@ -65,7 +65,7 @@ func TestApplyFilterShowDone(t *testing.T) {
 
 func TestApplyFilterStatus(t *testing.T) {
 	// status 明示時は done も隠さない (list と同じ規則)。横断スコープ。
-	m := &tuiModel{all: mkTasks(), effProject: "", filterStatus: "done"}
+	m := &tuiModel{all: mkTasks(), effProjects: nil, filterStatus: "done"}
 	m.applyFilter()
 	if len(m.rows) != 1 || m.rows[0].Title != "a3" {
 		t.Fatalf("status=done で a3 のみのはず, got %d 件", len(m.rows))
@@ -73,7 +73,7 @@ func TestApplyFilterStatus(t *testing.T) {
 }
 
 func TestApplyFilterCrossProject(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	// done を除く全 project = 4 件。
 	if len(m.rows) != 4 {
@@ -82,7 +82,7 @@ func TestApplyFilterCrossProject(t *testing.T) {
 }
 
 func TestApplyFilterPreservesSelectionByKey(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	// beta/0002 (blocked) を選択する。
 	target := "beta/0002"
@@ -104,7 +104,7 @@ func TestApplyFilterPreservesSelectionByKey(t *testing.T) {
 }
 
 func TestApplyFilterClampsWhenSelectionGone(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: "beta"}
+	m := &tuiModel{all: mkTasks(), effProjects: []string{"beta"}}
 	m.applyFilter()
 	m.cursor = len(m.rows) - 1
 	last := taskKey(m.rows[m.cursor])
@@ -125,7 +125,7 @@ func TestApplyFilterClampsWhenSelectionGone(t *testing.T) {
 // TestViewDoesNotPanic は各種サイズ/キー操作で View が落ちないことを確認する
 // (端末を起動できない CI でも描画ロジックの健全性を担保する)。
 func TestViewDoesNotPanic(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	var model tea.Model = m
 
@@ -158,7 +158,7 @@ func TestViewDoesNotPanic(t *testing.T) {
 // TestDetailToggleAndQuit は仕様: 起動直後はリストのみ / Enter で詳細表示 /
 // 詳細表示中の q・Esc は詳細を閉じる / リストのみでの q・Esc は終了、を検証する。
 func TestDetailToggleAndQuit(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -255,7 +255,7 @@ func TestStartCommandFor(t *testing.T) {
 // (フラッシュは結果待ち)、in-progress では即座に注意メッセージを出してコピーしない。
 // 実際のコピー (copyToClipboard) は実クリップボードに触れるのでここでは cmd を実行しない。
 func TestCopyKeyDispatch(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -294,7 +294,7 @@ func TestCopyKeyDispatch(t *testing.T) {
 // TestCopyResultFlash は非同期コピーの結果メッセージがフラッシュに反映され、次のキー入力で
 // 消えることを検証する (成功・失敗の両方)。
 func TestCopyResultFlash(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -346,7 +346,7 @@ func TestRunClipboard(t *testing.T) {
 // TestHelpToggle はヘルプの開閉と、ヘルプ表示中の挙動を検証する:
 // ? で開閉 / q・Esc で閉じる (終了しない) / 表示中は他キーが無効。
 func TestHelpToggle(t *testing.T) {
-	m := &tuiModel{all: mkTasks(), effProject: ""}
+	m := &tuiModel{all: mkTasks(), effProjects: nil}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -420,7 +420,7 @@ func TestLayoutOrientation(t *testing.T) {
 		Title: strings.Repeat("ab", 40)})
 
 	// 広い端末: 横分割。リストは固定上限 64 ではなく内容に応じて広がり、詳細にも幅が残る。
-	wide := &tuiModel{all: tasks, effProject: ""}
+	wide := &tuiModel{all: tasks, effProjects: nil}
 	wide.applyFilter()
 	var wm tea.Model = wide
 	wm, _ = wm.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
@@ -439,7 +439,7 @@ func TestLayoutOrientation(t *testing.T) {
 	// 一覧の自然幅が広すぎて詳細に読み幅を確保できない端末: 縦分割 (詳細を下) に倒す。
 	// (旧挙動: タイトルを切り詰めてでも横並び。新挙動: 切り詰めず下に積む。)
 	squeeze := &tuiModel{all: append(mkTasks(), Task{Project: "alpha", ID: "0009",
-		Status: "todo", Title: strings.Repeat("長い", 40)}), effProject: ""} // 表示幅 160
+		Status: "todo", Title: strings.Repeat("長い", 40)}), effProjects: nil} // 表示幅 160
 	squeeze.applyFilter()
 	var sm tea.Model = squeeze
 	sm, _ = sm.Update(tea.WindowSizeMsg{Width: 130, Height: 50})
@@ -449,7 +449,7 @@ func TestLayoutOrientation(t *testing.T) {
 	}
 
 	// 狭い端末: 縦分割 (詳細を下)。リストは全幅、詳細は下に高さを持つ。
-	narrow := &tuiModel{all: tasks, effProject: ""}
+	narrow := &tuiModel{all: tasks, effProjects: nil}
 	narrow.applyFilter()
 	var nm tea.Model = narrow
 	nm, _ = nm.Update(tea.WindowSizeMsg{Width: 70, Height: 50})
@@ -491,7 +491,7 @@ func TestListUpdatedColumnNotFarRight(t *testing.T) {
 		{Project: "alpha", ID: "0001", Status: "todo", Title: "短い", Updated: upd},
 		{Project: "alpha", ID: "0002", Status: "todo", Title: "短2", Updated: upd},
 	}
-	m := &tuiModel{all: tasks, effProject: "alpha"}
+	m := &tuiModel{all: tasks, effProjects: []string{"alpha"}}
 	m.applyFilter()
 	var model tea.Model = m
 	// リストのみモード (全幅) の広い端末。
@@ -537,7 +537,7 @@ func TestSessionColumnDoesNotEatTitle(t *testing.T) {
 		{Project: "alpha", ID: "0001", Status: "todo", Title: "AAA"},
 		{Project: "alpha", ID: "0002", Status: "in-progress", Title: "BBB"},
 	}
-	m := &tuiModel{all: tasks, effProject: "alpha"}
+	m := &tuiModel{all: tasks, effProjects: []string{"alpha"}}
 	m.applyFilter()
 	var model tea.Model = m
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
@@ -612,7 +612,7 @@ func TestStoreSignatureDetectsChange(t *testing.T) {
 func TestReloadReadsStore(t *testing.T) {
 	dir := t.TempDir()
 	writeTaskFile(t, dir, "alpha", "0001-x.md", "---\nid: \"0001\"\nproject: alpha\nstatus: todo\ntitle: x\n---\n# x\n")
-	m := &tuiModel{dir: dir, effProject: "alpha"}
+	m := &tuiModel{dir: dir, effProjects: []string{"alpha"}}
 	m.reload()
 	if len(m.rows) != 1 || m.rows[0].Title != "x" {
 		t.Fatalf("reload で 1 件読めるはず, got %d 件", len(m.rows))

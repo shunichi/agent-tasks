@@ -16,7 +16,8 @@ import (
 // セクション分けする。所要時間 (started_at → completed_at) と合計/平均のサマリを添える。
 
 func cmdReport(args []string) error {
-	var filterProject, monthVal, weekVal, sinceVal, untilVal string
+	var monthVal, weekVal, sinceVal, untilVal string
+	var filterProjects []string
 	allProjects := false
 	monthSet, weekSet := false, false
 	s := newArgScan(args)
@@ -31,7 +32,13 @@ func cmdReport(args []string) error {
 			if err != nil {
 				return err
 			}
-			filterProject = v
+			filterProjects = append(filterProjects, v)
+		case "--projects":
+			v, err := s.value("--projects")
+			if err != nil {
+				return err
+			}
+			filterProjects = append(filterProjects, splitProjects(v)...)
 		case "--all-projects":
 			allProjects = true
 		case "--month":
@@ -74,7 +81,7 @@ func cmdReport(args []string) error {
 		return err
 	}
 
-	rows, effProject, _, err := selectTasks("done", filterProject, true, allProjects, false)
+	rows, effProjects, _, err := selectTasks("done", filterProjects, true, allProjects, false)
 	if err != nil {
 		return err
 	}
@@ -99,7 +106,7 @@ func cmdReport(args []string) error {
 		)
 	})
 
-	writeReport(os.Stdout, inRange, label, effProject == "")
+	writeReport(os.Stdout, inRange, label, len(effProjects) == 0)
 	return nil
 }
 

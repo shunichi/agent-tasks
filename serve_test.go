@@ -121,20 +121,66 @@ func TestBuildDashDataNoRefreshAndSessionURL(t *testing.T) {
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	rows := []Task{
 		{ID: "0001", Project: "alpha", Title: "T1", Status: "review",
-			Session: "https://claude.ai/session_abc", PRs: []string{"https://x/pull/9"}, Updated: "u"},
+			Session: "https://claude.ai/code/session_abc", PRs: []string{"https://x/pull/9"}, Updated: "u"},
 		{ID: "0002", Project: "alpha", Title: "T2", Status: "todo", Session: "not-a-url", Updated: "u"},
 	}
 	d := buildDashData(rows, 0, now)
 	if d.Refresh {
 		t.Error("interval 0 では Refresh は false であるべき")
 	}
-	// review セクション (先) の行は http URL なのでリンクする。
-	if got := d.Groups[0].Projects[0].Rows[0].SessionURL; got != "https://claude.ai/session_abc" {
-		t.Errorf("SessionURL = %q, want claude.ai URL", got)
+	// review セクション (先) の行は http URL なので web リンク + アプリリンク両方を持つ。
+	review := d.Groups[0].Projects[0].Rows[0]
+	if review.SessionURL != "https://claude.ai/code/session_abc" {
+		t.Errorf("SessionURL = %q, want claude.ai/code URL", review.SessionURL)
 	}
-	// other セクション (後) の todo は http でない session なのでリンクしない。
-	if got := d.Groups[1].Projects[0].Rows[0].SessionURL; got != "" {
-		t.Errorf("http でない session はリンクしない, got %q", got)
+	if string(review.SessionAppURL) != "claude://code/session_abc" {
+		t.Errorf("SessionAppURL = %q, want claude://code/session_abc", review.SessionAppURL)
+	}
+	// other セクション (後) の todo は http でない session なのでどちらもリンクしない。
+	other := d.Groups[1].Projects[0].Rows[0]
+	if other.SessionURL != "" || other.SessionAppURL != "" {
+		t.Errorf("http でない session はリンクしない, got web=%q app=%q", other.SessionURL, other.SessionAppURL)
+	}
+}
+
+func TestClaudeAppURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://claude.ai/code/session_01ABC", "claude://code/session_01ABC"},
+		{"http://claude.ai/code/session_01ABC", "claude://code/session_01ABC"},
+		{"https://claude.ai/code/", ""},            // session id 無し
+		{"https://claude.ai/session_abc", ""},      // /code/ 配下でない
+		{"https://example.com/code/session_x", ""}, // 別ホスト
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := claudeAppURL(c.in); got != c.want {
+			t.Errorf("claudeAppURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRenderDashboardAppLinkNotSanitized(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	rows := []Task{
+		{ID: "0001", Project: "alpha", Title: "T", Status: "review",
+			Session: "https://claude.ai/code/session_01ABC", Updated: "u"},
+	}
+	var buf bytes.Buffer
+	if err := renderDashboard(&buf, rows, 5, now); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	// claude:// スキームが html/template の URL サニタイズで潰されず残る (template.URL 経由)。
+	if !strings.Contains(html, `href="claude://code/session_01ABC"`) {
+		t.Errorf("claude:// アプリリンクが出力されていない (サニタイズされた?): %s", html)
+	}
+	if strings.Contains(html, "ZgotmplZ") {
+		t.Error("URL がサニタイズされている (#ZgotmplZ が出た)")
+	}
+	// web (https) フォールバックも併記される。
+	if !strings.Contains(html, `href="https://claude.ai/code/session_01ABC"`) {
+		t.Error("web フォールバックリンクが無い")
 	}
 }
 

@@ -224,8 +224,9 @@ type dashRow struct {
 	SessionState  string // in-progress のみ (working/waiting/ended/unknown)
 	BlockedFor    string // blocked のみ (経過)
 	BlockedReason string
-	SessionURL    string   // session: が http URL のときだけ
-	PRs           []string // prs: の URL 群
+	SessionURL    string       // session: が http URL のとき (web/ブラウザで開く用のフォールバック)
+	SessionAppURL template.URL // claude://code/... (Claude アプリを直接開くディープリンク。無いとき空)
+	PRs           []string     // prs: の URL 群
 }
 
 // dashProjGroup は状態セクション内の project 別サブグループ。
@@ -287,6 +288,22 @@ func isHTTPURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
+// claudeAppURL は claude.ai の Claude Code セッション URL を、Claude アプリを直接開く
+// カスタムスキーム URL (claude://code/<session-id>) に変換する。
+// 例: https://claude.ai/code/session_01ABC → claude://code/session_01ABC。
+// claude.ai/code/ 配下でない URL は変換対象外 (空を返す = アプリリンク無し)。
+// universal link (https) はアプリ未インストール等でブラウザに落ちるため、確実にアプリを
+// 開きたいときの導線としてこのスキーム URL を併記する (session-id は英数字+アンダースコアのみで
+// URL エンコード不要)。
+func claudeAppURL(sessionURL string) string {
+	for _, p := range []string{"https://claude.ai/code/", "http://claude.ai/code/"} {
+		if rest, ok := strings.CutPrefix(sessionURL, p); ok && rest != "" {
+			return "claude://code/" + rest
+		}
+	}
+	return ""
+}
+
 func buildDashData(rows []Task, interval int, now time.Time) dashData {
 	d := dashData{
 		Count:    len(rows),
@@ -320,6 +337,7 @@ func buildDashData(rows []Task, interval int, now time.Time) dashData {
 		}
 		if isHTTPURL(t.Session) {
 			r.SessionURL = t.Session
+			r.SessionAppURL = template.URL(claudeAppURL(t.Session)) //nolint:gosec // claude.ai/code/ 前提で自前生成
 		}
 		key := taskSection(t.Status, r.SessionState)
 		bySection[key] = append(bySection[key], r)
@@ -433,6 +451,8 @@ const dashHTML = `<!doctype html>
     border: 1px solid var(--border); border-radius: 6px; padding: 0.1rem 0.5rem;
   }
   .links a:active { background: #23303f; }
+  .links a.app { color: #0b0d10; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .links a.app:active { background: #3a86e0; }
   .upd { color: var(--dim); font-size: 0.75rem; margin-top: 0.35rem; }
   .empty { color: var(--dim); text-align: center; margin-top: 3rem; }
 </style>
@@ -460,7 +480,8 @@ const dashHTML = `<!doctype html>
       {{if .BlockedReason}}<div class="reason">{{.BlockedReason}}</div>{{end}}
       {{if or .SessionURL .PRs}}
       <div class="links">
-        {{if .SessionURL}}<a href="{{.SessionURL}}" target="_blank" rel="noopener">session</a>{{end}}
+        {{if .SessionAppURL}}<a class="app" href="{{.SessionAppURL}}">アプリで開く</a>{{end}}
+        {{if .SessionURL}}<a href="{{.SessionURL}}" target="_blank" rel="noopener">web</a>{{end}}
         {{range .PRs}}<a href="{{.}}" target="_blank" rel="noopener">PR</a>{{end}}
       </div>
       {{end}}

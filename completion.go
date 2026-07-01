@@ -28,6 +28,7 @@ var completionSubcommands = []completionSubcommand{
 	{"tui", "一覧+詳細をインタラクティブに閲覧 (自動更新)"},
 	{"show", "1 タスクの全文を表示"},
 	{"edit", "ストア/タスクをエディタで開く"},
+	{"open", "タスクの worktree をエディタで開く"},
 	{"status", "ストアの未同期状態を表示"},
 	{"sync", "ストアを add/commit/push して同期"},
 	{"worktree-init", "worktree 作成後フックを実行"},
@@ -273,7 +274,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|session-link|archive|unarchive|issue)
+        show|edit|open|session-link|archive|unarchive|issue)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -450,7 +451,7 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit|archive|unarchive|issue)
+        show|edit|open|archive|unarchive|issue)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then

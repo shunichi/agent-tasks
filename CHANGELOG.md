@@ -36,6 +36,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `serve` を **Cloudflare Tunnel + Cloudflare Access** で外出先から閲覧する手順を
+  `docs/details.md` に追加。serve は無認証・`127.0.0.1` バインドのまま、認証は Cloudflare Access
+  (Zero Trust) に任せる構成 (named tunnel + 独自ドメイン前提)。ポート開放せず公開経路を Tunnel に
+  一本化することで直アクセスを塞ぐ。コード変更はなし (README の serve 節にもポインタを追記)。
+
 - `agent-tasks serve`: 同一 LAN のスマホから全 project のタスク一覧を閲覧できる簡易 HTTP サーバを追加。
   `-w --all-projects` 相当の情報を HTML で返す。既定は `127.0.0.1:8080` (localhost のみ)、`--addr :8080`
   のように host を省くと `0.0.0.0` = LAN 公開 (認証なし・LAN 内前提)。起動時にスマホから開く URL を案内する。

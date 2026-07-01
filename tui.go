@@ -358,11 +358,30 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncDetail()
 			}
 			return m, nil
-		case "up", "k":
+		case "up", "ctrl+p":
 			m.cursor--
 			m.clampCursor()
 			m.syncDetail()
-		case "down", "j":
+		case "down", "ctrl+n":
+			m.cursor++
+			m.clampCursor()
+			m.syncDetail()
+		case "k":
+			// tig 風: 詳細表示中は詳細を 1 行スクロール、一覧のみなら選択を上へ。
+			if m.showDetail {
+				var cmd tea.Cmd
+				m.vp, cmd = m.vp.Update(tea.KeyMsg{Type: tea.KeyUp})
+				return m, cmd
+			}
+			m.cursor--
+			m.clampCursor()
+			m.syncDetail()
+		case "j":
+			if m.showDetail {
+				var cmd tea.Cmd
+				m.vp, cmd = m.vp.Update(tea.KeyMsg{Type: tea.KeyDown})
+				return m, cmd
+			}
 			m.cursor++
 			m.clampCursor()
 			m.syncDetail()
@@ -755,7 +774,7 @@ func (m *tuiModel) renderFooter() string {
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/jk 選択  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  ^u^d 半画面  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
 		keys = "↑↓/jk 選択  Enter 詳細  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
 	}
@@ -765,7 +784,8 @@ func (m *tuiModel) renderFooter() string {
 // helpEntries は表示する (キー, 説明) の一覧。renderHelp とテストで共有する。
 func helpEntries() [][2]string {
 	return [][2]string{
-		{"↑/↓, j/k", "選択を上下に移動"},
+		{"↑/↓, Ctrl+n/Ctrl+p", "選択を上下に移動 (詳細表示中も)"},
+		{"j / k", "一覧では選択移動、詳細表示中は詳細を 1 行スクロール"},
 		{"g / G", "先頭 / 末尾へ"},
 		{"Enter", "選択タスクの詳細を開く"},
 		{"/", "検索 (タイトル部分一致。Tab で本文も対象、Esc 解除)"},

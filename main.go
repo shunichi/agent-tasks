@@ -136,6 +136,8 @@ func dispatch(args []string) error {
 		return cmdSessionHook(args)
 	case "session-link":
 		return cmdSessionLink(args)
+	case "session-rename":
+		return cmdSessionRename(args)
 	case "statusline":
 		return cmdStatusline(args)
 	case "completion":

@@ -64,13 +64,44 @@ func TestBuildDashDataStateSectionsOrder(t *testing.T) {
 			t.Fatalf("group keys = %v, want %v", gotKeys, wantKeys)
 		}
 	}
-	// other には 2 件 (0004 todo, 0005 unknown in-progress)。
-	if got := len(d.Groups[3].Rows); got != 2 {
+	// other には 2 件 (0004 todo, 0005 unknown in-progress)。セクションの Count で見る。
+	if got := d.Groups[3].Count; got != 2 {
 		t.Errorf("other セクションの件数 = %d, want 2", got)
 	}
-	// カードは project を持つ。
-	if d.Groups[0].Rows[0].Project != "p" {
-		t.Errorf("カードに project が無い: %+v", d.Groups[0].Rows[0])
+	// 各セクションは project サブグループを持ち、カードは project を持つ。
+	if len(d.Groups[0].Projects) != 1 || d.Groups[0].Projects[0].Project != "p" {
+		t.Errorf("waiting セクションの project サブグループが不正: %+v", d.Groups[0].Projects)
+	}
+	if d.Groups[0].Projects[0].Rows[0].Project != "p" {
+		t.Errorf("カードに project が無い: %+v", d.Groups[0].Projects[0].Rows[0])
+	}
+}
+
+func TestBuildDashDataProjectSubgroups(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	// 同一セクション (review) 内に 2 project。project→id 順で 2 サブグループに分かれる。
+	rows := []Task{
+		{ID: "0001", Project: "alpha", Title: "A1", Status: "review", Updated: "u"},
+		{ID: "0002", Project: "alpha", Title: "A2", Status: "review", Updated: "u"},
+		{ID: "0003", Project: "beta", Title: "B1", Status: "review", Updated: "u"},
+	}
+	d := buildDashData(rows, 5, now)
+	if len(d.Groups) != 1 || d.Groups[0].Key != "review" {
+		t.Fatalf("Groups = %+v, want review 1 つ", d.Groups)
+	}
+	sec := d.Groups[0]
+	if sec.Count != 3 {
+		t.Errorf("review セクションの Count = %d, want 3", sec.Count)
+	}
+	if len(sec.Projects) != 2 {
+		t.Fatalf("project サブグループ = %d, want 2 (alpha, beta)", len(sec.Projects))
+	}
+	if sec.Projects[0].Project != "alpha" || len(sec.Projects[0].Rows) != 2 {
+		t.Errorf("subgroup0 = %q(%d), want alpha(2)", sec.Projects[0].Project, len(sec.Projects[0].Rows))
+	}
+	if sec.Projects[1].Project != "beta" || len(sec.Projects[1].Rows) != 1 {
+		t.Errorf("subgroup1 = %q(%d), want beta(1)", sec.Projects[1].Project, len(sec.Projects[1].Rows))
 	}
 }
 
@@ -98,11 +129,11 @@ func TestBuildDashDataNoRefreshAndSessionURL(t *testing.T) {
 		t.Error("interval 0 では Refresh は false であるべき")
 	}
 	// review セクション (先) の行は http URL なのでリンクする。
-	if got := d.Groups[0].Rows[0].SessionURL; got != "https://claude.ai/session_abc" {
+	if got := d.Groups[0].Projects[0].Rows[0].SessionURL; got != "https://claude.ai/session_abc" {
 		t.Errorf("SessionURL = %q, want claude.ai URL", got)
 	}
 	// other セクション (後) の todo は http でない session なのでリンクしない。
-	if got := d.Groups[1].Rows[0].SessionURL; got != "" {
+	if got := d.Groups[1].Projects[0].Rows[0].SessionURL; got != "" {
 		t.Errorf("http でない session はリンクしない, got %q", got)
 	}
 }

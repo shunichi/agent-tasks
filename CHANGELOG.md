@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `auto-archive` サブコマンド: 完了後に一定日数 (既定 30、`--older-than <days>` で指定) を過ぎた
+  done タスクを一括で `<project>/archive/` へ退避する。`completed_at` 無しや review/in-progress は
+  対象外。スコープは list と同じ (`--project`/`--projects`/`--all-projects`、既定は現在 project)。
+  `--dry-run` で対象一覧のみ表示。退避結果は `archive` と同じ `from:`/`to:` 形式で出力し、
+  まとめて `sync --path` に渡して同期できる。
+
 - `agent-tasks session-rename [<project>] <id>`: 現在の Claude セッション名を **`task <NNNN>: <title>`**
   に変えるサブコマンドを追加。tmux 内なら**自分の pane (`$TMUX_PANE`) へ `send-keys` で
   `/rename …` を打ち込む** (Claude はスラッシュコマンドをツールから直接呼べないための回避)。本物の

@@ -50,6 +50,9 @@ updated: "2026-06-28T14:30:00+09:00"
 # prs:
 #   - https://github.com/owner/repo/pull/31
 #   - https://github.com/owner/repo/pull/33
+# 関連する外部 issue tracker / 課題管理の URL があれば付ける (任意ホスト、複数可):
+# tracker:
+#   - https://example.com/issues/123
 ---
 
 # 要件
@@ -81,6 +84,13 @@ updated: "2026-06-28T14:30:00+09:00"
   prs:
     - https://github.com/owner/repo/pull/31
     - https://github.com/owner/repo/pull/33
+  ```
+- **関連する外部 issue tracker / 課題管理の URL は `tracker:` に YAML リストで持つ** (任意ホスト、複数可)。
+  `prs:` (PR 専用) とは別枠の汎用フィールドで、どのサービスの URL でも入れられる。登録時や done 時に
+  関連 URL があれば記録する。`show` が末尾に一覧を表示し、`doctor` が URL 形式を軽く検査する。例:
+  ```yaml
+  tracker:
+    - https://example.com/issues/123
   ```
 
 ### ユーザーへの報告 — 常に「ID + タイトル」を併記する

@@ -27,6 +27,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-01
 
+### Added
+
+- タスクに関連する外部 issue tracker / 課題管理の URL を記録する `tracker:` フィールドを追加
+  (YAML リスト、複数可)。`prs:` (PR 専用) とは別枠の汎用フィールドで、任意ホストの URL を入れられる。
+  `show` の末尾と `--json` に一覧を表示し、`doctor` が URL 形式を軽く検査する。
+
 ### Changed
 
 - skill (`/agent-tasks`): 着手時に Claude セッション名を **`タスク <NNNN>: <title>`** にする案内を追加。

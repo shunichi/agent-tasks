@@ -34,6 +34,11 @@ type Task struct {
 	// 記録する (store → issue の一方向)。1 タスク 1 issue (共有用途には単一で足りる)。
 	Issue string
 
+	// このタスクに関連する外部 issue tracker / 課題管理の URL (任意、複数可)。prs: (PR 専用) とは
+	// 別枠で、任意のホストの関連 URL を汎用に保持する (特定サービス非依存)。frontmatter では
+	// tracker: の YAML ブロックリストで表す。
+	Tracker []string
+
 	// 着手・完了の日時 (ISO8601)。created/updated と違い「いつ始めて終わったか」を
 	// 正確に追う/所要期間 (リードタイム) を出すための専用フィールド。
 	StartedAt   string // status を in-progress にした日時。初回着手を保持 (再 start で上書きしない)
@@ -351,7 +356,7 @@ func parseTask(path string) (Task, error) {
 
 	first := true
 	inFrontmatter := false
-	// 直前に出た「空値のリストキー」(現状 prs のみ)。後続のインデント項目 ("- value") を
+	// 直前に出た「空値のリストキー」(prs / tracker)。後続のインデント項目 ("- value") を
 	// ここへ集約する。新しいキー行が来たらリセットする。
 	listKey := ""
 	for sc.Scan() {
@@ -381,6 +386,8 @@ func parseTask(path string) (Task, error) {
 				switch listKey {
 				case "prs":
 					t.PRs = append(t.PRs, item)
+				case "tracker":
+					t.Tracker = append(t.Tracker, item)
 				}
 			}
 			continue
@@ -432,6 +439,17 @@ func parseTask(path string) (Task, error) {
 				for _, p := range strings.Split(val, ",") {
 					if p = strings.TrimSpace(p); p != "" {
 						t.PRs = append(t.PRs, p)
+					}
+				}
+			}
+		case "tracker":
+			// prs: と同じ扱い (ブロックリスト or 1 行カンマ区切り)。任意ホストの関連 URL。
+			if val == "" {
+				listKey = "tracker"
+			} else {
+				for _, p := range strings.Split(val, ",") {
+					if p = strings.TrimSpace(p); p != "" {
+						t.Tracker = append(t.Tracker, p)
 					}
 				}
 			}

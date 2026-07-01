@@ -30,6 +30,7 @@ type taskJSON struct {
 	BlockedAt     string   `json:"blocked_at,omitempty"`
 	BlockedReason string   `json:"blocked_reason,omitempty"`
 	PRs           []string `json:"prs,omitempty"`
+	Tracker       []string `json:"tracker,omitempty"`
 	Archived      bool     `json:"archived,omitempty"` // true のときだけ出す (アーカイブ済み)
 
 	// 計算済みフィールド (frontmatter には無い):
@@ -47,6 +48,7 @@ func toTaskJSON(t Task, now time.Time) taskJSON {
 		StartedAt: t.StartedAt, CompletedAt: t.CompletedAt,
 		BlockedAt: t.BlockedAt, BlockedReason: t.BlockedReason,
 		PRs:      t.PRs,
+		Tracker:  t.Tracker,
 		Archived: t.Archived,
 	}
 	if t.Status == "in-progress" {

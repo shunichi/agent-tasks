@@ -265,6 +265,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case openResultMsg:
+		if msg.err != nil {
+			m.flash = "PR を開けません: " + msg.err.Error()
+		} else {
+			m.flash = fmt.Sprintf("PR を開きました: %d 件", msg.n)
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		// マウスホイールは詳細ペインのスクロールに使う。
 		var cmd tea.Cmd
@@ -356,6 +364,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.flash = "コピー対象は todo / blocked のタスクのみです"
 			}
 			return m, nil
+		case "o":
+			// 選択タスクの PR (prs:) を既定ブラウザで開く (複数あれば全部)。ブラウザ起動は
+			// 外部コマンドなので tea.Cmd で非同期実行し、結果を openResultMsg で受ける。
+			if t, ok := m.selectedTask(); ok {
+				urls, msg := prBrowserAction(t)
+				if msg != "" {
+					m.flash = msg
+					return m, nil
+				}
+				return m, openCmd(urls)
+			}
+			return m, nil
 		case "r":
 			m.reload()
 		}
@@ -378,6 +398,60 @@ func startCommandFor(t Task) (string, bool) {
 	switch t.Status {
 	case "todo", "blocked":
 		return "start task " + t.ID, true
+	}
+	return "", false
+}
+
+// prBrowserAction は o キー (PR をブラウザで開く) の振る舞いを決める (テスト用に純粋化)。
+// 開くべき PR URL 一覧を返す。PR が無ければ nil と表示メッセージを返す。
+func prBrowserAction(t Task) (urls []string, msg string) {
+	if len(t.PRs) == 0 {
+		return nil, "このタスクに PR はありません"
+	}
+	return t.PRs, ""
+}
+
+// openResultMsg は非同期のブラウザ起動の結果 (開いた件数と成否)。
+type openResultMsg struct {
+	n   int
+	err error
+}
+
+// openCmd は urls を既定ブラウザで開く処理を非同期で行い、結果を openResultMsg で返す。
+func openCmd(urls []string) tea.Cmd {
+	return func() tea.Msg {
+		return openResultMsg{n: len(urls), err: openURLs(urls)}
+	}
+}
+
+// openURLs は各 URL を OS の既定ブラウザで開く。TUI は alt-screen なので、外部プロセスは
+// 起動だけして待たず (フォーカスを奪われない)、バックグラウンドで後始末する。
+// 対応コマンドが無ければエラー (呼び出し側がフッターに表示)。
+func openURLs(urls []string) error {
+	opener, ok := browserOpener()
+	if !ok {
+		return fmt.Errorf("ブラウザを開くコマンドが見つかりません (xdg-open/open/wslview)")
+	}
+	for _, u := range urls {
+		cmd := exec.Command(opener, u)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		go cmd.Wait() // opener は即座にブラウザへ委譲して終了する。ゾンビ化を防ぐため後始末。
+	}
+	return nil
+}
+
+// browserOpener は PATH にある URL オープナーを返す (最初に見つかったもの)。
+func browserOpener() (string, bool) {
+	for _, n := range []string{
+		"xdg-open", // Linux (freedesktop)
+		"open",     // macOS
+		"wslview",  // WSL (wslu)
+	} {
+		if _, err := exec.LookPath(n); err == nil {
+			return n, true
+		}
 	}
 	return "", false
 }
@@ -623,9 +697,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.showHelp:
 		keys = "?/q/Esc 閉じる"
 	case m.showDetail:
-		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  c コピー  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  c コピー  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
 	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
 }
@@ -640,6 +714,7 @@ func helpEntries() [][2]string {
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
+		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},

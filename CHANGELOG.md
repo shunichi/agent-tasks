@@ -29,6 +29,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `agent-tasks tui`: `o` キーで選択タスクの **PR (`prs:`) を既定ブラウザで開く**ようにした
+  (複数 PR があれば全部開く)。OS の URL オープナー (`xdg-open` / `open` / `wslview`) を検出し、
+  alt-screen を邪魔しないよう非同期でバックグラウンド起動する。PR が無いタスクや対応オープナーが
+  無い環境ではフッターに短く表示 (無害)。フッター/ヘルプに `o PR` を追記。
+
 - `agent-tasks report`: 一定期間に完了したタスク (done かつ `completed_at` が期間内) を **markdown** で
   出力するサブコマンドを追加。`--month [YYYY-MM]` (既定は今月) / `--week [YYYY-MM-DD]` /
   `--since <d> --until <d>` で期間を指定。各タスクに ID・タイトル・開始・完了・所要時間 (リードタイム) を

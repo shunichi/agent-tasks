@@ -29,7 +29,7 @@ func TestSelectRecent(t *testing.T) {
 	t.Setenv("AGENT_TASKS_STORE", dir)
 
 	// allProjects=true でスコープ判定 (currentProject) に依存させない。
-	rows, err := selectRecent(nil, true, 10)
+	rows, err := selectRecent(nil, true, 10, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSelectRecentLimit(t *testing.T) {
 	}
 	t.Setenv("AGENT_TASKS_STORE", dir)
 
-	rows, err := selectRecent(nil, true, 2)
+	rows, err := selectRecent(nil, true, 2, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

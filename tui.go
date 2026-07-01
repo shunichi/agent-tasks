@@ -120,14 +120,18 @@ type tuiModel struct {
 	showDetail bool   // 詳細ペインを表示中か (起動直後は false = リストのみ。Enter で表示)
 	showHelp   bool   // ヘルプ (キーバインド一覧) を表示中か (? で開閉)
 	flash      string // 一時メッセージ (コピー結果など)。次のキー入力で消える
-	vertical   bool   // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
-	vp         viewport.Model
-	ready      bool
-	width      int
-	height     int
-	sig        uint64    // ストアの変更検知シグネチャ
-	updated    time.Time // 最終再読込時刻
-	loadErr    error
+
+	searching     bool   // 検索入力モード中か (/ で開始、Enter 確定 / Esc 解除)
+	searchQuery   string // 検索クエリ (タイトル部分一致、大小無視)。空 = フィルタ無し
+	searchContent bool   // 本文も検索対象にするか (Tab でトグル)
+	vertical      bool   // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
+	vp            viewport.Model
+	ready         bool
+	width         int
+	height        int
+	sig           uint64    // ストアの変更検知シグネチャ
+	updated       time.Time // 最終再読込時刻
+	loadErr       error
 }
 
 type tuiTickMsg time.Time
@@ -171,6 +175,9 @@ func (m *tuiModel) applyFilter() {
 			continue // 作成途中 (title 未記入) の予約は表示しない
 		}
 		if !matchProjects(t.Project, m.effProjects) {
+			continue
+		}
+		if !matchQuery(t, m.searchQuery, m.searchContent) {
 			continue
 		}
 		if m.filterStatus != "" && t.Status != m.filterStatus {
@@ -298,9 +305,40 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// 検索入力モード: 入力を searchQuery に取り込み、インクリメンタルに絞り込む。
+		// Enter で確定 (フィルタは維持)、Esc で解除、Tab で本文検索トグル。
+		if m.searching {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				m.searching = false // 確定 (絞り込みは残す)
+			case "esc":
+				m.searching = false
+				m.searchQuery = ""
+				m.applyFilter()
+			case "backspace":
+				if r := []rune(m.searchQuery); len(r) > 0 {
+					m.searchQuery = string(r[:len(r)-1])
+					m.applyFilter()
+				}
+			case "tab":
+				m.searchContent = !m.searchContent // タイトルのみ ↔ タイトル+本文
+				m.applyFilter()
+			default:
+				if msg.Type == tea.KeyRunes {
+					m.searchQuery += string(msg.Runes)
+					m.applyFilter()
+				}
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "/":
+			m.searching = true // 検索入力モードへ
+			return m, nil
 		case "?":
 			m.showHelp = true
 			return m, nil
@@ -689,6 +727,17 @@ func (m *tuiModel) renderHeader() string {
 	info := tuiDimStyle.Render(fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
 		scope, filt, done, len(m.rows), m.updated.Format("15:04:05")))
 	line := left + info
+	if m.searching || m.searchQuery != "" {
+		target := "title"
+		if m.searchContent {
+			target = "title+本文"
+		}
+		q := m.searchQuery
+		if m.searching {
+			q += "▌" // 入力中はカーソルを添える
+		}
+		line += tuiPointStyle.Render(fmt.Sprintf("  /%s [%s]", q, target))
+	}
 	if m.loadErr != nil {
 		line += statusStyle("blocked").Render("  読み取りエラー")
 	}
@@ -703,10 +752,12 @@ func (m *tuiModel) renderFooter() string {
 	switch {
 	case m.showHelp:
 		keys = "?/q/Esc 閉じる"
+	case m.searching:
+		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/jk 選択  PgUp/PgDn スクロール  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/jk 選択  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
 	}
 	return tuiFooterStyle.Render(tuiTrunc(keys, m.width))
 }
@@ -717,6 +768,7 @@ func helpEntries() [][2]string {
 		{"↑/↓, j/k", "選択を上下に移動"},
 		{"g / G", "先頭 / 末尾へ"},
 		{"Enter", "選択タスクの詳細を開く"},
+		{"/", "検索 (タイトル部分一致。Tab で本文も対象、Esc 解除)"},
 		{"PgUp/PgDn, K/J", "詳細をスクロール"},
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},

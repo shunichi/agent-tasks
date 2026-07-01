@@ -81,7 +81,7 @@ func cmdReport(args []string) error {
 		return err
 	}
 
-	rows, effProjects, _, err := selectTasks("done", filterProjects, true, allProjects, false)
+	rows, effProjects, _, err := selectTasks("done", filterProjects, true, allProjects, false, "", false)
 	if err != nil {
 		return err
 	}

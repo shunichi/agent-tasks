@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 )
 
@@ -82,20 +83,39 @@ func sumIntervals(ivs []timeInterval) time.Duration {
 	return total
 }
 
+// mergeIntervals は区間を開始時刻順に並べ、重なり/隣接をマージして返す。複数セッションの
+// 区間を union する際、万一の重なり (同一タスクで通常は起きないが) で二重計上しないため。
+func mergeIntervals(ivs []timeInterval) []timeInterval {
+	if len(ivs) == 0 {
+		return nil
+	}
+	sorted := append([]timeInterval(nil), ivs...)
+	slices.SortFunc(sorted, func(a, b timeInterval) int { return a.Start.Compare(b.Start) })
+	out := []timeInterval{sorted[0]}
+	for _, iv := range sorted[1:] {
+		last := &out[len(out)-1]
+		if !iv.Start.After(last.End) { // 重なり/隣接
+			if iv.End.After(last.End) {
+				last.End = iv.End
+			}
+			continue
+		}
+		out = append(out, iv)
+	}
+	return out
+}
+
 // taskWorktime はタスクの実稼働区間 (窓クリップ済み) と合計を求める。ok=false は link が無く
 // セッションを特定できないとき (hook 未導入 / start が session-link を書いていない)。
-func taskWorktime(t Task, now time.Time) (ivs []timeInterval, total time.Duration, sessionID string, ok bool, err error) {
+// タスクが使った**全セッション**のログを union する (中断→別セッション再開でも合算)。
+func taskWorktime(t Task, now time.Time) (ivs []timeInterval, total time.Duration, sessionIDs []string, ok bool, err error) {
 	key := taskSessionKey(t)
 	if key == "" {
-		return nil, 0, "", false, nil
+		return nil, 0, nil, false, nil
 	}
 	link, has := readSessionLink(key)
 	if !has {
-		return nil, 0, "", false, nil
-	}
-	events, err := readWorktimeEvents(link.SessionID)
-	if err != nil {
-		return nil, 0, link.SessionID, true, err
+		return nil, 0, nil, false, nil
 	}
 	// 窓: [started_at, completed_at]。completed_at が無ければ now まで (稼働中)。
 	winStart, okStart := parseTaskTime(t.StartedAt)
@@ -106,8 +126,18 @@ func taskWorktime(t Task, now time.Time) (ivs []timeInterval, total time.Duratio
 	if ct, okEnd := parseTaskTime(t.CompletedAt); okEnd {
 		winEnd = ct
 	}
-	ivs = clipIntervals(workingIntervals(events, winEnd), winStart, winEnd)
-	return ivs, sumIntervals(ivs), link.SessionID, true, nil
+	sessionIDs = linkSessionIDs(link)
+	var all []timeInterval
+	for _, sid := range sessionIDs {
+		events, e := readWorktimeEvents(sid)
+		if e != nil {
+			return nil, 0, sessionIDs, true, e
+		}
+		all = append(all, workingIntervals(events, winEnd)...)
+	}
+	// 全セッションの区間を窓でクリップ→マージ (重なり除去) してから合算・表示する。
+	ivs = mergeIntervals(clipIntervals(all, winStart, winEnd))
+	return ivs, sumIntervals(ivs), sessionIDs, true, nil
 }
 
 // cmdWorktime は `worktime [<project>] <id> [--json]`。タスクの実稼働時間と稼働区間を表示する。
@@ -139,18 +169,18 @@ func cmdWorktime(args []string) error {
 		return err
 	}
 	now := time.Now()
-	ivs, total, sessionID, ok, err := taskWorktime(t, now)
+	ivs, total, sessionIDs, ok, err := taskWorktime(t, now)
 	if err != nil {
 		return err
 	}
 
 	if jsonOut {
-		return printWorktimeJSON(t, ivs, total, sessionID, ok)
+		return printWorktimeJSON(t, ivs, total, sessionIDs, ok)
 	}
-	return printWorktimeHuman(t, ivs, total, sessionID, ok, now)
+	return printWorktimeHuman(t, ivs, total, sessionIDs, ok, now)
 }
 
-func printWorktimeHuman(t Task, ivs []timeInterval, total time.Duration, sessionID string, ok bool, now time.Time) error {
+func printWorktimeHuman(t Task, ivs []timeInterval, total time.Duration, sessionIDs []string, ok bool, now time.Time) error {
 	fmt.Printf("%s/%s  %s\n", t.Project, normalizeID(t.ID), t.Title)
 	lead := leadTime(t.StartedAt, t.CompletedAt)
 	if lead != "" {
@@ -160,7 +190,11 @@ func printWorktimeHuman(t Task, ivs []timeInterval, total time.Duration, session
 		fmt.Println("  実稼働: セッションが紐づいていません (session-link 未実行 / hook 未導入)。")
 		return nil
 	}
-	fmt.Printf("  実稼働 (working 合計): %s  (%d 区間)\n", humanizeDuration(total), len(ivs))
+	sessNote := ""
+	if len(sessionIDs) > 1 {
+		sessNote = fmt.Sprintf("  (%d セッション合算)", len(sessionIDs))
+	}
+	fmt.Printf("  実稼働 (working 合計): %s  (%d 区間)%s\n", humanizeDuration(total), len(ivs), sessNote)
 	if len(ivs) == 0 {
 		fmt.Println("  稼働区間: 記録なし (この機能の導入後に着手したタスクから記録されます)")
 		return nil
@@ -179,7 +213,7 @@ type worktimeJSON struct {
 	Project        string                 `json:"project"`
 	ID             string                 `json:"id"`
 	Title          string                 `json:"title"`
-	SessionID      string                 `json:"session_id,omitempty"`
+	SessionIDs     []string               `json:"session_ids,omitempty"` // タスクが使った全セッション
 	StartedAt      string                 `json:"started_at,omitempty"`
 	CompletedAt    string                 `json:"completed_at,omitempty"`
 	Linked         bool                   `json:"linked"` // セッションが紐づいているか
@@ -194,12 +228,12 @@ type worktimeIntervalJSON struct {
 	Seconds int64  `json:"seconds"`
 }
 
-func printWorktimeJSON(t Task, ivs []timeInterval, total time.Duration, sessionID string, ok bool) error {
+func printWorktimeJSON(t Task, ivs []timeInterval, total time.Duration, sessionIDs []string, ok bool) error {
 	out := worktimeJSON{
 		Project:        t.Project,
 		ID:             normalizeID(t.ID),
 		Title:          t.Title,
-		SessionID:      sessionID,
+		SessionIDs:     sessionIDs,
 		StartedAt:      t.StartedAt,
 		CompletedAt:    t.CompletedAt,
 		Linked:         ok,

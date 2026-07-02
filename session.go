@@ -52,9 +52,38 @@ type sessionState struct {
 // 書かれない (hook の cwd が worktree 外) ので、ここでセッションを明示的に紐づける。
 // session-link コマンドが書き、sessionCell が worktree マーカーの代わり/補完として読む。
 // マシンローカルな揮発情報なので、worktree マーカー同様に同期ストアの外 (state dir) に置く。
+//
+// マルチセッション: 1 タスクが中断→別セッションで再開すると複数セッションを使い得るので、
+// 使ったセッションを Sessions に**履歴として蓄積**する (worktime が全セッションの working を
+// 合算するため)。SessionID/Updated は「最新にリンクしたセッション」= 現在のセッションで、
+// SESSION 列や statusline の逆引きに使う (後方互換: 旧形式の単一フィールドとしても読める)。
 type sessionLink struct {
+	SessionID string       `json:"session_id"`         // 最新 (現在) のセッション
+	Updated   string       `json:"updated"`            // RFC3339。最新リンク時刻
+	Sessions  []sessionRef `json:"sessions,omitempty"` // このタスクが使った全セッション (worktime の union 用)
+}
+
+// sessionRef は sessionLink.Sessions の 1 要素 (タスクが使った 1 セッション)。
+type sessionRef struct {
 	SessionID string `json:"session_id"`
-	Updated   string `json:"updated"` // RFC3339
+	Updated   string `json:"updated"` // RFC3339。このセッションを最後にリンクした時刻
+}
+
+// linkSessionIDs は link が指す全セッション ID を返す (重複なし)。worktime の union に使う。
+func linkSessionIDs(l sessionLink) []string {
+	seen := map[string]bool{}
+	var ids []string
+	add := func(id string) {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, s := range l.Sessions {
+		add(s.SessionID)
+	}
+	add(l.SessionID) // 旧形式 (Sessions 空) の保険
+	return ids
 }
 
 // sessionStateDir はマーカーの置き場を返す。ストアとは別 (マシンローカル)。
@@ -293,7 +322,24 @@ func writeSessionLink(key, sessionID string, now time.Time) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(sessionLink{SessionID: sessionID, Updated: now.Format(time.RFC3339)})
+	nowStr := now.Format(time.RFC3339)
+	// 既存 link を読み、Sessions に sessionID を蓄積する (中断→別セッション再開の合算のため)。
+	// 既に含まれていれば Updated を更新するだけ (同一セッションでの再 start は重複させない)。
+	link, _ := readSessionLink(key)
+	found := false
+	for i := range link.Sessions {
+		if link.Sessions[i].SessionID == sessionID {
+			link.Sessions[i].Updated = nowStr
+			found = true
+			break
+		}
+	}
+	if !found {
+		link.Sessions = append(link.Sessions, sessionRef{SessionID: sessionID, Updated: nowStr})
+	}
+	link.SessionID = sessionID // 最新 (現在) のセッション
+	link.Updated = nowStr
+	data, err := json.Marshal(link)
 	if err != nil {
 		return err
 	}
@@ -342,7 +388,24 @@ func readSessionLink(key string) (sessionLink, bool) {
 		return sessionLink{}, false
 	}
 	var l sessionLink
-	if err := json.Unmarshal(data, &l); err != nil || l.SessionID == "" {
+	if err := json.Unmarshal(data, &l); err != nil {
+		return sessionLink{}, false
+	}
+	// 後方互換: 旧形式 (Sessions 無し・単一 session_id) は Sessions に正規化する。
+	if len(l.Sessions) == 0 && l.SessionID != "" {
+		l.Sessions = []sessionRef{{SessionID: l.SessionID, Updated: l.Updated}}
+	}
+	// SessionID (最新) が空だが履歴があるなら、最も新しいものを最新にする。
+	if l.SessionID == "" && len(l.Sessions) > 0 {
+		newest := l.Sessions[0]
+		for _, s := range l.Sessions[1:] {
+			if parseSessionTime(s.Updated).After(parseSessionTime(newest.Updated)) {
+				newest = s
+			}
+		}
+		l.SessionID, l.Updated = newest.SessionID, newest.Updated
+	}
+	if l.SessionID == "" {
 		return sessionLink{}, false
 	}
 	return l, true
@@ -670,8 +733,11 @@ func planSessionPrune(tasks []Task, now time.Time, retention time.Duration) ([]p
 		case strings.HasSuffix(name, ".link.json"):
 			key := strings.TrimSuffix(name, ".link.json")
 			if aliveKey(key) {
+				// 生存タスクが使った全セッションを参照済みにする (sess マーカー・worktime ログを守る)。
 				if l, ok := readSessionLink(key); ok {
-					referenced[l.SessionID] = true
+					for _, sid := range linkSessionIDs(l) {
+						referenced[sid] = true
+					}
 				}
 				continue
 			}

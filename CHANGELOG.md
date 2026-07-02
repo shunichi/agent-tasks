@@ -54,6 +54,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Changed
 
+- worktime を**マルチセッション対応**にした。タスクを中断→**別セッションで再開**しても、そのタスクが
+  使った**全セッションの working を合算**する (従来は最後に link したセッション分しか集計されなかった)。
+  - session-link (`<key>.link.json`) がセッションを**履歴 (Sessions 配列) として蓄積**するようにした
+    (同一セッションの再 link は重複させない)。旧形式 (単一 session_id) も読める (後方互換)。
+  - `worktime` は link された全セッションの区間を union し、`[started_at, completed_at]` 窓でクリップ→
+    重なりをマージして合算。並行タスク (別セッション) の時間は混ざらない。`--json` に `session_ids` を追加。
+  - `session-prune` の参照判定を全 link セッションに拡張 (生存タスクのログを誤って掃除しない)。
+
 - skill (`/agent-tasks`): start の手順を「タスク特定 → **claim** → コンフリクトチェック → worktree →
   残り frontmatter → session-link」に組み替えた (上記 claim による TOCTOU 解消)。二重着手チェックと
   in-progress 確定は claim が一括で担い、コンフリクトで取りやめる場合は `claim --release` で戻す。

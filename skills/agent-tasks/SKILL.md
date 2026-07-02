@@ -191,25 +191,26 @@ git リポジトリのメイン repo 名)。全 project を横断したいとき
 2. コマンドが無ければ `<root>/**/*.md` の frontmatter を読み、project / id / status / title を表にして表示する。
    この場合も既定は現在 project (root の basename) のみに絞り、横断したいときだけ全件を出す。
 
-### セッション状態 (working / waiting)
+### セッション状態 (working / blocked / idle)
 
-hook を導入していると、in-progress 行に `SESSION` 列が出て各セッションが **working** (処理中) /
-**waiting** (入力・許可待ち) / **ended** (終了) を示す (`?` はマーカー未取得)。並行 pane の
-「どれが自分の応答待ちか」を一覧で把握できる。導入は `agent-tasks session-hook --print-config` の
-スニペットを `~/.claude/settings.json` に 1 度追加するだけ (各セッションが状態変化時に
-`agent-tasks session-hook` を呼びマーカーを更新する)。`tmux capture-pane` は claude の TUI が
-alt-screen のため当てにならないので、起動/状態の確認はこの hook 由来のシグナル (= `list` の SESSION 列)
-で行う。
+in-progress 行に `SESSION` 列が出て各セッションが **working** (処理中) / **blocked** (承認・許可待ち =
+要対応) / **idle** (応答完了・入力待ち) / **ended** (pane 終了) を示す (`?` は判定不能)。並行 pane の
+「どれが自分の承認待ちか」を一覧で把握できる。
 
-**突合は `session-link` (session_id ベース) が主経路**で、spawn の挙動に依存しない。直接 start でも
-spawn 経由でもセッションの cwd はメインリポ (worktree の外) なので、start 手順 6 の
-`agent-tasks session-link` がセッションを明示的に紐づける。
-(補助として、もし cwd が worktree 内のセッションがあれば cwd の git root = `<project>--<NNNN>` でも
-突合できるが、現行フローでは通常使われない。)
+**状態源は herdr の `agent_status`** (0109)。`list` は herdr の全 agent スナップショット
+(session_id → agent_status) を取り、各 in-progress タスクの link (session_id) に突合して状態を出す。
+`tmux capture-pane` に頼らず、herdr が alt-screen でも状態を検出する。blocked (承認/許可待ち) と
+idle (応答完了) を区別できるのが従来との違い。link はあるが herdr に該当 agent が無ければ ended。
+- **フォールバック**: herdr 外 (HERDR_ENV≠1) や link 未記録のときは旧マーカー (session-hook 由来。
+  working/waiting/ended) にフォールバックする。導入は `agent-tasks session-hook --print-config` の
+  スニペットを `~/.claude/settings.json` に追加 (herdr 内なら不要)。
 
-設計の切り分け: マーカー/link の保管・突合は **agent 中立** (CLI 側)。一方で状態の信号源 (hook) と
-自分の session_id の取得方法は **agent 固有**で、SKILL の手順 6 に agent 別に書く。Claude は自分の
-session_id を `--session` で明示でき、それが無理な agent は cwd 逆引きにフォールバックする。
+**突合は `session-link` (session_id ベース) が主経路**。直接 start でも spawn 経由でもセッションの cwd は
+メインリポ (worktree の外) なので、start 手順 6 の `agent-tasks session-link` がセッションを紐づける
+(自 session_id は CLI が自動検出 = 手順 6 参照)。
+
+設計の切り分け: link の保管・突合は **agent 中立** (CLI 側)。状態の信号源は **herdr** (agent 統合が
+検出) に委譲され、agent 中立化した (Claude 固有 hook への依存が減った)。
 
 ### 実行中タスクの表示 (status line)
 

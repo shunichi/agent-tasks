@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,9 +34,15 @@ import (
 // マーカー・link はマシンローカルな揮発情報なので、git 同期されるストアの外 (state dir) に置く。
 
 // セッション状態の値。
+//
+// herdr 移行 (0109) 以降、状態源は herdr の agent_status (working/idle/blocked) を主とし、
+// blocked (承認/許可待ち) と idle (応答完了・入力待ち) を区別する。sessWaiting は herdr 由来では
+// 使わず、旧マーカー (session-hook) フォールバック経路が「入力/許可待ち」を細分できないときに残る値。
 const (
 	sessWorking = "working" // 処理中 (入力を受け取って動いている)
-	sessWaiting = "waiting" // ユーザーの入力/許可待ちで止まっている
+	sessBlocked = "blocked" // herdr: 承認/許可プロンプトで止まっている = 要対応
+	sessIdle    = "idle"    // herdr: 応答完了・次の入力待ち (止まってはいるが承認待ちではない)
+	sessWaiting = "waiting" // フォールバック (旧マーカー由来): 入力/許可待ち (blocked/idle に細分できない)
 	sessEnded   = "ended"   // セッション終了 (タスクが in-progress のままなら未 done のサイン)
 )
 
@@ -135,14 +142,42 @@ func taskSessionKey(t Task) string {
 }
 
 // taskSessionState は task に紐づくセッションの最新状態を返す。
-// 2 経路を突合する: (1) worktree キーのマーカー (spawn 子: cwd が worktree 内) と
-// (2) <key>.link.json 経由の sess-<id> マーカー (同一セッション start: session-link が記録)。
-// 両方ある場合は updated が新しい方を採用する。どちらも無ければ ok=false (= list で "?")。
+//
+// herdr 移行 (0109): **herdr の agent_status を主経路**とする。task の link (session-link が記録した
+// session_id) を herdr の全 agent スナップショット (session_id → agent_status) に突合し、working/
+// blocked/idle にマップする。link はあるが herdr に該当 agent が無ければ pane 終了 = ended。
+// herdr 外 (HERDR_ENV≠1) や link 未記録のときは旧マーカー (session-hook 由来) にフォールバックする。
 func taskSessionState(t Task) (sessionState, bool) {
 	key := taskSessionKey(t)
 	if key == "" {
 		return sessionState{}, false
 	}
+	// 主経路: herdr。
+	if snap, ok := herdrStateSnapshot(); ok {
+		if link, ok := readSessionLink(key); ok {
+			// 最新セッション優先で突合する (link.SessionID が最新)。
+			ids := append([]string{link.SessionID}, linkSessionIDs(link)...)
+			for _, sid := range ids {
+				if sid == "" {
+					continue
+				}
+				if status, hit := snap[sid]; hit {
+					return sessionState{State: mapHerdrStatus(status), Updated: link.Updated}, true
+				}
+			}
+			// link はあるが herdr に該当 agent 無し = pane 終了。
+			return sessionState{State: sessEnded, Updated: link.Updated}, true
+		}
+		// link 未記録: herdr では突合できないのでマーカーにフォールバック。
+	}
+	return taskSessionStateFromMarkers(key)
+}
+
+// taskSessionStateFromMarkers は旧マーカー (session-hook 由来) からセッション状態を読む
+// フォールバック経路。herdr 外や link 未記録のとき使う。2 経路を突合する:
+// (1) worktree キーのマーカー (spawn 子: cwd が worktree 内) と (2) <key>.link.json 経由の
+// sess-<id> マーカー (同一セッション start)。両方あれば updated が新しい方。無ければ ok=false。
+func taskSessionStateFromMarkers(key string) (sessionState, bool) {
 	var best sessionState
 	found := false
 	if st, ok := readSessionState(key); ok {
@@ -156,6 +191,66 @@ func taskSessionState(t Task) (sessionState, bool) {
 		}
 	}
 	return best, found
+}
+
+// mapHerdrStatus は herdr の agent_status を agent-tasks のセッション状態にマップする。
+// working→working / blocked→blocked / idle→idle。未知の値 (unknown 等) は "" (= list で "?")。
+func mapHerdrStatus(status string) string {
+	switch status {
+	case "working":
+		return sessWorking
+	case "blocked":
+		return sessBlocked
+	case "idle":
+		return sessIdle
+	}
+	return ""
+}
+
+// herdr スナップショット (session_id → agent_status) の短 TTL キャッシュ。
+// 1 回の list/watch 描画で in-progress タスクごとに herdr を叩かないためのメモ化。
+// --watch は間隔ごとに runList を呼ぶので、TTL 超過で自動的に取り直される。
+var (
+	herdrSnapMu   sync.Mutex
+	herdrSnapData map[string]string
+	herdrSnapAt   time.Time
+	herdrSnapOK   bool
+)
+
+const herdrSnapTTL = time.Second
+
+// herdrStateSnapshot は herdr の全 agent から session_id → agent_status の対応を作って返す。
+// herdr 外 (HERDR_ENV≠1) や取得失敗なら ok=false (呼び出し側はマーカーにフォールバック)。
+func herdrStateSnapshot() (map[string]string, bool) {
+	herdrSnapMu.Lock()
+	defer herdrSnapMu.Unlock()
+	if herdrSnapOK && time.Since(herdrSnapAt) < herdrSnapTTL {
+		return herdrSnapData, true
+	}
+	if !herdrEnabled() {
+		herdrSnapOK = false
+		return nil, false
+	}
+	agents, err := herdrAgentList()
+	if err != nil {
+		herdrSnapOK = false
+		return nil, false
+	}
+	m := make(map[string]string, len(agents))
+	for _, a := range agents {
+		if a.AgentSession.Value != "" {
+			m[a.AgentSession.Value] = a.AgentStatus
+		}
+	}
+	herdrSnapData, herdrSnapAt, herdrSnapOK = m, time.Now(), true
+	return m, true
+}
+
+// resetHerdrSnapshotCache はキャッシュを無効化する (テスト用。次回 herdrStateSnapshot で取り直す)。
+func resetHerdrSnapshotCache() {
+	herdrSnapMu.Lock()
+	herdrSnapOK = false
+	herdrSnapMu.Unlock()
 }
 
 // sessionStateFor は hook イベント名 (と通知種別) から遷移後の状態を返す。
@@ -510,12 +605,18 @@ func sessionCell(t Task, c colors) cell {
 		return cell{"?", c.dim}
 	}
 	switch st.State {
+	case sessBlocked:
+		return cell{"blocked", c.block} // 承認/許可待ち = 要対応。最も目立たせる
 	case sessWaiting:
-		return cell{"waiting", c.review} // 入力待ち = 要対応。目立たせる
+		return cell{"waiting", c.review} // フォールバック (マーカー由来): 入力/許可待ち
 	case sessWorking:
 		return cell{"working", c.prog}
+	case sessIdle:
+		return cell{"idle", c.dim} // 応答完了・入力待ち (承認待ちではない)
 	case sessEnded:
 		return cell{"ended", c.dim}
+	case "":
+		return cell{"?", c.dim} // herdr で unknown 等、判定不能
 	default:
 		return cell{st.State, ""}
 	}

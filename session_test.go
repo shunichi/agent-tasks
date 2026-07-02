@@ -267,6 +267,90 @@ func TestTaskSessionState(t *testing.T) {
 	}
 }
 
+func TestMapHerdrStatus(t *testing.T) {
+	cases := map[string]string{
+		"working": sessWorking,
+		"blocked": sessBlocked,
+		"idle":    sessIdle,
+		"unknown": "",
+		"":        "",
+	}
+	for in, want := range cases {
+		if got := mapHerdrStatus(in); got != want {
+			t.Errorf("mapHerdrStatus(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHerdrStateSnapshot(t *testing.T) {
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
+	resetHerdrSnapshotCache()
+	const js = `{"result":{"agents":[` +
+		`{"agent":"claude","agent_status":"blocked","pane_id":"w3:p1","agent_session":{"value":"sid-a"}},` +
+		`{"agent":"claude","agent_status":"working","pane_id":"w3:p2","agent_session":{"value":"sid-b"}}]}}`
+	stubHerdrRun(t, []byte(js), nil)
+
+	snap, ok := herdrStateSnapshot()
+	if !ok {
+		t.Fatal("herdr 有効なのに ok=false")
+	}
+	if snap["sid-a"] != "blocked" || snap["sid-b"] != "working" {
+		t.Errorf("snapshot = %v", snap)
+	}
+}
+
+func TestHerdrStateSnapshotDisabled(t *testing.T) {
+	t.Setenv("HERDR_ENV", "0")
+	resetHerdrSnapshotCache()
+	if _, ok := herdrStateSnapshot(); ok {
+		t.Error("herdr 外では ok=false であるべき")
+	}
+}
+
+// taskSessionState は herdr 経路 (link の session_id を agent_status に突合) を優先する。
+func TestTaskSessionStateHerdr(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	task := Task{Status: "in-progress", Worktree: "../agent-tasks--0109"}
+	key := "agent-tasks--0109"
+
+	// link を張り、herdr にその session_id が blocked で存在 → blocked。
+	if err := writeSessionLink(key, "sid-x", now); err != nil {
+		t.Fatal(err)
+	}
+	resetHerdrSnapshotCache()
+	stubHerdrRun(t, []byte(`{"result":{"agents":[{"agent_status":"blocked","pane_id":"w3:p1","agent_session":{"value":"sid-x"}}]}}`), nil)
+	if st, ok := taskSessionState(task); !ok || st.State != sessBlocked {
+		t.Fatalf("herdr blocked: %+v ok=%v", st, ok)
+	}
+
+	// link はあるが herdr に該当 agent 無し → ended。
+	resetHerdrSnapshotCache()
+	stubHerdrRun(t, []byte(`{"result":{"agents":[{"agent_status":"working","pane_id":"w3:p9","agent_session":{"value":"other"}}]}}`), nil)
+	if st, ok := taskSessionState(task); !ok || st.State != sessEnded {
+		t.Fatalf("herdr に無い→ended: %+v ok=%v", st, ok)
+	}
+}
+
+// herdr 外ではマーカー経路にフォールバックする (既存挙動維持)。
+func TestTaskSessionStateFallbackWhenNoHerdr(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	t.Setenv("HERDR_ENV", "0")
+	resetHerdrSnapshotCache()
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	task := Task{Status: "in-progress", Worktree: "../agent-tasks--0109"}
+	key := "agent-tasks--0109"
+	if err := writeSessionState(key, sessWorking, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := taskSessionState(task); !ok || st.State != sessWorking {
+		t.Fatalf("フォールバック: %+v ok=%v", st, ok)
+	}
+}
+
 // TestPlanSessionPrune は掃除対象の判定を網羅する:
 //   - 対応タスクが done / 存在しない worktree マーカー・link は対象。
 //   - in-progress / blocked のタスクのマーカーは残す。

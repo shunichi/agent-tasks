@@ -175,6 +175,8 @@ func dispatch(args []string) error {
 	case "where":
 		fmt.Println(storeDir())
 		return nil
+	case "herdr-probe":
+		return cmdHerdrProbe(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage(os.Stderr)

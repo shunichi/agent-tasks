@@ -220,6 +220,49 @@ func herdrAgentRename(target, name string) error {
 	return err
 }
 
+// --- pane 起動 (spawn の中核) ---
+
+// herdrAgentStart は新しい pane で agent を起動する (spawn=0108 の中核)。
+// name は herdr の表示ラベル、cwd は起動ディレクトリ (空なら herdr 既定)、split は right|down
+// (空なら herdr 既定)、focus=false で背面起動 (親のフォーカスを奪わない)。argv は pane 内で
+// 実行するコマンド (例 ["claude","-n","task 0001: …","タスク 0001 に着手して"])。
+// 作成された pane 情報を返す。
+func herdrAgentStart(name, cwd, split string, focus bool, argv []string) (*herdrPane, error) {
+	if err := requireHerdr(); err != nil {
+		return nil, err
+	}
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("herdr agent start: argv が空")
+	}
+	args := []string{"agent", "start", name}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	if split != "" {
+		args = append(args, "--split", split)
+	}
+	if focus {
+		args = append(args, "--focus")
+	} else {
+		args = append(args, "--no-focus")
+	}
+	args = append(args, "--")
+	args = append(args, argv...)
+	out, err := herdrRun(args...)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Result struct {
+			Agent herdrPane `json:"agent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("herdr agent start: JSON パース失敗: %w", err)
+	}
+	return &resp.Result.Agent, nil
+}
+
 // --- herdr-probe: クライアント層の疎通確認 (開発/デバッグ用) ---
 
 // cmdHerdrProbe は herdr クライアント層の疎通を確認する内部コマンド。env と自 pane の

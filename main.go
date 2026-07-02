@@ -177,6 +177,8 @@ func dispatch(args []string) error {
 		return nil
 	case "herdr-probe":
 		return cmdHerdrProbe(args)
+	case "spawn":
+		return cmdSpawn(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage(os.Stderr)

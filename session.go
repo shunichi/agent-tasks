@@ -597,6 +597,33 @@ func sessionHookConfig() string {
 // 書かれないため、start 手順の中で本コマンドを呼んでセッションを明示的に対応づける。
 // 自分の session_id は直接知れない (env が無い) ので、hook が書いた sess マーカーを
 // 現在 cwd で逆引きして特定する。見つからない (hook 未導入など) ときはエラーにせず案内のみ。
+// detectSelfSessionID は「今このプロセスを起動した agent セッションの session_id」を自動検出する。
+// これがあると session-link 等で --session を明示しなくても自セッションを特定できる
+// (かつての「スクラッチパッドのパス末尾から抜く」裏技 (0027) が CLI 側で不要になる)。
+//
+// 優先順位 (0110 でユーザーと合意):
+//  1. CLAUDE_CODE_SESSION_ID … Claude Code が export する env。herdr 内外を問わず効き最も素直。
+//  2. herdr agent get self  … HERDR_ENV=1 のとき自 pane の agent_session.value。他 agent や
+//     env 未設定時の保険で agent 中立。
+//
+// どちらも取れなければ ("", "")。呼び出し側は --session 明示や cwd 逆引きにフォールバックする
+// (scratchpad 由来は「エージェントが --session で渡す」経路で存続)。
+//
+// session_id はマーカー/worktime のファイル名・キーに使うので、パス区切りを含む値は弾く。
+func detectSelfSessionID() (id, source string) {
+	if v := os.Getenv("CLAUDE_CODE_SESSION_ID"); v != "" && !strings.ContainsAny(v, `/\`) {
+		return v, "CLAUDE_CODE_SESSION_ID"
+	}
+	if herdrEnabled() {
+		if a, err := herdrSelfAgent(); err == nil {
+			if v := a.AgentSession.Value; v != "" && !strings.ContainsAny(v, `/\`) {
+				return v, "herdr agent get"
+			}
+		}
+	}
+	return "", ""
+}
+
 func cmdSessionLink(args []string) error {
 	// --session <id> を先に抜く。残りを <project>/<id> として解決する。
 	// 取得層は agent 固有なので、自分の session_id を言える agent (例: Claude Code) は
@@ -646,6 +673,12 @@ func cmdSessionLink(args []string) error {
 	}
 	sessionID := explicitSession
 	via := "明示 (--session)"
+	if sessionID == "" {
+		// --session 省略時はまず自セッションを自動検出する (env → herdr)。
+		if id, src := detectSelfSessionID(); id != "" {
+			sessionID, via = id, src
+		}
+	}
 	if sessionID == "" {
 		cwd, err := os.Getwd()
 		if err != nil {

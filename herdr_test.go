@@ -217,6 +217,53 @@ func TestHerdrSelfAgentNoPaneID(t *testing.T) {
 	}
 }
 
+func TestDetectSelfSessionIDFromEnv(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "uuid-from-env")
+	// env が最優先。herdr は呼ばれないはず (呼ばれたら失敗させる)。
+	orig := herdrRun
+	herdrRun = func(args ...string) ([]byte, error) {
+		t.Fatalf("herdrRun は呼ばれないはず (env 優先): %v", args)
+		return nil, nil
+	}
+	t.Cleanup(func() { herdrRun = orig })
+
+	id, src := detectSelfSessionID()
+	if id != "uuid-from-env" || src != "CLAUDE_CODE_SESSION_ID" {
+		t.Errorf("got (%q,%q), want (uuid-from-env, CLAUDE_CODE_SESSION_ID)", id, src)
+	}
+}
+
+func TestDetectSelfSessionIDFromHerdr(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "") // env を無効化して herdr 経路へ
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
+	t.Setenv("HERDR_PANE_ID", "w3:p1")
+	const js = `{"result":{"agent":{"agent":"claude","agent_status":"working","pane_id":"w3:p1","agent_session":{"value":"uuid-from-herdr"}}}}`
+	stubHerdrRun(t, []byte(js), nil)
+
+	id, src := detectSelfSessionID()
+	if id != "uuid-from-herdr" || src != "herdr agent get" {
+		t.Errorf("got (%q,%q), want (uuid-from-herdr, herdr agent get)", id, src)
+	}
+}
+
+func TestDetectSelfSessionIDNone(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("HERDR_ENV", "0")
+	id, src := detectSelfSessionID()
+	if id != "" || src != "" {
+		t.Errorf("got (%q,%q), want empty", id, src)
+	}
+}
+
+func TestDetectSelfSessionIDRejectsPathSep(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "bad/id")
+	t.Setenv("HERDR_ENV", "0")
+	if id, _ := detectSelfSessionID(); id != "" {
+		t.Errorf("path 区切りを含む env 値は弾くべき: got %q", id)
+	}
+}
+
 func TestHerdrSelfAgentUsesPaneID(t *testing.T) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")

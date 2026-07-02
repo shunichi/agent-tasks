@@ -116,6 +116,24 @@ func cmdServe(args []string) error {
 			fmt.Fprintf(os.Stderr, "serve: render error: %v\n", err)
 		}
 	})
+	// /worktime: 稼働区間のタイムライン可視化 (0103)。スコープは / と同じ。
+	mux.HandleFunc("/worktime", func(w http.ResponseWriter, r *http.Request) {
+		rows, _, _, err := selectTasks("", filterProjects, true, allProjects, false, "", false, filterKind)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		now := time.Now()
+		results, err := collectWorktimes(rows, now)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := renderTimeline(w, results, interval, now); err != nil {
+			fmt.Fprintf(os.Stderr, "serve: timeline render error: %v\n", err)
+		}
+	})
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -393,7 +411,8 @@ const dashHTML = `<!doctype html>
     background: var(--panel); border-bottom: 1px solid var(--border);
     padding: 0.7rem 1rem;
   }
-  header h1 { margin: 0; font-size: 1.1rem; }
+  header h1 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.6rem; }
+  header h1 a { color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 400; }
   header .meta { color: var(--dim); font-size: 0.8rem; margin-top: 0.15rem; }
   section { padding: 0 0.75rem; }
   section h2 {
@@ -459,7 +478,7 @@ const dashHTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1>agent-tasks</h1>
+  <h1>agent-tasks <a href="/worktime">⏱ 稼働時間</a></h1>
   <div class="meta">{{.Count}} tasks · {{.Now}}{{if .Refresh}} · 自動更新 {{.Interval}}s{{end}}</div>
 </header>
 {{range .Groups}}

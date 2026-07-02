@@ -317,7 +317,7 @@ _agent_tasks() {
         tui)               flags="--status --project --projects --all-projects --all --interval --color --help" ;;
         report)            flags="--month --week --since --until --project --projects --all-projects --color --help" ;;
         show)              flags="--archived --json --color --help" ;;
-        worktime)          flags="--json --color --help" ;;
+        worktime)          flags="--all --json --project --projects --all-projects --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
         auto-archive)      flags="--older-than --project --projects --all-projects --dry-run --color --help" ;;
@@ -476,7 +476,9 @@ _agent_tasks() {
                 elif [[ $sub == issue ]]; then
                     _values 'option' '--repo[owner/repo を明示]' '--color[色出力]' '--help[ヘルプ]'
                 elif [[ $sub == worktime ]]; then
-                    _values 'option' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
+                    _values 'option' '--all[全タスクを横断集計]' '--json[JSON 出力]' \
+                        '--project[project を指定]' '--projects[project をカンマ区切り]' \
+                        '--all-projects[全 project を横断]' '--color[色出力]' '--help[ヘルプ]'
                 else
                     _values 'option' '--color[色出力]' '--help[ヘルプ]'
                 fi

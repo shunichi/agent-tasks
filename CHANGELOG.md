@@ -29,6 +29,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- 稼働区間の**可視化タイムライン**を追加 (worktime Phase 2)。
+  - `agent-tasks serve` に **`/worktime`** ルートを追加。各タスクの稼働区間を**日 × 時刻 (0–24h) の帯**で
+    俯瞰する自己完結ページ (外部依存なし。タスク色分け + 凡例 + 日別/タスク別合計)。ダッシュボード (`/`)
+    のヘッダから相互リンク。
+  - `agent-tasks worktime --all [--project|--all-projects] [--json]`: スコープ内の全タスクを横断集計
+    (実稼働の多い順)。`--json` はタイムライン等の入力にできる配列 (task × intervals)。
+
 - タスクの**実稼働時間**を記録・集計できるようにした (Phase 1: 記録 + CLI)。
   - session-hook が working/waiting/ended の**状態遷移を追記ログ** (`<state dir>/worktime/<session_id>.jsonl`)
     に残す (状態が変わった時だけ追記するので肥大化しない)。working に入った時刻〜抜けた時刻のペアから

@@ -28,6 +28,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
   completion.go                 # completion: bash/zsh の補完スクリプト生成 (静的) + completion-values (動的候補 project/id)
   blocked.go                    # list の BLOCKED 列: 保留からの経過 + 理由 (blocked_at/blocked_reason)
+  statuscmd.go                  # done/block: 状態遷移の frontmatter 確定 (ロック下で scalar キーを決定的に書換。claim の done/block 版)
   datetime.go                   # 時刻系の共通ヘルパ (ISO8601 パース/日付表示 displayDate/経過整形)
   timestamps.go                 # started_at/completed_at: show の所要時間サマリ + doctor 整合チェック
   prs.go                        # prs: PR URL リスト: show の PR 一覧サマリ + doctor の URL 形式チェック

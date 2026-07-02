@@ -40,6 +40,7 @@ var completionSubcommands = []completionSubcommand{
 	{"auto-archive", "完了後に一定期間経過した done を一括退避"},
 	{"unarchive", "退避したタスクを元に戻す"},
 	{"issue", "タスクを GitHub issue として共有"},
+	{"cost", "タスクの Claude トークン消費/概算コストを集計"},
 	{"report", "一定期間の完了タスクを markdown で出力"},
 	{"worktime", "タスクの実稼働時間 (working 合計) と稼働区間を表示"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},

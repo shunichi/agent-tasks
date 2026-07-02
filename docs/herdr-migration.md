@@ -100,10 +100,51 @@ herdr socket/CLI API に載せ替える。
 - **agent 中立性は保てる/むしろ向上**。herdr は複数 agent 統合 (codex/opencode 等) を持つので、
   「保管・突合は agent 中立、信号源は herdr 統合」に整理しやすい。
 
+## 移行の制約 (稼働中の main 版との共存) — 2026-07-02 追加
+
+herdr 対応版を開発する間、**main ブランチ版が裏で常時稼働している**。開発版が稼働版を壊さないための
+制約 (ユーザー指定):
+
+### 1. バイナリ/skill/補完は別名にする (稼働版を上書きしない)
+
+現状 (実測):
+- `~/.local/bin/agent-tasks` → **main worktree の `bin/agent-tasks` への symlink**。
+- `~/.claude/skills/agent-tasks` → **main worktree の `skills/agent-tasks` への symlink**。
+- 補完は `agent-tasks` / `_agent_tasks` で固定名。
+
+⚠️ herdr worktree で `make install` すると、これらの symlink が **herdr worktree 側を指すよう張り替わり、
+稼働中の main 版を破壊する**。→ herdr 版は **別名** (例 `agent-tasks-herdr`) でビルド/インストールし、
+main 版の symlink・skill・補完に一切触れないようにする。Makefile の `BIN` / `link` / `install-completions` を
+名前でパラメータ化する (or herdr 専用ターゲットを足す)。skill も別名にして別 CLI を叩くようにすれば
+両版が同一マシンで併走できる。
+
+### 2. agent-tasks-store の互換性を当面保つ
+
+- ストアは `AGENT_TASKS_STORE` (既定 `~/agent-tasks-store`) を **両版で共有**する。
+- 移行中は frontmatter/ファイル形式を**破壊的に変えない** (main 版が読めなくなるため)。新フィールドは
+  任意 (省略可) で足す程度に留め、既存キーの意味・必須性を変えない。データ側の非互換変更は移行完了後に検討。
+
+### 3. セッションリンクの state dir を壊さない
+
+- マーカー/link/worktime は `AGENT_TASKS_STATE_DIR` > `$XDG_STATE_HOME/agent-tasks/sessions` >
+  `~/.local/state/agent-tasks/sessions` に書かれる (現状 env 未設定 = 既定パス)。**main 版がここに
+  書き込み中** (`*.link.json` / `*.json` / worktime ログ)。
+- herdr 版は状態検出を herdr へ移す (0109) ため最終的にはこのマーカー機構を使わなくなるが、**移行中に
+  この共有ディレクトリを削除・再フォーマット・掃除してはならない** (main 版が壊れる)。→ herdr 版は
+  **別の state dir** (`AGENT_TASKS_STATE_DIR` を herdr 用に向ける or 既定名を変える) を使い、共有ディレクトリを
+  read-only 扱い/不可侵にする。0109 の「旧マーカー撤去」も、稼働 main 版が使う間は撤去せず**隔離**に留める。
+
+> これら 3 点は後続タスク 0113 (共存セットアップ) で最初に固め、0106 以降が別名・別 state dir 前提で
+> 動くようにする。0106 (store 互換方針) / 0109・0110 (state dir 隔離) にも反映済み。
+
 ## 作り直しタスクの優先順位 (全面移行の後続タスク案)
 
-全面移行 (案 A) 前提。**まず herdr クライアント層 (0) を用意**し、その上で機能単位に置換していく。
-各タスクは「herdr 経路に置換 → 旧 tmux 経路を撤去」をセットで行う。
+全面移行 (案 A) 前提。**まず共存セットアップ (0113) と herdr クライアント層 (0106) を用意**し、その上で
+機能単位に置換していく。各タスクは「herdr 経路に置換 → 旧 tmux 経路を撤去」をセットで行う。
+
+- **[前提・最優先] 稼働 main 版との共存セットアップ (0113)** — herdr 版を別名 (`agent-tasks-herdr` 等) で
+  ビルド/インストールし、稼働中 main 版の symlink・skill・補完・state dir を壊さない。「移行の制約」参照。
+  これを最初に固めないと、以降のタスクをビルド/検証するだけで main 版を破壊しうる。
 
 0. **[基盤・最優先] herdr socket/CLI クライアント層の導入** — agent-tasks から herdr を叩く共通ヘルパ
    (`herdr agent/pane/wait` 呼び出し or socket 直叩き、JSON パース、`HERDR_PANE_ID`/`HERDR_ENV` の参照)。

@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-02
+
 ### Added
 
 - 稼働区間の**可視化タイムライン**を追加 (worktime Phase 2)。
@@ -31,10 +35,6 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
     のヘッダから相互リンク。
   - `agent-tasks worktime --all [--project|--all-projects] [--json]`: スコープ内の全タスクを横断集計
     (実稼働の多い順)。`--json` はタイムライン等の入力にできる配列 (task × intervals)。
-
-## 2026-07-02
-
-### Added
 
 - タスクの**実稼働時間**を記録・集計できるようにした (Phase 1: 記録 + CLI)。
   - session-hook が working/waiting/ended の**状態遷移を追記ログ** (`<state dir>/worktime/<session_id>.jsonl`)

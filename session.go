@@ -197,6 +197,81 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmpName, path)
 }
 
+// worktimeEvent は実稼働ログ (worktime/<session_id>.jsonl) の 1 行。状態が変わった時刻を残し、
+// working に入った時刻〜抜けた時刻のペアから「稼働区間」を復元する (worktime コマンドが集計)。
+type worktimeEvent struct {
+	Ts    string `json:"ts"`    // RFC3339。状態が変わった時刻
+	State string `json:"state"` // working / waiting / ended
+}
+
+// worktimeDir は実稼働ログの置き場 (state dir の下)。マシンローカルな揮発データ。
+func worktimeDir() string {
+	return filepath.Join(sessionStateDir(), "worktime")
+}
+
+// worktimeLogPath は session_id の実稼働ログのパスを返す。session_id はファイル名になるので検証する。
+func worktimeLogPath(sessionID string) (string, error) {
+	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) {
+		return "", fmt.Errorf("不正な session_id: %q", sessionID)
+	}
+	return filepath.Join(worktimeDir(), sessionID+".jsonl"), nil
+}
+
+// appendWorktimeEvent は session の状態遷移を 1 行 JSONL で追記する (append-only)。
+// hook が「状態が変わった時だけ」呼ぶ。O_APPEND での 1 行書き込みは PIPE_BUF (4096B) 未満なら
+// 並行 hook でもインターリーブせずアトミックなので、行が壊れない。
+func appendWorktimeEvent(sessionID, state string, now time.Time) error {
+	path, err := worktimeLogPath(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	line, err := json.Marshal(worktimeEvent{Ts: now.Format(time.RFC3339), State: state})
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(line, '\n'))
+	return err
+}
+
+// readWorktimeEvents は session の実稼働ログを時刻昇順で読む。無ければ空。壊れた行は飛ばす。
+func readWorktimeEvents(sessionID string) ([]worktimeEvent, error) {
+	path, err := worktimeLogPath(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var evs []worktimeEvent
+	for _, ln := range strings.Split(string(data), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		var e worktimeEvent
+		if err := json.Unmarshal([]byte(ln), &e); err != nil || e.State == "" {
+			continue // 壊れた行は無視 (追記中の途中書き等)
+		}
+		evs = append(evs, e)
+	}
+	slices.SortFunc(evs, func(a, b worktimeEvent) int {
+		return parseSessionTime(a.Ts).Compare(parseSessionTime(b.Ts))
+	})
+	return evs, nil
+}
+
 // sessionMarkerKey は session_id 突合用マーカーのキー (sess-<id>) を返す。
 // worktree キー (<project>--<NNNN>) と名前空間が衝突しないよう prefix を付ける。
 func sessionMarkerKey(sessionID string) string {
@@ -420,6 +495,14 @@ func cmdSessionHook(args []string) error {
 	// (2) session_id キーのマーカー: 同一セッション start (cwd がメインリポのまま) でも、
 	// session-link が cwd で逆引きして紐づけられるよう、cwd とともに常に記録する。
 	if in.SessionID != "" {
+		// (2a) 実稼働ログ: 状態が「変わった」ときだけ遷移を追記する (worktime 集計の生データ)。
+		// 直前の状態は上書き前の sess マーカーから読む。working→working のような変化なしは
+		// 記録しない (PreToolUse/PostToolUse 等の高頻度発火で肥大化しないため)。
+		if prev, had := readSessionState(sessionMarkerKey(in.SessionID)); !had || prev.State != state {
+			if err := appendWorktimeEvent(in.SessionID, state, now); err != nil {
+				fmt.Fprintf(os.Stderr, "agent-tasks session-hook: worktime ログ追記失敗: %v\n", err)
+			}
+		}
 		st := sessionState{State: state, Updated: now.Format(time.RFC3339), Cwd: in.Cwd, SessionID: in.SessionID}
 		if err := writeSessionMarker(sessionMarkerKey(in.SessionID), st); err != nil {
 			fmt.Fprintf(os.Stderr, "agent-tasks session-hook: sess マーカー書込み失敗: %v\n", err)
@@ -625,6 +708,31 @@ func planSessionPrune(tasks []Task, now time.Time, retention time.Duration) ([]p
 		}
 		out = append(out, prunableFile{s.name, fmt.Sprintf("sess マーカー (未参照・%d 日超未更新)", days)})
 	}
+
+	// 実稼働ログ (worktime/<session_id>.jsonl): sess マーカーと同じ基準で掃除する。
+	// 生存 link から参照されず (どの現役タスクにも紐づかず)、かつ retention 超未更新のものが対象。
+	// 返す Name は state dir からの相対パス ("worktime/<id>.jsonl") なので cmdSessionPrune の Remove が届く。
+	if wtEntries, err := os.ReadDir(worktimeDir()); err == nil {
+		for _, e := range wtEntries {
+			if e.IsDir() {
+				continue
+			}
+			id, ok := strings.CutSuffix(e.Name(), ".jsonl")
+			if !ok {
+				continue
+			}
+			if referenced[id] {
+				continue // 現役タスクに紐づく → 残す
+			}
+			info, err := e.Info()
+			if err != nil || now.Sub(info.ModTime()) < retention {
+				continue // 新しい (最終追記が retention 内) → 残す
+			}
+			rel := filepath.Join("worktime", e.Name())
+			out = append(out, prunableFile{rel, fmt.Sprintf("worktime ログ (未参照・%d 日超未更新)", days)})
+		}
+	}
+
 	slices.SortFunc(out, func(a, b prunableFile) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }

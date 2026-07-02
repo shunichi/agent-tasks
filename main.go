@@ -162,6 +162,8 @@ func dispatch(args []string) error {
 		return cmdIssue(args)
 	case "report":
 		return cmdReport(args)
+	case "worktime":
+		return cmdWorktime(args)
 	case "open":
 		return cmdOpen(args)
 	case "where":
@@ -255,6 +257,10 @@ USAGE:
                                      一定期間に完了したタスク (done かつ completed_at が期間内) を
                                      markdown で出力 (既定は今月)。所要時間と合計/平均サマリ付き。
                                      スコープは list と同じ (--project / --all-projects で横断はセクション分け)
+  agent-tasks worktime [<project>] <id> [--json]  タスクの実稼働時間 (working 合計) と稼働区間を表示。
+                                     着手〜完了の壁時計 (リードタイム) ではなく、hook が記録する
+                                     working/waiting 遷移から入力待ちを除いた「実際に動いていた時間」。
+                                     --json は可視化 Web アプリの入力にできる形で区間を出力
   agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
                                      (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
                                      --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要

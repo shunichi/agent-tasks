@@ -41,6 +41,7 @@ var completionSubcommands = []completionSubcommand{
 	{"unarchive", "退避したタスクを元に戻す"},
 	{"issue", "タスクを GitHub issue として共有"},
 	{"report", "一定期間の完了タスクを markdown で出力"},
+	{"worktime", "タスクの実稼働時間 (working 合計) と稼働区間を表示"},
 	{"session-hook", "Claude Code の hook から呼ぶ"},
 	{"session-link", "セッションをタスクに紐づける"},
 	{"session-rename", "現在の Claude セッション名をタスク名に変える (tmux)"},
@@ -282,7 +283,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim)
+        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|worktime)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" && "$prev" != "--agent" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -316,6 +317,7 @@ _agent_tasks() {
         tui)               flags="--status --project --projects --all-projects --all --interval --color --help" ;;
         report)            flags="--month --week --since --until --project --projects --all-projects --color --help" ;;
         show)              flags="--archived --json --color --help" ;;
+        worktime)          flags="--json --color --help" ;;
         edit)              flags="--color --help" ;;
         archive|unarchive) flags="--color --help" ;;
         auto-archive)      flags="--older-than --project --projects --all-projects --dry-run --color --help" ;;
@@ -466,13 +468,15 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit|open|archive|unarchive|issue)
+        show|edit|open|archive|unarchive|issue|worktime)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then
                     _values 'option' '--archived[アーカイブ済みを開く]' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
                 elif [[ $sub == issue ]]; then
                     _values 'option' '--repo[owner/repo を明示]' '--color[色出力]' '--help[ヘルプ]'
+                elif [[ $sub == worktime ]]; then
+                    _values 'option' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
                 else
                     _values 'option' '--color[色出力]' '--help[ヘルプ]'
                 fi

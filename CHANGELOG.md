@@ -29,6 +29,16 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- タスクの**実稼働時間**を記録・集計できるようにした (Phase 1: 記録 + CLI)。
+  - session-hook が working/waiting/ended の**状態遷移を追記ログ** (`<state dir>/worktime/<session_id>.jsonl`)
+    に残す (状態が変わった時だけ追記するので肥大化しない)。working に入った時刻〜抜けた時刻のペアから
+    「稼働区間」を復元でき、**ユーザーの入力待ち (waiting) を除いた実際に動いていた時間**が分かる。
+  - `agent-tasks worktime [<project>] <id> [--json]`: そのタスクの working 合計と稼働区間 (日×時刻) を表示。
+    着手〜完了の壁時計 (リードタイム) とは別指標。`--json` は稼働区間の可視化 Web アプリの入力にできる形。
+  - タスクへの帰属は session-link (task↔session_id) + タスクの `[started_at, completed_at]` 窓クリップ。
+  - `session-prune` が未参照・古い worktime ログも掃除対象にするよう拡張。
+  - 記録はマシンローカル (state dir)。稼働区間の可視化 Web アプリは Phase 2 (別 PR) 予定。
+
 - `serve` を Cloudflare Tunnel + Access で公開する詳細手順を独立ページ
   **`docs/serve-cloudflare-tunnel.md`** として追加 (実運用手順を一般化: cloudflared ログイン /
   named tunnel 作成 / DNS / 専用 config / 新 UI での Access アプリ作成 / 日々の起動 / 迂回不可の検証 /

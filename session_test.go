@@ -352,6 +352,55 @@ func TestPlanSessionPrune(t *testing.T) {
 	}
 }
 
+// TestPlanSessionPruneWorktime は worktime ログの掃除を確認する: 生存 link から参照される
+// セッションのログは残し、未参照かつ retention 超のログだけ対象になる。
+func TestPlanSessionPruneWorktime(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-8 * 24 * time.Hour)
+	young := now.Add(-1 * 24 * time.Hour)
+
+	// in-progress タスク → sess-live を参照 (link 生存)。
+	if err := writeSessionLink("proj--0001", "sess-live", now); err != nil {
+		t.Fatal(err)
+	}
+	mklog := func(id string, mtime time.Time) {
+		if err := appendWorktimeEvent(id, sessWorking, now); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := worktimeLogPath(id)
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mklog("sess-live", old)    // 参照されているので古くても残す
+	mklog("sess-old", old)     // 未参照・古い → 対象
+	mklog("sess-young", young) // 未参照だが新しい → 残す
+
+	tasks := []Task{{Status: "in-progress", Worktree: "../proj--0001"}}
+	got, err := planSessionPrune(tasks, now, 7*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range got {
+		names = append(names, f.Name)
+	}
+	// worktime ログで対象になるのは sess-old のみ (proj--0001.link.json は生存タスクなので残る)。
+	wantWorktime := filepath.Join("worktime", "sess-old.jsonl")
+	if !slices.Contains(names, wantWorktime) {
+		t.Errorf("sess-old の worktime ログが対象に無い: %v", names)
+	}
+	for _, unexpected := range []string{
+		filepath.Join("worktime", "sess-live.jsonl"),
+		filepath.Join("worktime", "sess-young.jsonl"),
+	} {
+		if slices.Contains(names, unexpected) {
+			t.Errorf("残すべき worktime ログが対象になった: %s (%v)", unexpected, names)
+		}
+	}
+}
+
 // TestCmdSessionPrune はコマンド経路を検証する: --dry-run は消さず、既定実行は消す。
 func TestCmdSessionPrune(t *testing.T) {
 	store := t.TempDir()

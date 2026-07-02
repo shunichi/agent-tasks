@@ -15,7 +15,13 @@ import (
 // CHANGELOG (main マージ日の日付セクション) は「いつ何が変わったか」、version は「どの commit
 // 時点のビルドか」を示す補完関係。skill も同じ repo から出るので version は CLI/skill 一式の版。
 
-const progName = "agent-tasks"
+// progName はこのバイナリの名前 (表示・state dir・補完のコマンド名の基点)。
+// 既定は "agent-tasks"。稼働中の別ビルドと共存させるため、ビルド時に
+// `-ldflags "-X main.progName=agent-tasks-herdr"` で上書きできる (var にしてある理由)。
+// これにより state dir (session.go) と補完 (completion.go) が別名側で自動的に分離される。
+// 注意: ストア (store.go の storeDir) は progName 由来にせず共有する (両ビルドで同じ
+// ~/agent-tasks-store を読み書きし、データ互換を保つため)。
+var progName = "agent-tasks"
 
 // shortSHALen は表示する commit SHA の桁数 (衝突しにくさと読みやすさのバランス)。
 const shortSHALen = 12

@@ -85,14 +85,31 @@ func cmdCompletion(args []string) error {
 	}
 	switch shell {
 	case "bash":
-		fmt.Print(bashCompletionScript())
+		fmt.Print(renameCompletion(bashCompletionScript()))
 	case "zsh":
-		fmt.Print(zshCompletionScript())
+		fmt.Print(renameCompletion(zshCompletionScript()))
 	default:
 		return usagef("completion: unknown shell %q (want bash|zsh)", shell)
 	}
 	_ = os.Stdout.Sync()
 	return nil
+}
+
+// renameCompletion は別名ビルド (progName != "agent-tasks") 向けに、生成済み補完スクリプトの
+// コマンド名 ("agent-tasks") と補完関数名 ("_agent_tasks…") を progName 由来へ置換する。
+// これで同一シェルに本体版と別名版の両補完を読み込んでも関数名が衝突せず、内部の
+// `agent-tasks completion-values` 呼び出しも別名バイナリを指すようになる。
+// 既定 (progName=="agent-tasks") では無変換。
+func renameCompletion(script string) string {
+	if progName == "agent-tasks" {
+		return script
+	}
+	// 関数名はハイフン不可なので _ に正規化 (例: agent-tasks-herdr -> _agent_tasks_herdr)。
+	funcBase := "_" + strings.ReplaceAll(progName, "-", "_")
+	script = strings.ReplaceAll(script, "_agent_tasks", funcBase)
+	// コマンド名 (登録名・内部呼び出し) はそのまま progName に。
+	script = strings.ReplaceAll(script, "agent-tasks", progName)
+	return script
 }
 
 // cmdCompletionValues は補完スクリプトが動的候補を得るための内部コマンド。

@@ -87,19 +87,21 @@ func linkSessionIDs(l sessionLink) []string {
 }
 
 // sessionStateDir はマーカーの置き場を返す。ストアとは別 (マシンローカル)。
-// AGENT_TASKS_STATE_DIR > $XDG_STATE_HOME/agent-tasks/sessions > ~/.local/state/agent-tasks/sessions。
+// AGENT_TASKS_STATE_DIR > $XDG_STATE_HOME/<progName>/sessions > ~/.local/state/<progName>/sessions。
+// ディレクトリ名を progName 由来にすることで、別名ビルド (agent-tasks-herdr 等) は稼働中の
+// 本体版が使う state dir を壊さず自動的に分離される (worktime ログもこの下)。共存の要。
 func sessionStateDir() string {
 	if v := os.Getenv("AGENT_TASKS_STATE_DIR"); v != "" {
 		return v
 	}
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "agent-tasks", "sessions")
+		return filepath.Join(v, progName, "sessions")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join("agent-tasks-state", "sessions")
+		return filepath.Join(progName+"-state", "sessions")
 	}
-	return filepath.Join(home, ".local", "state", "agent-tasks", "sessions")
+	return filepath.Join(home, ".local", "state", progName, "sessions")
 }
 
 // worktreeKey は dir が属する git 作業ツリーの root basename を返す (例 agent-tasks--0020)。

@@ -24,6 +24,26 @@ make install
   (CLI 自体は symlink で最新だが補完だけ古くなるため)。zsh は `~/.zcompdump` キャッシュの都合で
   反映は新しいシェルから (即時にしたいときは `rm -f ~/.zcompdump && compinit`)。
 
+### herdr 対応版の共存ビルド (herdr ブランチ)
+
+`herdr` ブランチ (herdr 全面移行の開発。→ `docs/herdr-migration.md`) では、**稼働中の本体版
+(`agent-tasks`) を壊さない**よう、別名 `agent-tasks-herdr` でビルド/インストールする。既定の `NAME`
+がこのブランチでは `agent-tasks-herdr` なので、通常どおり `make install` で共存インストールできる:
+
+```sh
+make install                 # agent-tasks-herdr として入る (本体版に触れない)
+make NAME=agent-tasks install # 本体版と同名で入れたいとき (上書きに注意)
+```
+
+- **バイナリ / skill / 補完**はすべて `NAME` (既定 `agent-tasks-herdr`) 名で入るので、本体版の
+  symlink・skill・補完を上書きしない。補完のコマンド名・関数名も別名側に追従する (同一シェルで衝突しない)。
+- **state dir** (`~/.local/state/<name>/sessions`。マーカー/link/worktime) も名前で分離される
+  (`main.progName` を ldflags で埋め込み)。本体版が使う `~/.local/state/agent-tasks/` を壊さない。
+- **ストア** (`~/agent-tasks-store`) は**共有**する (両版で同じデータを読み書き。データ互換を保つ)。
+- アンインストール: `rm ~/.local/bin/agent-tasks-herdr ~/.claude/skills/agent-tasks-herdr`
+  `~/.local/share/bash-completion/completions/agent-tasks-herdr`
+  `~/.local/share/zsh/site-functions/_agent_tasks_herdr` (+ 不要なら `~/.local/state/agent-tasks-herdr`)。
+
 ## 使い方
 
 操作は**エージェントに頼む** (skill)、閲覧は**ターミナルから** (CLI) の 2 系統。

@@ -27,6 +27,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-02
 
+### Added
+
+- `serve` を Cloudflare Tunnel + Access で公開する詳細手順を独立ページ
+  **`docs/serve-cloudflare-tunnel.md`** として追加 (実運用手順を一般化: cloudflared ログイン /
+  named tunnel 作成 / DNS / 専用 config / 新 UI での Access アプリ作成 / 日々の起動 / 迂回不可の検証 /
+  トラブルシュート)。`docs/details.md` の該当節は概要+リンクに整理し、README のポインタも更新。
+
 ### Changed
 
 - skill (`/agent-tasks`): start 着手時の `session-rename` を **手順 0 (最初)** に引き上げ、

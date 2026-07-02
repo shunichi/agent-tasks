@@ -74,22 +74,23 @@
 | 端末タイトルが TUI に上書き (0037) | status line 方式に | herdr が自前ラベル/状態 UI (サイドバー) を持つ | **軽微改善** |
 | per-task コスト計測 API 無い (0101) | transcript JSONL 自前集計・揮発・目安表記 | herdr が **transcript_path を内部保持** (hook 経由)。CLI で surface されれば探索が楽に | **改善余地** (現状 CLI 未 surface。将来の統合点) |
 
-## 設計方針の選択肢
+## 設計方針: 全面移行 (案 A) を採用 (2026-07-02 合意)
 
-再プラットフォーム化の是非が最大の論点。agent-tasks の「tmux + hook マーカー」層
+再プラットフォーム化の是非が最大の論点だったが、**herdr 前提に一本化する「全面移行」を採用**する
+(ユーザーと合意、2026-07-02)。agent-tasks の「tmux + hook マーカー」層
 (spawn の split-window/send-keys、session-hook のマーカー、`tmux capture-pane` 回避策) を
-herdr socket API に載せ替えるかどうか。
+herdr socket/CLI API に載せ替える。
 
-### 案 A: 全面移行 (herdr 前提に一本化)
-- **利点**: 妥協点の多く (0027/0079/0067/0020/0080/0067/0089/0092) が素直に解消。コードが簡潔になる。
+- **利点**: 妥協点の多く (0027/0079/0067/0020/0080/0089/0092) が素直に解消。分岐が消えコードが簡潔に。
   状態検出・pane 送出・待機が一級 API になる。
-- **欠点**: herdr 非利用環境で動かなくなる。herdr への依存 (バイナリ・server・manifest 更新) が前提化。
-  スマホ/リモートの実用性が未検証。
+- **引き受けるトレードオフ**: herdr 非利用環境では動かなくなる。herdr (バイナリ・server・manifest 更新)
+  への依存が前提化する。スマホ/リモートの実用性は未検証 (要検証#6) だが、方針は全面移行で確定。
+- **移行の進め方**: いきなり全 tmux コードを消さず、機能単位で herdr 経路に置換 → 旧 tmux 経路を撤去、
+  を繰り返す (後続タスク単位)。開発は長命な `herdr` ブランチ上で行い、main には都度マージしない。
 
-### 案 B: 両対応 (tmux/herdr のアダプタ層を挟む)
-- **利点**: 段階移行できる。herdr 無し環境でも従来どおり。リスク分散。
-- **欠点**: 抽象層のメンテコスト。両系統のテストが要る。「herdr があれば正規経路、無ければ従来ハック」の
-  分岐が各所に増える。
+> 検討したが不採用: **案 B (tmux/herdr 両対応のアダプタ層)**。段階移行・herdr 無し環境の互換という
+> 利点はあるが、抽象層のメンテと両系統テストのコスト、各所の分岐増加を嫌って見送り。全面移行で
+> コードを簡潔に保つことを優先した。
 
 ### 役割分担 (どちらの案でも共通の指針)
 - **セッション/pane/状態の取得は herdr に委譲**、タスク管理 (frontmatter/PR/コスト/稼働時間/blocked 理由/
@@ -99,21 +100,28 @@ herdr socket API に載せ替えるかどうか。
 - **agent 中立性は保てる/むしろ向上**。herdr は複数 agent 統合 (codex/opencode 等) を持つので、
   「保管・突合は agent 中立、信号源は herdr 統合」に整理しやすい。
 
-## 作り直しタスクの優先順位 (後続タスク案)
+## 作り直しタスクの優先順位 (全面移行の後続タスク案)
 
-1. **[最有力] 空き pane へ start 送信 / pane 分配 (0079/0067)** — herdr 前提なら素直。
-   `agent start`/`pane split` + `pane run` で spawn を正規化。tmux split-window/send-keys ハックを置換。
-2. **状態検出の herdr 移行 (0020/0080)** — `session-hook` のマーカー間接推定を、
-   `wait agent-status` / `events.subscribe` (`pane.agent_status_changed`) の push に置換。
-   `list` の SESSION 列を herdr 由来の状態で更新。
-3. **自 session_id / pane 特定の herdr 化 (0027)** — スクラッチパッド裏技を `agent get` +
-   `HERDR_PANE_ID` に置換。session-link/statusline の特定経路を簡素化。
-4. **session-rename の herdr 化 (0085/0089/0092)** — send-keys `/rename` ハックを `herdr agent rename`
-   に置換 (herdr 内ラベル)。ただし claude.ai 側名称の穴は別問題として残す。
-5. **[検証先行] blocked 検出の取りこぼし調査** — 実際に許可プロンプトを出して `agent_status=blocked` に
-   なるか、非標準プロンプトを拾うかを確認してから 2 を確定する。
+全面移行 (案 A) 前提。**まず herdr クライアント層 (0) を用意**し、その上で機能単位に置換していく。
+各タスクは「herdr 経路に置換 → 旧 tmux 経路を撤去」をセットで行う。
+
+0. **[基盤・最優先] herdr socket/CLI クライアント層の導入** — agent-tasks から herdr を叩く共通ヘルパ
+   (`herdr agent/pane/wait` 呼び出し or socket 直叩き、JSON パース、`HERDR_PANE_ID`/`HERDR_ENV` の参照)。
+   以降のタスクが全部依存するので先に作る。herdr 前提を明示 (env 検出、未起動時のエラー方針)。
+1. **[検証先行] blocked 実発火 + `events.subscribe` 実挙動の確認** — 承認プロンプトで実際に
+   `wait agent-status --status blocked` が返るか、非標準プロンプトの取りこぼし、push 購読の CLI/socket 経路を
+   実測。2 の設計を固める前提。
+2. **spawn の herdr 化 (0079/0067)** — `agent start`/`pane split` + `pane run` で spawn を正規化し、
+   空き pane 分配も実装。tmux `split-window`/`send-keys` ハックを撤去。
+3. **状態検出の herdr 移行 (0020/0080)** — `session-hook` のマーカー間接推定を `wait agent-status` /
+   `events.subscribe` (`pane.agent_status_changed`) の push に置換。`list` の SESSION 列・statusline を
+   herdr 由来の状態で更新。旧マーカー機構を撤去。
+4. **自 session_id / pane 特定の herdr 化 (0027)** — スクラッチパッド裏技を `agent get` の
+   `agent_session.value` + `HERDR_PANE_ID` に置換。session-link/statusline の特定経路を簡素化。
+5. **session-rename の herdr 化 (0085/0089/0092)** — send-keys `/rename` ハックを `herdr agent rename`
+   に置換。claude.ai 側名称の穴は別問題として残す (herdr 内ラベルのみ正規化)。
 6. **[要調査] コスト計測の herdr 連携 (0101)** — herdr が保持する transcript_path を CLI で引けるか
-   (herdr 側の機能要望 or 現状の内部保持を利用する術) を調べる。
+   (herdr 側の機能要望 or 内部保持の利用術) を調べ、自前探索を置換できるか判断。
 
 ## 残課題・未検証
 

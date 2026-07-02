@@ -34,7 +34,19 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   named tunnel 作成 / DNS / 専用 config / 新 UI での Access アプリ作成 / 日々の起動 / 迂回不可の検証 /
   トラブルシュート)。`docs/details.md` の該当節は概要+リンクに整理し、README のポインタも更新。
 
+- `agent-tasks claim <id>` を追加。着手 (start) 時に `status: in-progress` を **project ロック下で
+  原子的に予約**する。旧 start は in-progress の確定が worktree 作成の後で、着手指示から確定までの窓で
+  並行 start のコンフリクトチェックが互いを観測できず素通りする **TOCTOU** があった。claim をチェックより
+  前に置くことで窓が「ロック下の一瞬」に縮み、並行 start が互いを必ず in-progress として観測できる。
+  二重着手ガード (既に in-progress ならエラー。`--force` / 同一 `--session` で通す) と、
+  `--release [--to todo|blocked|review|done]` (着手取りやめ時の戻し) を持つ。`alloc-id` と同じ
+  `.alloc.lock` を共有する。frontmatter の既知キーだけを行単位で書き換え、本文・進捗ログ・コメントは保全。
+
 ### Changed
+
+- skill (`/agent-tasks`): start の手順を「タスク特定 → **claim** → コンフリクトチェック → worktree →
+  残り frontmatter → session-link」に組み替えた (上記 claim による TOCTOU 解消)。二重着手チェックと
+  in-progress 確定は claim が一括で担い、コンフリクトで取りやめる場合は `claim --release` で戻す。
 
 - skill (`/agent-tasks`): start 着手時の `session-rename` を **手順 0 (最初)** に引き上げ、
   「`start <NNNN>` を受けたら、タスク内容の取得・チェックより前に**まず** `agent-tasks session-rename <NNNN>`

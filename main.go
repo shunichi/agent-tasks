@@ -150,6 +150,8 @@ func dispatch(args []string) error {
 		return cmdCompletionValues(args)
 	case "alloc-id":
 		return cmdAllocID(args)
+	case "claim":
+		return cmdClaim(args)
 	case "archive":
 		return cmdArchive(args)
 	case "auto-archive":

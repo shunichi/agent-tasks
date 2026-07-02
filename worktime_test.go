@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -133,12 +134,12 @@ func TestTaskWorktime(t *testing.T) {
 	}
 	task := Task{Project: "proj", ID: "0001", Worktree: "../proj--0001",
 		StartedAt: tm("10:05").Format(time.RFC3339), CompletedAt: tm("10:30").Format(time.RFC3339)}
-	ivs, total, gotSID, ok, err := taskWorktime(task, tm("12:00"))
+	ivs, total, gotSIDs, ok, err := taskWorktime(task, tm("12:00"))
 	if err != nil || !ok {
 		t.Fatalf("taskWorktime: ok=%v err=%v", ok, err)
 	}
-	if gotSID != sid {
-		t.Errorf("session_id = %q, want %q", gotSID, sid)
+	if len(gotSIDs) != 1 || gotSIDs[0] != sid {
+		t.Errorf("session_ids = %v, want [%q]", gotSIDs, sid)
 	}
 	// [10:00,10:10]→[10:05,10:10]=5m, [10:20,10:35]→[10:20,10:30]=10m。合計 15m。
 	if total != 15*time.Minute {
@@ -148,6 +149,87 @@ func TestTaskWorktime(t *testing.T) {
 	if _, _, _, ok, _ := taskWorktime(Task{Worktree: "../proj--9999"}, tm("12:00")); ok {
 		t.Error("link 無しで ok=true")
 	}
+}
+
+// TestTaskWorktimeMultiSession は中断→別セッション再開で両セッションの working が合算される
+// ことを確認する (0102 の主眼)。
+func TestTaskWorktimeMultiSession(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	// セッション A: 10:00–10:20 working (中断前)。
+	appendWorktimeEvent("sess-A", sessWorking, tm("10:00"))
+	appendWorktimeEvent("sess-A", sessEnded, tm("10:20"))
+	// セッション B: 14:00–14:30 working (別セッションで再開)。
+	appendWorktimeEvent("sess-B", sessWorking, tm("14:00"))
+	appendWorktimeEvent("sess-B", sessWaiting, tm("14:30"))
+
+	// 同じタスクを 2 セッションで link (start → 中断 → 別セッションで再 start を模す)。
+	writeSessionLink("proj--0001", "sess-A", tm("10:00"))
+	writeSessionLink("proj--0001", "sess-B", tm("14:00"))
+
+	task := Task{Project: "proj", ID: "0001", Worktree: "../proj--0001",
+		StartedAt: tm("09:00").Format(time.RFC3339), CompletedAt: tm("15:00").Format(time.RFC3339)}
+	ivs, total, sids, ok, err := taskWorktime(task, tm("15:00"))
+	if err != nil || !ok {
+		t.Fatalf("taskWorktime: ok=%v err=%v", ok, err)
+	}
+	if len(sids) != 2 {
+		t.Errorf("session_ids = %v, want 2 件", sids)
+	}
+	// A=20m + B=30m = 50m。
+	if total != 50*time.Minute {
+		t.Errorf("合算 working = %v, want 50m (%v)", total, ivs)
+	}
+	if len(ivs) != 2 {
+		t.Errorf("区間数 = %d, want 2 (%v)", len(ivs), ivs)
+	}
+}
+
+// TestSessionLinkBackwardCompat は旧形式 (単一 session_id、Sessions 無し) の link.json を
+// 読めること、再 link で Sessions へ正規化されて履歴が積まれることを確認する。
+func TestSessionLinkBackwardCompat(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	dir := sessionStateDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 旧形式を手で書く (Sessions フィールド無し)。
+	old := `{"session_id":"old-sess","updated":"2026-07-02T10:00:00+09:00"}`
+	if err := os.WriteFile(filepath.Join(dir, "proj--0001.link.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l, ok := readSessionLink("proj--0001")
+	if !ok || l.SessionID != "old-sess" {
+		t.Fatalf("旧形式が読めない: %+v ok=%v", l, ok)
+	}
+	if ids := linkSessionIDs(l); len(ids) != 1 || ids[0] != "old-sess" {
+		t.Errorf("旧形式の linkSessionIDs = %v, want [old-sess]", ids)
+	}
+	// 再 link で履歴が積まれ、最新が new-sess になる。
+	if err := writeSessionLink("proj--0001", "new-sess", tm("14:00")); err != nil {
+		t.Fatal(err)
+	}
+	l2, _ := readSessionLink("proj--0001")
+	if l2.SessionID != "new-sess" {
+		t.Errorf("最新 = %q, want new-sess", l2.SessionID)
+	}
+	ids := linkSessionIDs(l2)
+	if len(ids) != 2 || !slices.Contains(ids, "old-sess") || !slices.Contains(ids, "new-sess") {
+		t.Errorf("履歴 = %v, want [old-sess new-sess]", ids)
+	}
+	// 同一セッションの再 link は重複しない。
+	writeSessionLink("proj--0001", "new-sess", tm("15:00"))
+	if ids := linkSessionIDs(mustReadLink(t, "proj--0001")); len(ids) != 2 {
+		t.Errorf("重複した: %v", ids)
+	}
+}
+
+func mustReadLink(t *testing.T, key string) sessionLink {
+	t.Helper()
+	l, ok := readSessionLink(key)
+	if !ok {
+		t.Fatalf("link 読めない: %s", key)
+	}
+	return l
 }
 
 // TestSessionHookLogsTransitionsOnly は hook が「状態が変わった時だけ」ログに追記することを確認する。

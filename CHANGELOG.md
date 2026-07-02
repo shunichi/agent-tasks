@@ -23,7 +23,15 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+### Changed
+
+- worktime を**マルチセッション対応**にした。タスクを中断→**別セッションで再開**しても、そのタスクが
+  使った**全セッションの working を合算**する (従来は最後に link したセッション分しか集計されなかった)。
+  - session-link (`<key>.link.json`) がセッションを**履歴 (Sessions 配列) として蓄積**するようにした
+    (同一セッションの再 link は重複させない)。旧形式 (単一 session_id) も読める (後方互換)。
+  - `worktime` は link された全セッションの区間を union し、`[started_at, completed_at]` 窓でクリップ→
+    重なりをマージして合算。並行タスク (別セッション) の時間は混ざらない。`--json` に `session_ids` を追加。
+  - `session-prune` の参照判定を全 link セッションに拡張 (生存タスクのログを誤って掃除しない)。
 
 ## 2026-07-02
 

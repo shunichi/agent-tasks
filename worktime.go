@@ -140,9 +140,44 @@ func taskWorktime(t Task, now time.Time) (ivs []timeInterval, total time.Duratio
 	return ivs, sumIntervals(ivs), sessionIDs, true, nil
 }
 
-// cmdWorktime は `worktime [<project>] <id> [--json]`。タスクの実稼働時間と稼働区間を表示する。
+// taskWorktimeResult は 1 タスクの集計結果 (横断集計・可視化の共通データ)。
+type taskWorktimeResult struct {
+	Project    string
+	ID         string
+	Title      string
+	Status     string
+	SessionIDs []string
+	Intervals  []timeInterval
+	Total      time.Duration
+}
+
+// collectWorktimes は複数タスクの実稼働をまとめて集計する (worktime --all / serve のタイムライン用)。
+// 稼働区間のあるタスクだけを返す (link 無し・記録なしは除く)。入力順 (project→id) を保つ。
+func collectWorktimes(tasks []Task, now time.Time) ([]taskWorktimeResult, error) {
+	var out []taskWorktimeResult
+	for _, t := range tasks {
+		ivs, total, sids, ok, err := taskWorktime(t, now)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || len(ivs) == 0 {
+			continue
+		}
+		out = append(out, taskWorktimeResult{
+			Project: t.Project, ID: normalizeID(t.ID), Title: displayTitle(t), Status: t.Status,
+			SessionIDs: sids, Intervals: ivs, Total: total,
+		})
+	}
+	return out, nil
+}
+
+// cmdWorktime は `worktime [<project>] <id> [--json]` (1 タスク) と
+// `worktime --all [scope] [--json]` (スコープ内全タスクを横断集計) を扱う。
 func cmdWorktime(args []string) error {
 	jsonOut := false
+	allTasks := false
+	var filterProjects []string
+	allProjects := false
 	s := newArgScan(args)
 	for {
 		a, ok := s.token()
@@ -152,10 +187,44 @@ func cmdWorktime(args []string) error {
 		switch a {
 		case "--json":
 			jsonOut = true
+		case "--all":
+			allTasks = true
+		case "--project":
+			v, err := s.value("--project")
+			if err != nil {
+				return err
+			}
+			filterProjects = append(filterProjects, v)
+		case "--projects":
+			v, err := s.value("--projects")
+			if err != nil {
+				return err
+			}
+			filterProjects = append(filterProjects, splitProjects(v)...)
+		case "--all-projects":
+			allProjects = true
 		default:
 			s.positional(a)
 		}
 	}
+	now := time.Now()
+
+	if allTasks {
+		// スコープ内の全タスク (done 含む) を集計。スコープは list と同じ規則。
+		rows, _, _, err := selectTasks("", filterProjects, true, allProjects, false, "", false, "")
+		if err != nil {
+			return err
+		}
+		results, err := collectWorktimes(rows, now)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			return printWorktimeAllJSON(results)
+		}
+		return printWorktimeAllHuman(results)
+	}
+
 	project, id, err := resolveProjectID(s.rest())
 	if err != nil {
 		return err
@@ -168,7 +237,6 @@ func cmdWorktime(args []string) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
 	ivs, total, sessionIDs, ok, err := taskWorktime(t, now)
 	if err != nil {
 		return err
@@ -251,4 +319,57 @@ func printWorktimeJSON(t Task, ivs []timeInterval, total time.Duration, sessionI
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+// resultToJSON は横断集計の 1 タスクを JSON 形へ (worktime --all --json の要素)。
+func resultToJSON(r taskWorktimeResult) worktimeJSON {
+	out := worktimeJSON{
+		Project:        r.Project,
+		ID:             r.ID,
+		Title:          r.Title,
+		SessionIDs:     r.SessionIDs,
+		Linked:         true,
+		WorkingSeconds: int64(r.Total.Seconds()),
+		WorkingHuman:   humanizeDuration(r.Total),
+		Intervals:      make([]worktimeIntervalJSON, 0, len(r.Intervals)),
+	}
+	for _, iv := range r.Intervals {
+		out.Intervals = append(out.Intervals, worktimeIntervalJSON{
+			Start:   iv.Start.Format(time.RFC3339),
+			End:     iv.End.Format(time.RFC3339),
+			Seconds: int64(iv.End.Sub(iv.Start).Seconds()),
+		})
+	}
+	return out
+}
+
+// printWorktimeAllJSON は横断集計を JSON 配列で出す (可視化 Web アプリの入力にできる形)。
+func printWorktimeAllJSON(results []taskWorktimeResult) error {
+	arr := make([]worktimeJSON, 0, len(results))
+	for _, r := range results {
+		arr = append(arr, resultToJSON(r))
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(arr)
+}
+
+// printWorktimeAllHuman は横断集計を「実稼働の多い順」の要約で出す。
+func printWorktimeAllHuman(results []taskWorktimeResult) error {
+	if len(results) == 0 {
+		fmt.Println("実稼働の記録があるタスクはありません (この機能の導入後に着手したタスクから記録されます)")
+		return nil
+	}
+	sorted := append([]taskWorktimeResult(nil), results...)
+	slices.SortFunc(sorted, func(a, b taskWorktimeResult) int { return int(b.Total - a.Total) })
+	var grand time.Duration
+	for _, r := range sorted {
+		grand += r.Total
+	}
+	fmt.Printf("実稼働の合計: %s  (%d タスク)\n", humanizeDuration(grand), len(sorted))
+	for _, r := range sorted {
+		fmt.Printf("  %s/%s  %s  (%d 区間)  %s\n",
+			r.Project, r.ID, humanizeDuration(r.Total), len(r.Intervals), r.Title)
+	}
+	return nil
 }

@@ -37,6 +37,8 @@ agent-tasks statusline --print-config # 実行中タスクを出す status line 
 agent-tasks completion bash      # bash 補完スクリプトを stdout 出力 (zsh も可)
 agent-tasks alloc-id --slug foo  # タスク id を原子的に採番し予約ファイルを作成、絶対パスを stdout 出力
 agent-tasks alloc-id --slug foo --project webapp --pull # project 指定 + 採番前にストアを pull --rebase
+agent-tasks claim 0001           # 着手時に in-progress をロック下で原子的に予約 (start の TOCTOU 回避)
+agent-tasks claim 0001 --release # 予約を取り消し todo に戻す (--to blocked 等で戻し先指定も可)
 agent-tasks where                # データディレクトリのパス
 agent-tasks version              # ビルド元の commit + CalVer (--version / -V も可)
 ```
@@ -47,6 +49,16 @@ agent-tasks version              # ビルド元の commit + CalVer (--version / 
 セッション間の id 衝突 (TOCTOU) を確実に防ぐ。別マシン間の衝突は git の性質上残るため、`doctor` の
 重複検査をフォールバックとして併用する (`--pull` で採番前にストアを最新化すれば軽減できる)。
 `--slug` は英小文字・数字・ハイフンのみ。project 省略時は現在 project。
+
+`claim` は skill の start が使う「着手予約」機構。`alloc-id` と同じ project ロック下で「タスクを読む →
+二重着手をレースなく判定 → `status: in-progress`/`agent`/`started_at`(未設定時)/`updated` を書き戻す」を
+原子的に行う。旧 start は in-progress の確定が worktree 作成の後だったため、着手指示から確定までの窓で
+並行 start のコンフリクトチェックが互いを観測できず素通りする TOCTOU があった。claim をチェックより前に
+置くことで窓が「ロック下の一瞬」に縮む。既に in-progress なら**エラーで止まる**(二重着手ガード=fail-safe。
+引き継ぎ/再着手は `--force`、同一 `--session` は自動で通る)。`blocked_at`/`blocked_reason`/`completed_at`
+は落とすので blocked 再開・done 再オープンも 1 操作で正せる。frontmatter の既知キーだけを行単位で書き換え、
+本文・進捗ログ・コメントは保全する。`--release`(既定 todo、`--to todo|blocked|review|done` で戻し先指定)は
+コンフリクトで着手を取りやめるとき予約を戻す。
 
 既定では**現在のコードリポジトリ (project) のタスクだけ**を表示する。横断したいときは
 `--all-projects`、別 project を見たいときは `--project <name>` を使う。現在 project は cwd の

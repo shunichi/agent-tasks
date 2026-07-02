@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-02
+
 ### Added
 
 - タスクの**実稼働時間**を記録・集計できるようにした (Phase 1: 記録 + CLI)。
@@ -34,10 +38,6 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   - タスクへの帰属は session-link (task↔session_id) + タスクの `[started_at, completed_at]` 窓クリップ。
   - `session-prune` が未参照・古い worktime ログも掃除対象にするよう拡張。
   - 記録はマシンローカル (state dir)。稼働区間の可視化 Web アプリは Phase 2 (別 PR) 予定。
-
-## 2026-07-02
-
-### Added
 
 - `serve` を Cloudflare Tunnel + Access で公開する詳細手順を独立ページ
   **`docs/serve-cloudflare-tunnel.md`** として追加 (実運用手順を一般化: cloudflared ログイン /

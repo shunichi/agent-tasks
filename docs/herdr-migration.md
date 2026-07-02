@@ -164,12 +164,54 @@ main 版の symlink・skill・補完に一切触れないようにする。Makef
 6. **[要調査] コスト計測の herdr 連携 (0101)** — herdr が保持する transcript_path を CLI で引けるか
    (herdr 側の機能要望 or 内部保持の利用術) を調べ、自前探索を置換できるか判断。
 
+## 状態検出/イベントの実機検証 (0107)
+
+0109 (状態検出移行) の前提として、push 機構を実 herdr で検証した (スクラッチ pane + `report-agent` で
+状態を注入し、`wait` / `events.subscribe` の反応を実測)。
+
+### 状態の任意注入 — `pane report-agent`
+- `herdr pane report-agent <pane> --source <id> --agent <label> --state idle|working|blocked|unknown`
+  で**任意の状態を注入でき、`agent get` に反映される** (Claude でない shell pane でも付く)。
+  manifest 検出とは別経路の「報告」。agent-tasks が能動的に状態を出したいとき (将来) に使える。
+
+### `wait agent-status` (CLI push、単発待ち)
+- **マッチ時に `pane.agent_status_changed` イベント JSON を stdout に返す** (例:
+  `{"event":"pane.agent_status_changed","data":{"pane_id":"w3:p4","agent_status":"blocked","agent":"…"}}`)。
+- **現在値にも即マッチ**する (既に blocked なら待たずに exit 0)。状態変化だけでなく現状確認にも使える。
+- **タイムアウトは exit 1** + `timed out waiting for agent status change`。→ 0106 の `herdrWaitAgentStatus`
+  はこのエラーで判定でき、そのまま使える。
+
+### `events.subscribe` (socket stream、全体監視向け)
+- CLI コマンドは無く **socket (`$HERDR_SOCKET_PATH`) の JSON-RPC メソッド**。
+  `{"id":…,"method":"events.subscribe","params":{"subscriptions":[ <Subscription>… ]}}`。
+- **Subscription は内部タグ付きオブジェクト** `{"type":"<event 名>", …固有フィールド}` (文字列ではない)。
+  `pane.agent_status_changed` は **`pane_id` 必須 = pane 単位購読**。`pane.created`/`pane.closed` 等は
+  pane_id 不要 (全体)。購読成功で `{"result":{"type":"subscription_started"}}` が返り、以降イベントが stream。
+- **購読可能イベント全 20 種** (実測): `workspace.{created,updated,renamed,closed,focused}` /
+  `worktree.{created,opened,removed}` / `tab.{created,closed,focused,renamed}` /
+  `pane.{created,closed,focused,moved,exited,agent_detected,output_matched,agent_status_changed}`。
+- 受信イベントの `event` 名はドット形 (`pane.agent_status_changed`) だが、pane ライフサイクル系は
+  `data.type` がアンダースコア形 (`pane_created`) の場合がある (両表記が混在。パース時は data を見る)。
+- 実測: `w3:p4` の working→idle→blocked→idle を注入 → 4 遷移すべて push 受信。
+- **0109 への含意**: 1 pane の完了/ブロック待ちは `wait agent-status` (CLI) で十分。`list --watch` のような
+  全セッション監視は `events.subscribe` に `pane.created`/`closed` で pane 集合を追い、各 pane に
+  `agent_status_changed` を per-pane 購読する構成になる (socket 直叩きが必要)。
+
+### blocked の実発火 (要検証#1) — 部分確認
+- manifest の blocked ルール (`bash_permission_prompt`="do you want to proceed?" 等) は 0105 で確認済み。
+  working スピナー (OSC タイトル) 稼働中は working が優先され、スピナーが消える承認待ちで blocked ルールが
+  勝つ設計。**push 経路 (blocked への遷移を wait/subscribe で拾えること) は 0107 で実測済み**。
+- **未実施**: 実際の Claude 許可プロンプトを発生させた end-to-end の blocked 発火。確実に起こすには
+  テスト用 Claude セッションを spawn して非許可コマンドを走らせる必要があり、対話・トークンコストを伴う。
+  → **opportunistic に確認**する (実運用で承認待ちが出たとき `agent get`/`wait` で blocked を確認)。
+  0109 は push 機構が確定しているので、この点を残したまま着手してよい (blocked 判定自体は manifest 依存で
+  herdr 側の責務)。
+
 ## 残課題・未検証
 
 - **要検証#6 の一部未実施**: リモート SSH (`herdr --remote`)・スマホ attach の実用性。
-- **blocked の実発火テスト未実施**: 本メモは `agent explain` のルール定義から判定。実際に承認待ちを
-  発生させて `wait agent-status --status blocked` が返るかは後続 (優先順位 5)。
-- **`events.subscribe` の実挙動未確認**: push 購読の CLI/socket 経路を実測していない。
+- **blocked の実発火 end-to-end 未実施**: 上記のとおり push 経路は実測済み。実 Claude 承認プロンプトでの
+  発火は opportunistic 確認に回す。
 - **`TMUX` 併存の意味**: herdr が tmux をどう使っているか (共存/内包) を確認し、移行後に tmux 由来の
   前提が残るかを詰める。
 - **claude.ai URL 突合**: ローカル UUID ↔ `session_<base62>` URL の対応は herdr でも解決しない。

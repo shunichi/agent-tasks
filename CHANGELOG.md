@@ -40,6 +40,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   空セクションは出さない。
 - `agent-tasks serve` の各状態セクション内を、さらに **project 別のサブグループ**に分けて表示する
   (project 名の小見出し + 件数)。合わせて、タスク特定に重要な **ID を目立つ色 (太字・金色)** にした。
+- `agent-tasks serve` の **project 名サブ見出しを目立つ色 (明るいシアン・太字)** にした
+  (従来は薄グレーで埋もれていた。▸ マーカーも同色に)。project の切れ目が一目で分かるようにする。
 - `agent-tasks serve` のカードに **「アプリで開く」リンク** (`claude://code/<session-id>` の
   ディープリンク) を追加。`session:` が claude.ai の Claude Code セッション URL のとき、
   タップで Claude アプリ (スマホ/デスクトップ) を直接開ける。従来の https リンクは「web」として

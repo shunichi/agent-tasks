@@ -379,7 +379,7 @@ const dashHTML = `<!doctype html>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --card: #1d222b; --border: #2a2f3a;
-    --fg: #e6e8ec; --dim: #8b93a1; --accent: #4a9eff;
+    --fg: #e6e8ec; --dim: #8b93a1; --accent: #4a9eff; --proj: #4dd6c1;
   }
   * { box-sizing: border-box; }
   body {
@@ -409,11 +409,11 @@ const dashHTML = `<!doctype html>
   section h2 .cnt { color: var(--dim); font-weight: 400; }
   .proj-group { margin: 0 0 0.6rem; }
   h3.proj {
-    font-size: 0.78rem; color: var(--dim); font-weight: 600;
+    font-size: 0.85rem; color: var(--proj); font-weight: 700; letter-spacing: 0.02em;
     margin: 0.5rem 0.25rem 0.35rem; display: flex; align-items: center; gap: 0.35rem;
   }
-  h3.proj::before { content: "▸"; color: var(--border); }
-  h3.proj .cnt { color: var(--border); font-weight: 400; }
+  h3.proj::before { content: "▸"; color: var(--proj); }
+  h3.proj .cnt { color: var(--dim); font-weight: 400; }
   .card {
     background: var(--card); border: 1px solid var(--border);
     border-left: 3px solid var(--border);

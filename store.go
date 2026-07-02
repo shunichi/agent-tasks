@@ -40,6 +40,12 @@ type Task struct {
 	// 記録する (store → issue の一方向)。1 タスク 1 issue (共有用途には単一で足りる)。
 	Issue string
 
+	// このタスクにかかった Claude のトークン消費/概算コストの 1 行サマリ (任意)。
+	// `agent-tasks cost <id> --record` が Claude Code のローカル transcript を集計して記録する。
+	// transcript はローカルの揮発データなので、消えても後から参照できるよう frontmatter に残す。
+	// 中身は人間可読な目安 (サブスク利用時は実請求額とは別)。frontmatter では cost: で表す。
+	Cost string
+
 	// このタスクに関連する外部 issue tracker / 課題管理の URL (任意、複数可)。prs: (PR 専用) とは
 	// 別枠で、任意のホストの関連 URL を汎用に保持する (特定サービス非依存)。frontmatter では
 	// tracker: の YAML ブロックリストで表す。
@@ -481,6 +487,8 @@ func parseTask(path string) (Task, error) {
 			t.Session = val
 		case "issue":
 			t.Issue = val
+		case "cost":
+			t.Cost = val
 		case "branch":
 			t.Branch = val
 		case "worktree":

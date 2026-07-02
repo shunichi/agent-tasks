@@ -35,6 +35,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   completed_at 付け忘れ・blocked_* 消し忘れ・日付推測ミスを防ぐ。worktree 撤去・PR 作成・進捗ログ追記・
   `prs:` (ブロックリスト) 追記は従来どおり skill 側が担う。(#0002)
 
+- `agent-tasks cost [<project>] <id>` を追加。タスクごとの **Claude トークン消費 / 概算コスト**を、
+  Claude Code のローカル transcript (JSONL) から集計する。既存の session-link (session_id) で
+  タスク⇄セッションを解決し、`started_at`..`completed_at` の時間窓で usage を合算 (batch でセッションを
+  使い回しても切り分け)、同一 message.id の重複行は 1 度だけ数える。トークン内訳 (入力/出力/キャッシュ
+  読取/書込) とモデル別価格での概算コスト ($) を表示。`--json` で機械可読、`--record` で frontmatter
+  `cost:` に 1 行サマリを保存 (transcript は揮発データなので消えても残る)。`show` の末尾と list/show の
+  `--json` にも `cost:` を表示。サブスク (Pro/Max) 利用時は「API 換算の目安」で実請求額とは別。
+  依存を増やさず `net/http` 不要・標準ライブラリのみ。
 - 稼働区間の**可視化タイムライン**を追加 (worktime Phase 2)。
   - `agent-tasks serve` に **`/worktime`** ルートを追加。各タスクの稼働区間を**日 × 時刻 (0–24h) の帯**で
     俯瞰する自己完結ページ (外部依存なし。タスク色分け + 凡例 + 日別/タスク別合計)。ダッシュボード (`/`)

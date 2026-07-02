@@ -164,6 +164,8 @@ func dispatch(args []string) error {
 		return cmdUnarchive(args)
 	case "issue":
 		return cmdIssue(args)
+	case "cost":
+		return cmdCost(args)
 	case "report":
 		return cmdReport(args)
 	case "worktime":
@@ -278,6 +280,10 @@ USAGE:
   agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
                                      (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
                                      --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要
+  agent-tasks cost [<project>] <id> [--json] [--record]  タスクの Claude トークン消費/概算コストを
+                                     Claude Code のローカル transcript から集計 (started_at..completed_at の
+                                     窓で集計。--json で機械可読、--record で frontmatter cost: に 1 行記録)。
+                                     サブスク利用時は「API 換算の目安」で実請求とは別
   agent-tasks where                  データディレクトリのパスを表示
   agent-tasks version | --version | -V  ビルド元の commit + CalVer を表示 (タグ運用なし)
   agent-tasks help | -h | --help     このヘルプ
@@ -881,6 +887,9 @@ func cmdShow(args []string) error {
 			footers = append(footers, s)
 		}
 		if s := trackerSummary(t, c); s != "" {
+			footers = append(footers, s)
+		}
+		if s := costSummary(t, c); s != "" {
 			footers = append(footers, s)
 		}
 		if s := timestampSummary(t, time.Now(), c); s != "" {

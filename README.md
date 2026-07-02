@@ -82,6 +82,7 @@ agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ
 agent-tasks auto-archive --dry-run          # 完了後 N 日 (既定 30) 超の done を一括退避 (対象確認)
 agent-tasks auto-archive --older-than 60    # 完了後 60 日超の done を一括退避 (--dry-run を外すと実行)
 agent-tasks unarchive 0001       # 退避したタスクを元に戻す
+agent-tasks cost 0001            # タスクの Claude トークン消費/概算コストを集計 (--json / --record)
 agent-tasks issue 0001           # タスクを GitHub issue として共有 (起票/本文更新。要 gh)
 agent-tasks issue 0001 --repo owner/repo  # 作成先 repo を明示 (省略時は cwd から推論)
 agent-tasks status               # ストアの未同期状態を1行表示

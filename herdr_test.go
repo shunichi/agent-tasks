@@ -169,6 +169,8 @@ func TestHerdrActionArgs(t *testing.T) {
 			[]string{"pane", "run", "w3:p1", "echo hi"}},
 		{"rename", func() error { return herdrAgentRename("w3:p1", "task 0106") },
 			[]string{"agent", "rename", "w3:p1", "task 0106"}},
+		{"send-keys", func() error { return herdrPaneSendKeys("w3:p1", "Enter") },
+			[]string{"pane", "send-keys", "w3:p1", "Enter"}},
 		{"wait", func() error { return herdrWaitAgentStatus("w3:p1", "blocked", 3000) },
 			[]string{"wait", "agent-status", "w3:p1", "--status", "blocked", "--timeout", "3000"}},
 		{"wait-no-timeout", func() error { return herdrWaitAgentStatus("w3:p1", "idle", 0) },

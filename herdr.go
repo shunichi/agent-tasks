@@ -198,6 +198,15 @@ func herdrPaneRun(pane, command string) error {
 	return err
 }
 
+// herdrPaneSendKeys は pane にキー (名前付きキー含む) を送る。例: send-keys で Enter を押す。
+// send-text (リテラル) と組み合わせて「文字列を入れてから Enter」を実現する
+// (session-rename が /rename を打ち込むのに使う)。
+func herdrPaneSendKeys(pane string, keys ...string) error {
+	args := append([]string{"pane", "send-keys", pane}, keys...)
+	_, err := herdrRun(args...)
+	return err
+}
+
 // --- 待機 ---
 
 // herdrWaitAgentStatus は pane の agent 状態が status になるまでブロックする。

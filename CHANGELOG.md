@@ -29,6 +29,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ### Added
 
+- `done` / `block` サブコマンドを追加。skill の done/block 手順のうち frontmatter の scalar キー確定
+  (done: `status`=done/review + `completed_at` (初回のみ) + blocked_* の削除、block: `status`=blocked +
+  `blocked_at` + `blocked_reason`) を、`claim` と同じく project ロック下で決定的に行う。LLM の手編集による
+  completed_at 付け忘れ・blocked_* 消し忘れ・日付推測ミスを防ぐ。worktree 撤去・PR 作成・進捗ログ追記・
+  `prs:` (ブロックリスト) 追記は従来どおり skill 側が担う。(#0002)
+
 - 稼働区間の**可視化タイムライン**を追加 (worktime Phase 2)。
   - `agent-tasks serve` に **`/worktime`** ルートを追加。各タスクの稼働区間を**日 × 時刻 (0–24h) の帯**で
     俯瞰する自己完結ページ (外部依存なし。タスク色分け + 凡例 + 日別/タスク別合計)。ダッシュボード (`/`)

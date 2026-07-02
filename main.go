@@ -152,6 +152,10 @@ func dispatch(args []string) error {
 		return cmdAllocID(args)
 	case "claim":
 		return cmdClaim(args)
+	case "done":
+		return cmdDone(args)
+	case "block":
+		return cmdBlock(args)
 	case "archive":
 		return cmdArchive(args)
 	case "auto-archive":
@@ -245,6 +249,13 @@ USAGE:
                                      タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
+                                     done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
+                                     --review は status=review (completed_at は付けない)。blocked_* は落とす。
+                                     worktree 撤去・PR 作成・進捗ログ追記は skill 側が担う
+  agent-tasks block [<project>] <id> --reason <理由>  保留の frontmatter を確定 (skill の block 手順が
+                                     呼ぶ)。status=blocked + blocked_at (現在時刻) + blocked_reason。
+                                     --reason 必須 (一覧に表示する保留理由)
   agent-tasks archive [<project>] <id>   タスクを <project>/archive/ へ退避 (削除しない)。通常の
                                      list / -a / doctor に出なくなる。閲覧は list/show の --archived
   agent-tasks auto-archive [--older-than <days>] [--project <name>|--all-projects] [--dry-run]

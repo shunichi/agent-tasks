@@ -33,9 +33,10 @@
   `pane.report_agent_session` を呼び、`agent_session_id` (= `session_id`) と
   **`agent_session_path` (= transcript の JSONL パス)** を herdr に報告する。状態自体は screen manifest 検出由来
   (タスクの前提どおり)。
-- → **herdr は transcript_path を内部的に把握している**。タスク 0101 (per-task コスト計測、現状は
-  transcript JSONL を自前探索) は、herdr 経由で transcript パスを引ける余地がある (現状 CLI の
-  `agent get` は path を surface していないが、内部保持はしている = 将来の統合点)。
+- → herdr の hook は transcript_path を herdr に**報告**するが、**引き出す read API は無い** (0112 で確定)。
+  socket 全 76 メソッドを確認: `pane.report_agent_session` は書き込み専用で、`agent.get`/`pane.get` の
+  agent_session は session_id (value) のみ・path を返さない。→ **コスト計測 (0101) は現状維持** (cost.go は
+  session_id だけで `<claudeProjectsDir>/*/<sid>.jsonl` を glob しており堅牢。herdr で置換する利点なし)。
 - **working/idle 検出は OSC タイトル駆動が最優先** (`osc_title_working` 優先度 1100 = 点字スピナー
   `⠂`、`osc_title_idle` = `✳`)。tmux `capture-pane` が alt-screen で空になる問題 (0067) と異なり、
   herdr は OSC タイトル + 画面領域を alt-screen でも読める。
@@ -72,7 +73,7 @@
 | hook session_id ≠ claude.ai URL (0020/0027) | worktree basename で突合 | 統合が native session id (ローカル UUID) を pane に紐付け → 突合面が clean | **部分** (ローカル UUID↔claude.ai URL の差は残る) |
 | OSC52 が tmux 越しに届かない (0083) | 外部ツール優先 (xclip 等) | クリップボードブリッジは keybinding/プラグイン層で **CLI 書込コマンド無し** | **不変〜部分** (CLI 代替不可の見込み。外部ツール方式を継続) |
 | 端末タイトルが TUI に上書き (0037) | status line 方式に | herdr が自前ラベル/状態 UI (サイドバー) を持つ | **軽微改善** |
-| per-task コスト計測 API 無い (0101) | transcript JSONL 自前集計・揮発・目安表記 | herdr が **transcript_path を内部保持** (hook 経由)。CLI で surface されれば探索が楽に | **改善余地** (現状 CLI 未 surface。将来の統合点) |
+| per-task コスト計測 API 無い (0101) | transcript JSONL 自前集計・揮発・目安表記 | herdr は transcript_path を報告受けするが read API 無し (0112 で確定)。cost.go は session_id で glob 済 | **不変** (herdr で置換する利点なし。現状維持) |
 
 ## 設計方針: 全面移行 (案 A) を採用 (2026-07-02 合意)
 
@@ -161,8 +162,8 @@ main 版の symlink・skill・補完に一切触れないようにする。Makef
    `agent_session.value` + `HERDR_PANE_ID` に置換。session-link/statusline の特定経路を簡素化。
 5. **session-rename の herdr 化 (0085/0089/0092)** — send-keys `/rename` ハックを `herdr agent rename`
    に置換。claude.ai 側名称の穴は別問題として残す (herdr 内ラベルのみ正規化)。
-6. **[要調査] コスト計測の herdr 連携 (0101)** — herdr が保持する transcript_path を CLI で引けるか
-   (herdr 側の機能要望 or 内部保持の利用術) を調べ、自前探索を置換できるか判断。
+6. ~~コスト計測の herdr 連携 (0101)~~ **完了 (0112): 現状維持**。herdr に transcript_path の read API が
+   無いこと (socket 全 76 メソッド確認済) を確定。cost.go は session_id で glob しており置換不要。
 
 ## 状態検出/イベントの実機検証 (0107)
 

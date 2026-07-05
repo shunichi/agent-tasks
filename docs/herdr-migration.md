@@ -217,3 +217,48 @@ main 版の symlink・skill・補完に一切触れないようにする。Makef
   前提が残るかを詰める。
 - **claude.ai URL 突合**: ローカル UUID ↔ `session_<base62>` URL の対応は herdr でも解決しない。
   必要なら別経路 (transcript 内の情報等) を検討。
+
+## ドッグフード準備: env による確実な振り分け (0118)
+
+0113 で「別名バイナリ + 隔離 state dir」により**併存**はできたが、「**どちらの版が呼ばれるか**」は
+まだ環境非依存だった (skill は関連度選択、CLI 名は symlink の付け替え次第)。0118 でこれを確実にした。
+
+### 調査結果: skill 選択に env 連動の公式機構は無い
+
+`claude-code-guide` で確認: skill は description との関連度でモデルが選ぶのみで、環境変数や
+session 条件で自動有効/無効化する公式機構は無い (hook でも skill 呼び出し自体は拒否できない)。
+同目的の skill を2つ (`agent-tasks` / `agent-tasks-herdr`) 入れると選択が不確実になる
+→ **skill は常に1つに集約し、内部で env 分岐**する方針を採用 (「候補アプローチ」の 1+2)。
+
+### 実装: CLI はルーター、skill は1つに統合
+
+- **CLI の振り分け = PATH 解決によるルーター**。`$HOME/.local/agent-tasks-router/bin/agent-tasks`
+  (`scripts/agent-tasks-router.sh`) が `HERDR_ENV=1` なら `~/.local/bin/agent-tasks-herdr`、
+  そうでなければ `~/.local/bin/agent-tasks` (本体版) を絶対パスで `exec` する。ルーターのディレクトリを
+  `~/.local/bin` より前に PATH へ通す (`~/.zshrc` に1行追加。一度だけの手動セットアップ)。
+  絶対パス起動なので、本体版・herdr 版どちらの `make install` (symlink 張り替え) が何度走っても
+  ルーター自体は上書きされない。
+- **skill は常に `agent-tasks` の1つ**。herdr 版の Makefile を `SKILL_NAME := agent-tasks` に固定し
+  (バイナリ名 `agent-tasks-herdr` とは独立)、`~/.claude/skills/agent-tasks` を herdr worktree の
+  `skills/agent-tasks/SKILL.md` (env 分岐を内蔵した統合版) へ向ける。
+- **SKILL.md 本文の env 分岐が要るのは spawn だけ**。state 表示 (`list` の SESSION 列) と
+  session-rename は herdr 版 CLI 自体が `HERDR_ENV` を見て内部で herdr 経路/tmux フォールバックを
+  選ぶ (0109/0111 で実装済み) ので、ルーターが herdr 版へ振り向けた時点で自動的に正しく動く。
+  一方 **spawn は本体版に相当コマンドが無い** (tmux の raw コマンドが SKILL.md にしかない) ため、
+  SKILL.md 側で `$HERDR_ENV`/`$TMUX` を見て手順そのものを分岐させている。
+
+### 既知の制約: skill の canonical 名は「最後に install した方」が勝つ
+
+CLI ルーターと違い、skill 名の重複を避ける PATH 相当の機構は無い。**main worktree で
+`make install` を再実行すると `~/.claude/skills/agent-tasks` が本体版 (tmux 専用の旧内容) に
+巻き戻る** (main 側の Makefile は変更していない — herdr → main 未マージのため)。
+ドッグフード中に main 側で機能追加して `make install` した場合は、**herdr 永続 worktree
+(`agent-tasks--herdr`) で `make install` を再実行**すれば統合版に戻る (完全に自動化はしていない。
+将来 `doctor` 相当の検知を足すのは未着手の改善余地)。
+
+### herdr 用の永続 worktree
+
+タスクごとの worktree (`agent-tasks--NNNN`) は完了時に撤去されるため、herdr 版を継続ビルド/
+install する母艦として `../agent-tasks--herdr` (branch `herdr` を直接チェックアウト) を新設した。
+main の `../agent-tasks` (origin チェックアウト) に相当する、herdr 版の恒久的な作業ツリー。
+以後の herdr ブランチの `make install` はここから実行する。

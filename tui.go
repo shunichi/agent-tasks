@@ -742,9 +742,12 @@ func clampInt(v, lo, hi int) int {
 // 列幅・スタイル定義
 var (
 	tuiHeaderStyle = lipgloss.NewStyle().Bold(true)
-	tuiFooterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	// dim 系は ANSI faint (SGR 2) を使う。従来の固定色 Color("8") (bright black) は端末/テーマに
+	// よっては暗すぎて潰れる (ID・ヘッダーが読めない: 0126)。faint はデフォルト前景を減光するので
+	// 端末の配色に追従して読める。CLI 側 (render.go の dim = "\033[2m") とも揃う。
+	tuiFooterStyle = lipgloss.NewStyle().Faint(true)
+	tuiDimStyle    = lipgloss.NewStyle().Faint(true)
+	tuiSepStyle    = lipgloss.NewStyle().Faint(true)
 	tuiPointStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	tuiBoldStyle   = lipgloss.NewStyle().Bold(true)
 )
@@ -779,8 +782,10 @@ func (m *tuiModel) renderHeader() string {
 		done = "表示"
 	}
 	left := tuiHeaderStyle.Render("agent-tasks tui")
-	info := tuiDimStyle.Render(fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
-		scope, filt, done, len(m.rows), m.updated.Format("15:04:05")))
+	// ヘッダの状態情報 (scope/status/件数/時刻) はデフォルト前景で描く。ユーザーが読む情報なので
+	// dim にしない (bold のタイトルが先頭に立つので階層は保てる)。0126: 従来は dim で暗く読めなかった。
+	info := fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
+		scope, filt, done, len(m.rows), m.updated.Format("15:04:05"))
 	line := left + info
 	if m.searching || m.searchQuery != "" {
 		target := "title"
@@ -947,7 +952,8 @@ func (m *tuiModel) renderList() string {
 			line.WriteString(tuiDimStyle.Render(padDisp(t.Project, projW)))
 			line.WriteByte(' ')
 		}
-		line.WriteString(tuiDimStyle.Render(fmt.Sprintf("%-*s", tuiIDColW, t.ID)))
+		// ID は一覧の主キー。CLI の list と同様デフォルト前景で描く (dim にしない。0126)。
+		line.WriteString(fmt.Sprintf("%-*s", tuiIDColW, t.ID))
 		line.WriteByte(' ')
 		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", tuiStatusColW, t.Status)))
 		line.WriteByte(' ')

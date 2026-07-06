@@ -59,6 +59,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 - `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。
   SESSION 状態のマーカー・フォールバック (herdr 外・link 未記録時) としては存続する。
 
+### Fixed
+- `agent-tasks tui` のタスク ID・ヘッダーが暗くて読みづらい問題を修正 (#0126)。dim 表示に使っていた
+  固定色 `Color("8")` (bright black。端末/テーマによっては潰れる) を ANSI faint (SGR 2) に変更し、
+  端末の前景色に追従して読めるようにした (CLI 側の dim と同じ方式)。タスク ID は主キーなので
+  `list` と同様デフォルト前景で描き、ヘッダの状態情報も dim をやめた。
+
 ## 2026-07-02
 
 ### Added

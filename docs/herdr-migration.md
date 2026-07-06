@@ -41,6 +41,8 @@
   `⠂`、`osc_title_idle` = `✳`)。tmux `capture-pane` が alt-screen で空になる問題 (0067) と異なり、
   herdr は OSC タイトル + 画面領域を alt-screen でも読める。
 - agent-tasks 自身の `session-hook` と herdr の hook は**現在も並存**して動いている (settings.json に両方)。
+  ただし **worktime (実稼働ログ) の記録源は herdr プラグインの event hook に移行済み (0114)**。
+  session-hook はもう worktime を書かず、残る役割は SESSION 状態のマーカー・フォールバック (0109) のみ。
 
 ## CLI サーフェス (実機で確認したもの。移行の道具箱)
 
@@ -207,6 +209,50 @@ main 版の symlink・skill・補完に一切触れないようにする。Makef
   → **opportunistic に確認**する (実運用で承認待ちが出たとき `agent get`/`wait` で blocked を確認)。
   0109 は push 機構が確定しているので、この点を残したまま着手してよい (blocked 判定自体は manifest 依存で
   herdr 側の責務)。
+
+## worktime の herdr プラグイン化 (0114)
+
+worktime (実稼働時間) の記録源を Claude の `session-hook` から **herdr プラグインの event hook** に
+移した。これで状態ソースが herdr に一本化され、Claude 固有 hook への依存が worktime からも外れる
+(SESSION 状態は 0109 で herdr 化済み)。**常駐デーモンは不要** — herdr が状態遷移ごとに短命コマンドを
+起動する ephemeral モデル (session-hook と同型だが発火は herdr が管理)。
+
+### プラグイン (repo 同梱)
+
+- プラグイン root = **このリポジトリ自身**。manifest は root 直下の `herdr-plugin.toml`
+  (`id`/`name`/`version`/`min_herdr_version` + `[[events]]`)。
+- event hook: `on = "pane.agent_status_changed"` → `command = ["agent-tasks-herdr", "worktime-record"]`。
+- 0117 (tui overlay) が同じ manifest に `[[panes]]` ブロックを追記する想定 (1 プラグインに同居)。
+
+### イベント JSON の形 (実地確認済み)
+
+env `HERDR_PLUGIN_EVENT_JSON` で渡り、フィールドは **`data` 配下にネスト**する:
+
+```json
+{"event":"pane_agent_status_changed",
+ "data":{"type":"pane_agent_status_changed","pane_id":"w3:p8",
+         "workspace_id":"w3","agent_status":"working","agent":"claude"}}
+```
+
+⚠️ **session_id は含まれない**ので、`worktime-record` は `data.pane_id` から `herdr agent get <pane>`
+して `agent_session.value` を解決する。`agent_status` は `working`/`idle`/`blocked`/`done` を観測。
+`working` で区間を開き、それ以外で閉じる (worktime.go の `workingIntervals` は変更不要)。
+
+### 導入
+
+```sh
+herdr plugin link <このリポジトリ (or worktree) のパス>   # ローカル開発時
+# 導入用スニペットは `agent-tasks-herdr worktime-record --print-plugin` でも出る
+```
+
+記録先は progName 由来の隔離 state dir (`~/.local/state/agent-tasks-herdr/sessions/worktime/`)。
+稼働中の本体版 (`agent-tasks`) の worktime ログは壊さない (0113 の共存制約)。
+
+### session-hook との関係
+
+`session-hook` はもう worktime を書かない (0114 で追記を撤去。二重記録の解消)。SESSION 状態の
+マーカー・フォールバック (0109) としては当面存続する。**session-hook 自体の完全撤去は別タスク**
+(プラグインをドッグフードで十分検証してから)。
 
 ## 残課題・未検証
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -232,47 +231,7 @@ func mustReadLink(t *testing.T, key string) sessionLink {
 	return l
 }
 
-// TestSessionHookLogsTransitionsOnly は hook が「状態が変わった時だけ」ログに追記することを確認する。
-func TestSessionHookLogsTransitionsOnly(t *testing.T) {
-	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
-	cwd := t.TempDir() // 非 git → worktree マーカー経路はスキップ (git 不要)
-	sid := "hook-sess"
-	runHook := func(event string) {
-		in := fmt.Sprintf(`{"hook_event_name":%q,"session_id":%q,"cwd":%q}`, event, sid, cwd)
-		tmp := filepath.Join(t.TempDir(), "in.json")
-		if err := os.WriteFile(tmp, []byte(in), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		f, err := os.Open(tmp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		old := os.Stdin
-		os.Stdin = f
-		defer func() { os.Stdin = old; f.Close() }()
-		if err := cmdSessionHook(nil); err != nil {
-			t.Fatalf("hook %s: %v", event, err)
-		}
-	}
-	// working, working (変化なし), waiting, waiting (変化なし), working。
-	runHook("UserPromptSubmit") // working
-	runHook("PreToolUse")       // working (変化なし → 追記しない)
-	runHook("PostToolUse")      // working (変化なし)
-	runHook("Stop")             // waiting
-	runHook("Notification")     // notification_type 無し → state="" → 何もしない
-	runHook("SessionEnd")       // ended
-
-	evs, err := readWorktimeEvents(sid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantStates := []string{sessWorking, sessWaiting, sessEnded}
-	if len(evs) != len(wantStates) {
-		t.Fatalf("記録された遷移 = %d 件 %v, want %v (変化なしは記録しない)", len(evs), evs, wantStates)
-	}
-	for i, s := range wantStates {
-		if evs[i].State != s {
-			t.Errorf("遷移[%d] = %q, want %q", i, evs[i].State, s)
-		}
-	}
-}
+// worktime の記録源は herdr プラグインの event hook (worktime-record) に移行した (0114)。
+// 遷移のみ追記する挙動のテストは worktime_record_test.go
+// (TestWorktimeRecordDedupsConsecutiveSameState) に移した。session-hook はもう worktime を
+// 書かない (SESSION 状態のマーカーのみ)。

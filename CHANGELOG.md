@@ -25,6 +25,16 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+### Added
+- worktime (実稼働時間) の記録源を herdr プラグインの event hook に移行 (#0114)。同梱
+  `herdr-plugin.toml` (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)
+  を `herdr plugin link` で導入すると、herdr が状態遷移ごとに worktime ログを追記する。状態ソースが
+  herdr に一本化され、worktime が Claude 固有 hook に依存しなくなる。
+
+### Changed
+- `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。
+  SESSION 状態のマーカー・フォールバック (herdr 外・link 未記録時) としては存続する。
+
 ## 2026-07-02
 
 ### Added

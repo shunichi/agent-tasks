@@ -354,7 +354,10 @@ func appendWorktimeEvent(sessionID, state string, now time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	line, err := json.Marshal(worktimeEvent{Ts: now.Format(time.RFC3339), State: state})
+	// タイムスタンプは秒未満まで残す (RFC3339Nano)。herdr の状態遷移は Claude hook より高頻度で、
+	// 秒精度だと同一秒に複数遷移 (例: 承認プロンプト即時許可の blocked→working) が同じ ts になり、
+	// 読み出し時の整列で順序が壊れて dedup/区間復元を誤らせる。ナノ秒精度でこの衝突をほぼ無くす。
+	line, err := json.Marshal(worktimeEvent{Ts: now.Format(time.RFC3339Nano), State: state})
 	if err != nil {
 		return err
 	}
@@ -392,7 +395,10 @@ func readWorktimeEvents(sessionID string) ([]worktimeEvent, error) {
 		}
 		evs = append(evs, e)
 	}
-	slices.SortFunc(evs, func(a, b worktimeEvent) int {
+	// 安定ソート: ts が同値のイベント (同一秒/同一ナノ秒) は追記順 (= 実際の遷移順) を保つ。
+	// 非安定ソートだと同値キーが任意順に入れ替わり、lastWorktimeState や workingIntervals が
+	// 遷移順を誤認する。ログは append-only なので追記順が真の順序。
+	slices.SortStableFunc(evs, func(a, b worktimeEvent) int {
 		return parseSessionTime(a.Ts).Compare(parseSessionTime(b.Ts))
 	})
 	return evs, nil
@@ -660,15 +666,11 @@ func cmdSessionHook(args []string) error {
 	}
 	// (2) session_id キーのマーカー: 同一セッション start (cwd がメインリポのまま) でも、
 	// session-link が cwd で逆引きして紐づけられるよう、cwd とともに常に記録する。
+	//
+	// 注: worktime (実稼働ログ) の記録源は herdr プラグインの event hook (worktime-record) に
+	// 移した (0114)。session-hook はもう worktime を書かない (二重記録を避けるため)。ここに残る
+	// マーカー書込みは SESSION 状態の**フォールバック** (herdr 外・link 未記録時。0109) のためだけ。
 	if in.SessionID != "" {
-		// (2a) 実稼働ログ: 状態が「変わった」ときだけ遷移を追記する (worktime 集計の生データ)。
-		// 直前の状態は上書き前の sess マーカーから読む。working→working のような変化なしは
-		// 記録しない (PreToolUse/PostToolUse 等の高頻度発火で肥大化しないため)。
-		if prev, had := readSessionState(sessionMarkerKey(in.SessionID)); !had || prev.State != state {
-			if err := appendWorktimeEvent(in.SessionID, state, now); err != nil {
-				fmt.Fprintf(os.Stderr, "agent-tasks session-hook: worktime ログ追記失敗: %v\n", err)
-			}
-		}
 		st := sessionState{State: state, Updated: now.Format(time.RFC3339), Cwd: in.Cwd, SessionID: in.SessionID}
 		if err := writeSessionMarker(sessionMarkerKey(in.SessionID), st); err != nil {
 			fmt.Fprintf(os.Stderr, "agent-tasks session-hook: sess マーカー書込み失敗: %v\n", err)

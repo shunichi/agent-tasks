@@ -1,0 +1,24 @@
+# agent-tasks の herdr プラグイン。
+#
+# このリポジトリ (agent-tasks) 自身がプラグイン root になる。herdr へは
+#   herdr plugin link <このリポジトリのパス>
+# で導入する。manifest はプラグイン root 直下 (= go.mod と同じ階層) に置く決まり。
+#
+# 提供機能:
+#   - worktime 記録 (event hook) … pane の agent 状態遷移を worktime ログに追記する (0114)。
+#     これで実稼働時間の記録源が herdr に一本化され、Claude 固有の session-hook が不要になる。
+#   - (予定) tui overlay (pane) … 0117 が [[panes]] ブロックをここに追記する。1 つのプラグインに
+#     worktime 記録と tui popup を同居させ、導入 (plugin link) を 1 回で済ませる。
+#
+# command が呼ぶ agent-tasks-herdr は herdr 対応ビルド (別名バイナリ)。稼働中の本体版
+# (agent-tasks) と共存させるため名前を分けてある (progName 由来で state dir も分離。0113)。
+id = "agent-tasks"
+name = "agent-tasks"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+
+# pane の agent 状態が変わるたびに短命コマンドとして起動される。イベント JSON は
+# env HERDR_PLUGIN_EVENT_JSON で渡る (pane_id / agent_status を含むが session_id は含まない)。
+[[events]]
+on = "pane.agent_status_changed"
+command = ["agent-tasks-herdr", "worktime-record"]

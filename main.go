@@ -170,6 +170,8 @@ func dispatch(args []string) error {
 		return cmdReport(args)
 	case "worktime":
 		return cmdWorktime(args)
+	case "worktime-record":
+		return cmdWorktimeRecord(args)
 	case "open":
 		return cmdOpen(args)
 	case "where":

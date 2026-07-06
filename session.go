@@ -727,6 +727,69 @@ func detectSelfSessionID() (id, source string) {
 	return "", ""
 }
 
+// validWebSessionID は claude.ai の web セッション id (session_01... 形式) として妥当かを見る。
+// URL (https://claude.ai/code/<id>) に素で埋め込む (エンコード無し) ので英数字と _ のみ許す。
+func validWebSessionID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// detectSelfWebSessionURL は自セッションの claude.ai web URL を自動検出する。
+// CLAUDE_CODE_BRIDGE_SESSION_ID は Claude Code (v2.1.199+) が Remote Control 接続中だけ
+// export する web セッション id (session_01...)。herdr は Remote Control 経由で Claude を
+// 駆動するため herdr 内では設定される (素の tmux では設定されない)。detectSelfSessionID が
+// 返す UUID (状態突合用) とは別空間の id なので、ブラウザ/アプリで開くリンク用に別途取る。
+// env が無い (Remote Control 非接続) ときは ("", "")。
+func detectSelfWebSessionURL() (url, source string) {
+	if v := os.Getenv("CLAUDE_CODE_BRIDGE_SESSION_ID"); validWebSessionID(v) {
+		return "https://claude.ai/code/" + v, "CLAUDE_CODE_BRIDGE_SESSION_ID"
+	}
+	return "", ""
+}
+
+// setTaskSessionIfEmpty はタスク frontmatter の session: が空のときだけ val を書く
+// (project ロック下で再確認 → 手動記録や別セッションの記録を尊重する)。scalar キーのみ
+// 触る applyFrontmatterEdits を使うので本文・進捗ログ・コメントは保全される。
+// 書いたら true。既に埋まっていれば false (no-op)。
+func setTaskSessionIfEmpty(project, id, val string) (bool, error) {
+	projDir := filepath.Join(storeDir(), project)
+	unlock, err := lockProject(projDir)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	path, err := resolveTaskPath(project, id)
+	if err != nil {
+		return false, err
+	}
+	t, err := parseTask(path)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(t.Session) != "" {
+		return false, nil // 既に記録済み → 尊重
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	out, err := applyFrontmatterEdits(content, []fmKV{{"session", val}}, nil)
+	if err != nil {
+		return false, err
+	}
+	if err := atomicWriteFile(path, out, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func cmdSessionLink(args []string) error {
 	// --session <id> を先に抜く。残りを <project>/<id> として解決する。
 	// 取得層は agent 固有なので、自分の session_id を言える agent (例: Claude Code) は
@@ -799,6 +862,20 @@ func cmdSessionLink(args []string) error {
 		return err
 	}
 	fmt.Printf("linked %s → session %s (%s)\n", key, sessionID, via)
+
+	// web セッション URL (claude.ai) も frontmatter session: に自動記録する。
+	// local session_id (link.json, 上で記録) は状態/worktime/cost の突合用で、claude.ai の
+	// web id とは別空間。serve / tui はこの session: を読んでブラウザ/アプリで開くリンクにするので、
+	// 両方を残す。既存 session: が空のときだけ埋め (手動記録を尊重)、env が無ければ何もしない。
+	if url, src := detectSelfWebSessionURL(); url != "" {
+		set, err := setTaskSessionIfEmpty(project, id, url)
+		if err != nil {
+			return err
+		}
+		if set {
+			fmt.Printf("recorded session URL %s (%s)\n", url, src)
+		}
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -519,5 +520,93 @@ func TestCmdSessionPrune(t *testing.T) {
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Fatalf("実行後もマーカーが残っている (err=%v)", err)
+	}
+}
+
+func TestValidWebSessionID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"session_01LU7EecqycqUbqHbhPMJ8gr", true},
+		{"abc123", true},
+		{"", false},
+		{"has space", false},
+		{"has/slash", false},
+		{"has-dash", false}, // URL に素で埋め込むので英数字と _ のみ
+	}
+	for _, c := range cases {
+		if got := validWebSessionID(c.in); got != c.want {
+			t.Errorf("validWebSessionID(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDetectSelfWebSessionURL(t *testing.T) {
+	// env あり → claude.ai URL を組み立てる。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "session_01ABC")
+	url, src := detectSelfWebSessionURL()
+	if url != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("url = %q, want claude.ai/code/session_01ABC", url)
+	}
+	if src != "CLAUDE_CODE_BRIDGE_SESSION_ID" {
+		t.Errorf("src = %q", src)
+	}
+	// env なし → 何も返さない (Remote Control 非接続 / 素の tmux)。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "")
+	if url, _ := detectSelfWebSessionURL(); url != "" {
+		t.Errorf("env 空なら空を返すべき, got %q", url)
+	}
+	// 不正な値 (URL に埋められない) → 弾く。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "bad/value")
+	if url, _ := detectSelfWebSessionURL(); url != "" {
+		t.Errorf("不正な id は弾くべき, got %q", url)
+	}
+}
+
+func TestSetTaskSessionIfEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_TASKS_STORE", dir)
+	proj := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(proj, "0001-x.md")
+	src := "---\nid: \"0001\"\nproject: demo\ntitle: X\nstatus: in-progress\nsession:\n---\n\n# 要件\n本文はそのまま。\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 空なので書き込む。
+	set, err := setTaskSessionIfEmpty("demo", "0001", "https://claude.ai/code/session_01ABC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set {
+		t.Fatal("空の session: には書き込むべき (set=false)")
+	}
+	pt, err := parseTask(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt.Session != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("session = %q, want claude.ai URL", pt.Session)
+	}
+	// 本文が保全されている。
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "本文はそのまま。") {
+		t.Errorf("本文が保全されていない:\n%s", b)
+	}
+
+	// 既に埋まっているので上書きしない (手動記録を尊重)。
+	set, err = setTaskSessionIfEmpty("demo", "0001", "https://claude.ai/code/session_OTHER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set {
+		t.Error("既に埋まっているなら no-op であるべき (set=true)")
+	}
+	pt, _ = parseTask(path)
+	if pt.Session != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("上書きされてしまった: session = %q", pt.Session)
 	}
 }

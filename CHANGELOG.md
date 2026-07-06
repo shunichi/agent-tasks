@@ -34,6 +34,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   同梱プラグイン `herdr-plugin.toml` に pane entrypoint `tui` (placement=overlay) と、それを開く
   action `open-tui` を追加。config.toml に `[[keys.command]] type="plugin_action"
   command="agent-tasks.open-tui"` を足すと、どの pane からでもキー一発で tui を前面表示できる。
+- `session-link` がセッションの **claude.ai web URL を frontmatter `session:` に自動記録**する
+  ようになった (#0123)。Remote Control 接続中に Claude Code が export する
+  `CLAUDE_CODE_BRIDGE_SESSION_ID` (web セッション id = `session_01...`) から
+  `https://claude.ai/code/<id>` を組み立てて記録する。これで serve / tui の既存リンク
+  (`claudeAppURL` 等) が大半のタスクで有効になる (従来は `session:` が手動任せでほとんど空だった)。
+  状態突合用のローカル session_id (UUID) は従来どおり link.json に記録され、両方が残る。既存の
+  `session:` が空のときだけ埋め (手動記録を尊重)、env が無い (Remote Control 非接続) 環境では
+  従来どおり空のまま。
 
 ### Changed
 - `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。

@@ -7,8 +7,9 @@
 # 提供機能:
 #   - worktime 記録 (event hook) … pane の agent 状態遷移を worktime ログに追記する (0114)。
 #     これで実稼働時間の記録源が herdr に一本化され、Claude 固有の session-hook が不要になる。
-#   - (予定) tui overlay (pane) … 0117 が [[panes]] ブロックをここに追記する。1 つのプラグインに
-#     worktime 記録と tui popup を同居させ、導入 (plugin link) を 1 回で済ませる。
+#   - tui overlay (pane) … `agent-tasks tui` を herdr の overlay pane で開く (0117)。tmux の
+#     display-popup 相当。1 つのプラグインに worktime 記録と tui popup を同居させ、導入
+#     (plugin link) を 1 回で済ませる。
 #
 # command が呼ぶ agent-tasks-herdr は herdr 対応ビルド (別名バイナリ)。稼働中の本体版
 # (agent-tasks) と共存させるため名前を分けてある (progName 由来で state dir も分離。0113)。
@@ -22,3 +23,28 @@ min_herdr_version = "0.7.0"
 [[events]]
 on = "pane.agent_status_changed"
 command = ["agent-tasks-herdr", "worktime-record"]
+
+# tui を overlay pane で開くエントリポイント (0117)。overlay = アクティブ pane の上に一時的な
+# zoomed 表示で開き、閉じると元の focus/zoom に戻る (tmux display-popup 相当)。
+# 手動起動: herdr plugin pane open --plugin agent-tasks --entrypoint tui
+[[panes]]
+id = "tui"
+title = "agent-tasks"
+placement = "overlay"
+command = ["agent-tasks-herdr", "tui"]
+
+# 上記 overlay pane を開く action。キー一発で開けるようにするための間接層:
+# herdr の custom keybinding (`[[keys.command]]`) は plugin の *pane* を直接開けず、
+# 開けるのは *action* だけ (type="plugin_action")。そこで pane を開く action を用意する。
+# config.toml に次を足すとキー割り当てになる (README / docs の手順参照):
+#   [[keys.command]]
+#   key = "prefix+t"
+#   type = "plugin_action"
+#   command = "agent-tasks.open-tui"
+#   description = "agent-tasks tui (overlay)"
+# action は herdr CLI をそのまま呼べる (HERDR_* env 注入済み)。bare `herdr` は PATH 解決。
+[[actions]]
+id = "open-tui"
+title = "agent-tasks tui (overlay)"
+contexts = ["workspace"]
+command = ["herdr", "plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "overlay"]

@@ -30,6 +30,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   `herdr-plugin.toml` (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)
   を `herdr plugin link` で導入すると、herdr が状態遷移ごとに worktime ログを追記する。状態ソースが
   herdr に一本化され、worktime が Claude 固有 hook に依存しなくなる。
+- `agent-tasks tui` を herdr の overlay pane で開けるようにした (#0117。tmux `display-popup` の置換)。
+  同梱プラグイン `herdr-plugin.toml` に pane entrypoint `tui` (placement=overlay) と、それを開く
+  action `open-tui` を追加。config.toml に `[[keys.command]] type="plugin_action"
+  command="agent-tasks.open-tui"` を足すと、どの pane からでもキー一発で tui を前面表示できる。
 
 ### Changed
 - `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。

@@ -47,8 +47,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   状態突合用のローカル session_id (UUID) は従来どおり link.json に記録され、両方が残る。既存の
   `session:` が空のときだけ埋め (手動記録を尊重)、env が無い (Remote Control 非接続) 環境では
   従来どおり空のまま。
-
-### Changed
+- `agent-tasks tui` に **`O` キー**を追加 (#0125。#0123 の後続)。選択タスクのセッション URL
+  (`session:` = claude.ai の Claude Code セッション) を既定ブラウザで開く。`o` (PR を開く) と対の
+  導線。`session:` が URL でなければフッターにメッセージを出すだけ。#0123 で `session:` が
+  自動記録されるようになったので、大半のタスクで使える。
 - `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。
   SESSION 状態のマーカー・フォールバック (herdr 外・link 未記録時) としては存続する。
 

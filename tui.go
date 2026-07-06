@@ -282,9 +282,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case openResultMsg:
 		if msg.err != nil {
-			m.flash = "PR を開けません: " + msg.err.Error()
+			m.flash = msg.what + " を開けません: " + msg.err.Error()
 		} else {
-			m.flash = fmt.Sprintf("PR を開きました: %d 件", msg.n)
+			m.flash = fmt.Sprintf("%s を開きました: %d 件", msg.what, msg.n)
 		}
 		return m, nil
 
@@ -438,7 +438,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.flash = msg
 					return m, nil
 				}
-				return m, openCmd(urls)
+				return m, openCmd("PR", urls)
+			}
+			return m, nil
+		case "O":
+			// 選択タスクのセッション URL (session: = claude.ai の Claude Code セッション) を
+			// 既定ブラウザで開く。o (PR) と対の導線。session: が URL でなければフラッシュのみ。
+			if t, ok := m.selectedTask(); ok {
+				urls, msg := sessionBrowserAction(t)
+				if msg != "" {
+					m.flash = msg
+					return m, nil
+				}
+				return m, openCmd("セッション", urls)
 			}
 			return m, nil
 		case "r":
@@ -476,16 +488,32 @@ func prBrowserAction(t Task) (urls []string, msg string) {
 	return t.PRs, ""
 }
 
-// openResultMsg は非同期のブラウザ起動の結果 (開いた件数と成否)。
+// sessionBrowserAction は O キー (セッション URL をブラウザで開く) の振る舞いを決める
+// (テスト用に純粋化)。session: が http(s) URL のときそれを返す。空/URL でなければ nil と
+// 表示メッセージを返す。session: は start (session-link) が claude.ai の web URL を記録する。
+func sessionBrowserAction(t Task) (urls []string, msg string) {
+	if isHTTPURL(t.Session) {
+		return []string{t.Session}, ""
+	}
+	if strings.TrimSpace(t.Session) == "" {
+		return nil, "このタスクにセッション URL はありません"
+	}
+	return nil, "session 欄が URL ではありません"
+}
+
+// openResultMsg は非同期のブラウザ起動の結果 (何を・何件開いたか・成否)。
+// what はフラッシュ表示用の対象名 ("PR" / "セッション")。
 type openResultMsg struct {
-	n   int
-	err error
+	what string
+	n    int
+	err  error
 }
 
 // openCmd は urls を既定ブラウザで開く処理を非同期で行い、結果を openResultMsg で返す。
-func openCmd(urls []string) tea.Cmd {
+// what はフラッシュ表示に使う対象名 (PR / セッション)。
+func openCmd(what string, urls []string) tea.Cmd {
 	return func() tea.Msg {
-		return openResultMsg{n: len(urls), err: openURLs(urls)}
+		return openResultMsg{what: what, n: len(urls), err: openURLs(urls)}
 	}
 }
 
@@ -806,6 +834,7 @@ func helpEntries() [][2]string {
 		{"マウスホイール", "詳細をスクロール"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
+		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},

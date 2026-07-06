@@ -38,13 +38,18 @@ command = ["agent-tasks-herdr", "tui"]
 # 開けるのは *action* だけ (type="plugin_action")。そこで pane を開く action を用意する。
 # config.toml に次を足すとキー割り当てになる (README / docs の手順参照):
 #   [[keys.command]]
-#   key = "prefix+t"
+#   key = "prefix+a"
 #   type = "plugin_action"
 #   command = "agent-tasks.open-tui"
 #   description = "agent-tasks tui (overlay)"
-# action は herdr CLI をそのまま呼べる (HERDR_* env 注入済み)。bare `herdr` は PATH 解決。
+#
+# command は `agent-tasks-herdr tui-overlay` を経由する (0124)。これが action コンテキスト
+# (env HERDR_PLUGIN_CONTEXT_JSON) の focused_pane_cwd を読み、`herdr plugin pane open … --cwd
+# <アクティブ pane の cwd>` を実行する。→ overlay の tui が「今見ている pane のプロジェクト」を
+# 初期表示する。`herdr plugin pane open …` を直接指定すると cwd を渡せず、常にプラグイン root の
+# project になってしまうため、この薄いラッパーを挟む。
 [[actions]]
 id = "open-tui"
 title = "agent-tasks tui (overlay)"
 contexts = ["workspace"]
-command = ["herdr", "plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "overlay"]
+command = ["agent-tasks-herdr", "tui-overlay"]

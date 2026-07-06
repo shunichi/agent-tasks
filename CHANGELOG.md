@@ -34,6 +34,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   同梱プラグイン `herdr-plugin.toml` に pane entrypoint `tui` (placement=overlay) と、それを開く
   action `open-tui` を追加。config.toml に `[[keys.command]] type="plugin_action"
   command="agent-tasks.open-tui"` を足すと、どの pane からでもキー一発で tui を前面表示できる。
+- 上記 overlay の tui が **開いた時点でアクティブだった pane のプロジェクト**のタスクを初期表示する
+  ようにした (#0124)。action `open-tui` を `agent-tasks-herdr tui-overlay` 経由にし、
+  `HERDR_PLUGIN_CONTEXT_JSON` の `focused_pane_cwd` を読んで overlay pane をその cwd で開く
+  (tui の現在 project 判定が cwd 依存なので、アクティブ pane の project になる)。cwd が取れなければ
+  従来どおりプラグイン root の project にフォールバック。
 - `session-link` がセッションの **claude.ai web URL を frontmatter `session:` に自動記録**する
   ようになった (#0123)。Remote Control 接続中に Claude Code が export する
   `CLAUDE_CODE_BRIDGE_SESSION_ID` (web セッション id = `session_01...`) から

@@ -172,6 +172,8 @@ func dispatch(args []string) error {
 		return cmdWorktime(args)
 	case "worktime-record":
 		return cmdWorktimeRecord(args)
+	case "tui-overlay":
+		return cmdTuiOverlay(args)
 	case "open":
 		return cmdOpen(args)
 	case "where":

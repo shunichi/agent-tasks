@@ -72,21 +72,25 @@ herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ..
 - **worktime 記録** (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)。
   pane の agent 状態遷移を実稼働ログに追記する (`agent-tasks worktime` で集計)。詳細は 0114 /
   `docs/herdr-migration.md`。
-- **tui overlay** (pane entrypoint `tui`)。`agent-tasks tui` を herdr の overlay pane で開く
-  (tmux の `display-popup` 相当。どの pane で作業中でも一時的に前面表示し、閉じると元へ戻る)。
+- **tui overlay** (pane entrypoint `tui` + action `open-tui`)。`agent-tasks tui` を herdr の overlay
+  pane で開く (tmux の `display-popup` 相当。どの pane で作業中でも一時的に前面表示し、閉じると元へ戻る)。
+  **開いた時点でアクティブだった pane のプロジェクトのタスク**を初期表示する (0124)。
   - 手動起動: `herdr plugin pane open --plugin agent-tasks --entrypoint tui`
+    (このコマンド単体は cwd を渡さないのでアクティブ pane の project にはならない。キー割り当ての
+    action 経由なら下記のとおりアクティブ pane の project になる)
   - **キー一発で開く**には `~/.config/herdr/config.toml` にキーバインドを足す。herdr の custom
     keybinding は plugin の *pane* を直接開けず *action* だけ開けるので、pane を開く action
     (`agent-tasks.open-tui`) を経由する:
     ```toml
     [[keys.command]]
-    key = "prefix+t"
+    key = "prefix+a"
     type = "plugin_action"
     command = "agent-tasks.open-tui"
     description = "agent-tasks tui (overlay)"
     ```
     追加後 `herdr server reload-config` (または再起動) で反映。`agent-tasks-herdr` が PATH に
-    必要 (上の共存インストールで入る)。
+    必要 (上の共存インストールで入る)。action は `agent-tasks-herdr tui-overlay` を経由し、
+    アクティブ pane の cwd を解決して overlay を開く (詳細は 0124 / `docs/herdr-migration.md`)。
 
 `agent-tasks-herdr` は herdr 対応ビルド (別名バイナリ)。プラグインはこれを呼ぶ。
 

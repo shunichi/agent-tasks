@@ -981,7 +981,7 @@ func (m *tuiModel) renderList() string {
 				pad = 1
 			}
 			line.WriteString(strings.Repeat(" ", pad))
-			line.WriteString(tuiDimStyle.Render(displayDate(t.Updated)))
+			line.WriteString(tuiDimStyle.Render(displayDateOr(t.Updated, t.Created)))
 		}
 		b.WriteString(line.String())
 		if i < end-1 {
@@ -1039,7 +1039,7 @@ func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 func (m *tuiModel) updatedColWidth() int {
 	mx := 0
 	for _, t := range m.rows {
-		if dw := dispWidth(displayDate(t.Updated)); dw > mx {
+		if dw := dispWidth(displayDateOr(t.Updated, t.Created)); dw > mx {
 			mx = dw
 		}
 	}

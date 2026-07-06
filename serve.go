@@ -339,7 +339,7 @@ func buildDashData(rows []Task, interval int, now time.Time) dashData {
 			Status:        t.Status,
 			StatusClass:   statusClass(t.Status),
 			Title:         displayTitle(t),
-			Updated:       displayDate(t.Updated),
+			Updated:       displayDateOr(t.Updated, t.Created),
 			BlockedReason: t.BlockedReason,
 			PRs:           t.PRs,
 		}

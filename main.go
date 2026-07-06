@@ -570,7 +570,7 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 		if showBlocked {
 			cells = append(cells, blockedCell(t, c, now))
 		}
-		cells = append(cells, cell{displayTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
+		cells = append(cells, cell{displayTitle(t), ""}, cell{displayDateOr(t.Updated, t.Created), c.dim})
 		tbl.add(cells...)
 	}
 	tbl.render(w, c)

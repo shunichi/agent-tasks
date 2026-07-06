@@ -16,3 +16,21 @@ func TestDisplayDate(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayDateOr(t *testing.T) {
+	cases := []struct {
+		updated, created, want string
+	}{
+		// updated あり → updated を使う。
+		{"2026-07-06T12:00:00+09:00", "2026-07-01T09:00:00+09:00", "2026-07-06"},
+		// updated 空 → created にフォールバック。
+		{"", "2026-07-01T09:00:00+09:00", "2026-07-01"},
+		// 両方空 → 空 (フォールバック先も空)。
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		if got := displayDateOr(c.updated, c.created); got != c.want {
+			t.Errorf("displayDateOr(%q, %q) = %q, want %q", c.updated, c.created, got, c.want)
+		}
+	}
+}

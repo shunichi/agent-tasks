@@ -51,6 +51,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   (`session:` = claude.ai の Claude Code セッション) を既定ブラウザで開く。`o` (PR を開く) と対の
   導線。`session:` が URL でなければフッターにメッセージを出すだけ。#0123 で `session:` が
   自動記録されるようになったので、大半のタスクで使える。
+
+### Changed
+- 一覧の **UPDATED 列**で、`updated:` が未記録 (空) のタスクは `created:` にフォールバック表示する
+  ようにした (#0121。tui / `list` / `serve` 共通)。旧データや状態遷移を経ていないタスクで列が空欄に
+  なるのを防ぐ。表示専用のフォールバックで、`--json` の `updated` は生値のまま (機械可読の意味は不変)。
 - `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。
   SESSION 状態のマーカー・フォールバック (herdr 外・link 未記録時) としては存続する。
 

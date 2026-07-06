@@ -275,8 +275,8 @@ USAGE:
                                      working/waiting 遷移から入力待ちを除いた「実際に動いていた時間」。
                                      --json は可視化 Web アプリの入力にできる形で区間を出力
   agent-tasks worktime --all [--project <name>|--all-projects] [--json]  スコープ内の全タスクを
-                                     横断集計 (実稼働の多い順)。稼働区間のタイムラインは serve の
-                                     /worktime で可視化 (agent-tasks serve → ブラウザで /worktime)
+                                     横断集計 (実稼働の多い順)。日/週/月×プロジェクトの時間配分は
+                                     serve の /worktime で可視化 (agent-tasks serve → ブラウザで /worktime)
   agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
                                      (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
                                      --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要

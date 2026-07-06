@@ -223,6 +223,84 @@ func TestSessionLinkBackwardCompat(t *testing.T) {
 	}
 }
 
+// TestBuildWorktimeEntries は区間を日境界で分割し (日, project, id) ごとに秒を合算すること、
+// 出力が「日の新しい順 → project → id」で決定的に並ぶことを確認する。
+func TestBuildWorktimeEntries(t *testing.T) {
+	loc := time.FixedZone("JST", 9*3600)
+	d := func(s string) time.Time {
+		tt, err := time.ParseInLocation("2006-01-02T15:04", s, loc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tt
+	}
+	results := []taskWorktimeResult{
+		{Project: "webapp", ID: "0005", Title: "state machine", Intervals: []timeInterval{
+			// 日境界をまたぐ区間: 07-02 23:30 → 07-03 00:30 (30m + 30m に分割される)
+			{d("2026-07-02T23:30"), d("2026-07-03T00:30")},
+			{d("2026-07-02T10:00"), d("2026-07-02T10:20")}, // 同日同タスク → 合算
+		}},
+		{Project: "api", ID: "0009", Title: "rate limit", Intervals: []timeInterval{
+			{d("2026-07-02T14:00"), d("2026-07-02T14:15")},
+		}},
+	}
+	got := buildWorktimeEntries(results)
+
+	// webapp/0005 07-02: 30m + 20m = 50m。webapp/0005 07-03: 30m。api/0009 07-02: 15m。
+	find := func(date, proj, id string) *wtEntry {
+		for i := range got {
+			if got[i].Date == date && got[i].Project == proj && got[i].ID == id {
+				return &got[i]
+			}
+		}
+		return nil
+	}
+	if e := find("2026-07-02", "webapp", "0005"); e == nil || e.Seconds != int64((50*time.Minute).Seconds()) {
+		t.Errorf("webapp/0005 07-02 = %v, want 3000s", e)
+	}
+	if e := find("2026-07-03", "webapp", "0005"); e == nil || e.Seconds != int64((30*time.Minute).Seconds()) {
+		t.Errorf("webapp/0005 07-03 (日境界分割) = %v, want 1800s", e)
+	}
+	if e := find("2026-07-02", "api", "0009"); e == nil || e.Seconds != int64((15*time.Minute).Seconds()) {
+		t.Errorf("api/0009 07-02 = %v, want 900s", e)
+	}
+	// 決定的順序: 日の新しい順 → project → id。先頭は 07-03 の webapp/0005。
+	if got[0].Date != "2026-07-03" || got[0].Project != "webapp" {
+		t.Errorf("先頭 = %+v, want 2026-07-03 webapp", got[0])
+	}
+	// 07-02 の 2 件は project 昇順 (api → webapp)。
+	var order []string
+	for _, e := range got {
+		if e.Date == "2026-07-02" {
+			order = append(order, e.Project)
+		}
+	}
+	if !slices.Equal(order, []string{"api", "webapp"}) {
+		t.Errorf("07-02 の project 順 = %v, want [api webapp]", order)
+	}
+}
+
+// TestProjectColors は色がプロジェクト名ソート順で安定に割り当てられ (スコープ非依存)、
+// 全プロジェクトに色が付くことを確認する。
+func TestProjectColors(t *testing.T) {
+	entries := []wtEntry{
+		{Project: "webapp"}, {Project: "api"}, {Project: "webapp"}, {Project: "tool"},
+	}
+	c := projectColors(entries)
+	for _, p := range []string{"webapp", "api", "tool"} {
+		if c[p] == "" {
+			t.Errorf("色が無い: %s", p)
+		}
+	}
+	// 名前ソート順 (api, tool, webapp) で色相が振られるので、入力順が変わっても同じ割り当て。
+	c2 := projectColors([]wtEntry{{Project: "tool"}, {Project: "webapp"}, {Project: "api"}})
+	for _, p := range []string{"webapp", "api", "tool"} {
+		if c[p] != c2[p] {
+			t.Errorf("入力順で色が変わった: %s = %q vs %q", p, c[p], c2[p])
+		}
+	}
+}
+
 func mustReadLink(t *testing.T, key string) sessionLink {
 	t.Helper()
 	l, ok := readSessionLink(key)

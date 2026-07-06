@@ -95,19 +95,37 @@ func projectColors(entries []wtEntry) map[string]string {
 	return out
 }
 
-// worktimeView はテンプレートへ渡す描画データ。
+// worktimeData は描画に必要な集計エントリとプロジェクト色を作る (HTML/JSON 双方で共用)。
+func worktimeData(results []taskWorktimeResult) ([]wtEntry, map[string]string) {
+	entries := buildWorktimeEntries(results)
+	return entries, projectColors(entries)
+}
+
+// worktimeJSONData は /worktime?format=json のレスポンス。ページはこれをポーリングで取り込み、
+// 全ページ再読込せずにデータだけ更新する (meta refresh だと粒度トグルやドリルダウンが戻るため)。
+type worktimeJSONData struct {
+	Entries []wtEntry         `json:"e"`
+	Colors  map[string]string `json:"c"`
+}
+
+// renderTimelineJSON は集計データを JSON で返す (ページの自動更新ポーリング用)。
+func renderTimelineJSON(w io.Writer, results []taskWorktimeResult) error {
+	entries, colors := worktimeData(results)
+	enc := json.NewEncoder(w)
+	return enc.Encode(worktimeJSONData{Entries: entries, Colors: colors})
+}
+
+// worktimeView はテンプレートへ渡す描画データ。Interval>0 なら JS が
+// /worktime?format=json を Interval 秒ごとに取り込んでその場で再描画する。
 type worktimeView struct {
 	EntriesJSON template.JS // wtEntry の配列 (JSON)
 	ColorsJSON  template.JS // project -> css color (JSON)
 	Interval    int
-	Refresh     bool
-	Now         string
 	HasData     bool
 }
 
-func renderTimeline(w io.Writer, results []taskWorktimeResult, interval int, now time.Time) error {
-	entries := buildWorktimeEntries(results)
-	colors := projectColors(entries)
+func renderTimeline(w io.Writer, results []taskWorktimeResult, interval int, _ time.Time) error {
+	entries, colors := worktimeData(results)
 	eb, err := json.Marshal(entries)
 	if err != nil {
 		return err
@@ -120,8 +138,6 @@ func renderTimeline(w io.Writer, results []taskWorktimeResult, interval int, now
 		EntriesJSON: template.JS(eb), //nolint:gosec // json.Marshal 済み (HTML エスケープ有効)
 		ColorsJSON:  template.JS(cb), //nolint:gosec // 同上
 		Interval:    interval,
-		Refresh:     interval > 0,
-		Now:         now.Format("2006-01-02 15:04:05"),
 		HasData:     len(entries) > 0,
 	})
 }
@@ -135,7 +151,6 @@ const worktimeHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{{if .Refresh}}<meta http-equiv="refresh" content="{{.Interval}}">{{end}}
 <title>agent-tasks — 稼働時間</title>
 <style>
   :root {
@@ -214,8 +229,9 @@ const worktimeHTML = `<!doctype html>
 {{if .HasData}}
 <script>
 (function(){
-  var ENTRIES = {{.EntriesJSON}};
-  var COLORS  = {{.ColorsJSON}};
+  var ENTRIES  = {{.EntriesJSON}};
+  var COLORS   = {{.ColorsJSON}};
+  var INTERVAL = {{.Interval}}; // 秒。>0 なら JSON をポーリングしてその場で再描画 (全ページ再読込しない)
   var app = document.getElementById("app");
   var metaEl = document.getElementById("meta");
   var LIMIT = {day:14, week:12, month:60};
@@ -243,21 +259,10 @@ const worktimeHTML = `<!doctype html>
     return {k:mk, label:(mon.getMonth()+1)+"/"+mon.getDate()+" の週"};
   }
 
-  // ---- 状態 (粒度 + ドリルダウン先) を URL hash に保持し、meta refresh をまたいで復元 ----
+  // 状態 (粒度 + ドリルダウン先) はメモリに保持。ページを再読込しないので消えない。
   var state = {gran:"week", proj:null, period:null, plabel:null};
-  function loadState(){
-    var h = new URLSearchParams(location.hash.slice(1));
-    if(h.get("g")) state.gran = h.get("g");
-    state.proj = h.get("p"); state.period = h.get("pk"); state.plabel = h.get("pl");
-  }
-  function saveState(){
-    var h = new URLSearchParams(); h.set("g", state.gran);
-    if(state.proj){ h.set("p", state.proj); h.set("pk", state.period); h.set("pl", state.plabel); }
-    history.replaceState(null, "", "#" + h.toString());
-  }
 
   function render(){
-    saveState();
     if(state.proj) renderDetail(); else renderOverview();
   }
 
@@ -348,13 +353,17 @@ const worktimeHTML = `<!doctype html>
     app.querySelector(".back").onclick = function(){ state.proj = null; state.period = null; render(); };
   }
 
-  // スクロール位置を meta refresh (ページ再読込) をまたいで復元する。
-  try {
-    var sy = sessionStorage.getItem("wt_scroll");
-    addEventListener("scroll", function(){ sessionStorage.setItem("wt_scroll", String(scrollY)); }, {passive:true});
-    loadState(); render();
-    if(sy && !state.proj) scrollTo(0, Number(sy));
-  } catch(_) { loadState(); render(); }
+  // 自動更新: 全ページ再読込 (meta refresh) の代わりに JSON をポーリングしてデータだけ差し替える。
+  // これで粒度トグルやドリルダウンの状態、スクロール位置が保たれる。
+  function poll(){
+    fetch("/worktime?format=json", {cache:"no-store"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ ENTRIES = d.e || []; COLORS = d.c || {}; render(); })
+      .catch(function(){ /* 一時的な失敗は無視し次の周期で再試行 */ });
+  }
+
+  render();
+  if(INTERVAL > 0) setInterval(poll, INTERVAL * 1000);
 })();
 </script>
 {{else}}

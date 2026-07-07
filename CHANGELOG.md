@@ -25,6 +25,16 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+### Added
+
+- `resume [<project>] <id> [--agent <name>] [--session <url>]` サブコマンドを追加。`blocked` / `review`
+  にしたタスクを `in-progress` に戻して作業を再開する正規の手段 (これまでは frontmatter を手編集する
+  しかなかった)。`done`/`block`/`claim` と同じく project ロック下で scalar キーを決定的に確定する:
+  `status`=in-progress + `agent` (未指定なら既存を保持) + `updated`、`blocked_at`/`blocked_reason`/
+  `completed_at` は削除、`started_at` は初回着手のまま保持。未着手 (todo) と完了済み (done) は worktree の
+  新規作成/作り直しが要るため `start` へ誘導する (エラー)。skill の resume 手順は start と対称で、
+  セッション同一化 (session-rename + session-link) をセットで行う。(#0128)
+
 ## 2026-07-02
 
 ### Added

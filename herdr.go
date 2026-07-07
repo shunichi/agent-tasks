@@ -192,15 +192,18 @@ func herdrPaneSendText(pane, text string) error {
 	return err
 }
 
-// herdrPaneRun は pane でコマンド行を実行する (末尾に Enter が付く)。
+// herdrPaneRun は pane に文字列 + 本物の Enter を 1 リクエストで送る (末尾に Enter が付く)。
+// text と Enter が分かれない (アトミック) ので、claude の入力欄への submit を確実に発火させたい
+// とき (session-rename の /rename 打ち込みなど) に使う。send-text + send-keys の 2 呼び出しに
+// 分けると 2 プロセス間のギャップで Enter が改行として食われることがある (0131)。
 func herdrPaneRun(pane, command string) error {
 	_, err := herdrRun("pane", "run", pane, command)
 	return err
 }
 
 // herdrPaneSendKeys は pane にキー (名前付きキー含む) を送る。例: send-keys で Enter を押す。
-// send-text (リテラル) と組み合わせて「文字列を入れてから Enter」を実現する
-// (session-rename が /rename を打ち込むのに使う)。
+// send-text (リテラル) と組み合わせて「文字列を入れてから Enter」を実現できるが、submit を
+// 確実にしたいときは 2 呼び出しに分けず herdrPaneRun を使う (0131)。
 func herdrPaneSendKeys(pane string, keys ...string) error {
 	args := append([]string{"pane", "send-keys", pane}, keys...)
 	_, err := herdrRun(args...)

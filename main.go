@@ -234,6 +234,9 @@ USAGE:
   agent-tasks session-link [<project>] <id> [--session <id>]  現在のセッションをタスクに紐づける
                                      (start 手順が呼ぶ)。同一セッション start でも SESSION 状態が出る。
                                      --session で自分の session_id を明示 (省略時は cwd 逆引き)
+  agent-tasks session-rename [<project>] <id>  現在の Claude セッション名をタスク名 (task <NNNN>:
+                                     <title>) に変える (start 手順0 が着手直後に呼ぶ)。tmux 内は自 pane へ
+                                     /rename を send-keys で発火、tmux 外は /rename 行を stdout に出力
   agent-tasks session-prune [--older-than <days>] [--dry-run]  state dir の古いマーカー/link を掃除する。
                                      対応タスクが無い/done の worktree マーカー・link、および参照されず
                                      一定日数 (既定 7) 更新の無い sess マーカーを削除。--dry-run で対象のみ表示。

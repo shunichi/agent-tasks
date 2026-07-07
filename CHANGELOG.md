@@ -25,6 +25,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-07
+
 ### Added
 
 - `resume [<project>] <id> [--agent <name>] [--session <url>]` サブコマンドを追加。`blocked` / `review`

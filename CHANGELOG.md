@@ -37,6 +37,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   新規作成/作り直しが要るため `start` へ誘導する (エラー)。skill の resume 手順は start と対称で、
   セッション同一化 (session-rename + session-link) をセットで行う。(#0128)
 
+### Fixed
+
+- `agent-tasks help` の USAGE 一覧に `session-rename` が漏れていたのを追加 (実装・補完には既にあったが
+  help だけ未記載だった)。
+
 ## 2026-07-02
 
 ### Added

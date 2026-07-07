@@ -32,6 +32,35 @@ import (
 // self-id の取得方法は agent 固有なので SKILL 側に agent 別に置く。
 // マーカー・link はマシンローカルな揮発情報なので、git 同期されるストアの外 (state dir) に置く。
 
+// SessionIssue は frontmatter の session: が web URL 形式でない (ローカル session_id = UUID の
+// 貼り間違いなど) ことを表す doctor の検出結果。
+type SessionIssue struct {
+	Project string
+	ID      string
+	Detail  string
+	Path    string
+}
+
+// findSessionIssues は session: が空でなく URL 形式 (http(s)://) でないものを拾う。
+// session: は「人が開く web セッション URL」(https://claude.ai/code/session_…) を入れる定義で、
+// claim / session-link の --session に渡すローカル CLI の session_id (UUID) とは別物。エージェントは
+// 自分の UUID (スクラッチパッドのパス末尾) は確実に知れるため、web URL の代わりに UUID を貼り間違える
+// ことがある。UUID はリンクとして開けないので検出する (prs: / tracker: の URL 検査と同じ流儀。ホストや
+// パス構造までは縛らない — 明らかに URL でないものだけ拾う)。
+func findSessionIssues(tasks []Task) []SessionIssue {
+	var out []SessionIssue
+	for _, t := range tasks {
+		s := strings.TrimSpace(t.Session)
+		if s == "" {
+			continue // 空は正常 (URL が取れなければ空でよい)
+		}
+		if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
+			out = append(out, SessionIssue{t.Project, t.ID, "session: の値が URL ではない (ローカル session_id の貼り間違い?): " + s, t.Path})
+		}
+	}
+	return out
+}
+
 // セッション状態の値。
 const (
 	sessWorking = "working" // 処理中 (入力を受け取って動いている)

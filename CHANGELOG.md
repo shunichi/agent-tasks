@@ -25,6 +25,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-07
+
 ### Fixed
 
 - `agent-tasks help` の USAGE 一覧に `session-rename` が漏れていたのを追加 (実装・補完には既にあったが

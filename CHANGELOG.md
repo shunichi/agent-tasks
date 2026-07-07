@@ -36,11 +36,19 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   `completed_at` は削除、`started_at` は初回着手のまま保持。未着手 (todo) と完了済み (done) は worktree の
   新規作成/作り直しが要るため `start` へ誘導する (エラー)。skill の resume 手順は start と対称で、
   セッション同一化 (session-rename + session-link) をセットで行う。(#0128)
+- `doctor` に **`session:` の URL 形式チェック**を追加。`session:` は「人が開く web セッション URL」
+  (`https://claude.ai/code/session_…`) を入れる定義だが、`claim`/`session-link` の `--session` に渡す
+  ローカル session_id (UUID) と混同され UUID が貼られることがある。空でなく `http(s)://` で始まらない値を
+  「session URL の形式 (ローカル session_id の貼り間違い?)」として検出する (prs:/tracker: の URL 検査と同じ流儀)。(#0130)
 
 ### Fixed
 
 - `agent-tasks help` の USAGE 一覧に `session-rename` が漏れていたのを追加 (実装・補完には既にあったが
   help だけ未記載だった)。
+- SKILL (`/agent-tasks`): start 手順 5 と claim (手順 2) の案内に「**`--session` のローカル session_id (UUID) を
+  `session:` に貼らない。web URL が取れなければ空でよい**」を明示 (UUID 混入の再発防止)。あわせて過去に
+  UUID が入っていた既存タスク (agent-tasks/0111・0112、team-invoice/0005、workforce/0005) を、transcript の
+  bridge session id / 自コミットの `Claude-Session` トレーラーから web URL を復元して置換 (store 側データ修正)。(#0130)
 
 ## 2026-07-02
 

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,9 +34,15 @@ import (
 // マーカー・link はマシンローカルな揮発情報なので、git 同期されるストアの外 (state dir) に置く。
 
 // セッション状態の値。
+//
+// herdr 移行 (0109) 以降、状態源は herdr の agent_status (working/idle/blocked) を主とし、
+// blocked (承認/許可待ち) と idle (応答完了・入力待ち) を区別する。sessWaiting は herdr 由来では
+// 使わず、旧マーカー (session-hook) フォールバック経路が「入力/許可待ち」を細分できないときに残る値。
 const (
 	sessWorking = "working" // 処理中 (入力を受け取って動いている)
-	sessWaiting = "waiting" // ユーザーの入力/許可待ちで止まっている
+	sessBlocked = "blocked" // herdr: 承認/許可プロンプトで止まっている = 要対応
+	sessIdle    = "idle"    // herdr: 応答完了・次の入力待ち (止まってはいるが承認待ちではない)
+	sessWaiting = "waiting" // フォールバック (旧マーカー由来): 入力/許可待ち (blocked/idle に細分できない)
 	sessEnded   = "ended"   // セッション終了 (タスクが in-progress のままなら未 done のサイン)
 )
 
@@ -87,19 +94,21 @@ func linkSessionIDs(l sessionLink) []string {
 }
 
 // sessionStateDir はマーカーの置き場を返す。ストアとは別 (マシンローカル)。
-// AGENT_TASKS_STATE_DIR > $XDG_STATE_HOME/agent-tasks/sessions > ~/.local/state/agent-tasks/sessions。
+// AGENT_TASKS_STATE_DIR > $XDG_STATE_HOME/<progName>/sessions > ~/.local/state/<progName>/sessions。
+// ディレクトリ名を progName 由来にすることで、別名ビルド (agent-tasks-herdr 等) は稼働中の
+// 本体版が使う state dir を壊さず自動的に分離される (worktime ログもこの下)。共存の要。
 func sessionStateDir() string {
 	if v := os.Getenv("AGENT_TASKS_STATE_DIR"); v != "" {
 		return v
 	}
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "agent-tasks", "sessions")
+		return filepath.Join(v, progName, "sessions")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join("agent-tasks-state", "sessions")
+		return filepath.Join(progName+"-state", "sessions")
 	}
-	return filepath.Join(home, ".local", "state", "agent-tasks", "sessions")
+	return filepath.Join(home, ".local", "state", progName, "sessions")
 }
 
 // worktreeKey は dir が属する git 作業ツリーの root basename を返す (例 agent-tasks--0020)。
@@ -133,14 +142,42 @@ func taskSessionKey(t Task) string {
 }
 
 // taskSessionState は task に紐づくセッションの最新状態を返す。
-// 2 経路を突合する: (1) worktree キーのマーカー (spawn 子: cwd が worktree 内) と
-// (2) <key>.link.json 経由の sess-<id> マーカー (同一セッション start: session-link が記録)。
-// 両方ある場合は updated が新しい方を採用する。どちらも無ければ ok=false (= list で "?")。
+//
+// herdr 移行 (0109): **herdr の agent_status を主経路**とする。task の link (session-link が記録した
+// session_id) を herdr の全 agent スナップショット (session_id → agent_status) に突合し、working/
+// blocked/idle にマップする。link はあるが herdr に該当 agent が無ければ pane 終了 = ended。
+// herdr 外 (HERDR_ENV≠1) や link 未記録のときは旧マーカー (session-hook 由来) にフォールバックする。
 func taskSessionState(t Task) (sessionState, bool) {
 	key := taskSessionKey(t)
 	if key == "" {
 		return sessionState{}, false
 	}
+	// 主経路: herdr。
+	if snap, ok := herdrStateSnapshot(); ok {
+		if link, ok := readSessionLink(key); ok {
+			// 最新セッション優先で突合する (link.SessionID が最新)。
+			ids := append([]string{link.SessionID}, linkSessionIDs(link)...)
+			for _, sid := range ids {
+				if sid == "" {
+					continue
+				}
+				if status, hit := snap[sid]; hit {
+					return sessionState{State: mapHerdrStatus(status), Updated: link.Updated}, true
+				}
+			}
+			// link はあるが herdr に該当 agent 無し = pane 終了。
+			return sessionState{State: sessEnded, Updated: link.Updated}, true
+		}
+		// link 未記録: herdr では突合できないのでマーカーにフォールバック。
+	}
+	return taskSessionStateFromMarkers(key)
+}
+
+// taskSessionStateFromMarkers は旧マーカー (session-hook 由来) からセッション状態を読む
+// フォールバック経路。herdr 外や link 未記録のとき使う。2 経路を突合する:
+// (1) worktree キーのマーカー (spawn 子: cwd が worktree 内) と (2) <key>.link.json 経由の
+// sess-<id> マーカー (同一セッション start)。両方あれば updated が新しい方。無ければ ok=false。
+func taskSessionStateFromMarkers(key string) (sessionState, bool) {
 	var best sessionState
 	found := false
 	if st, ok := readSessionState(key); ok {
@@ -154,6 +191,66 @@ func taskSessionState(t Task) (sessionState, bool) {
 		}
 	}
 	return best, found
+}
+
+// mapHerdrStatus は herdr の agent_status を agent-tasks のセッション状態にマップする。
+// working→working / blocked→blocked / idle→idle。未知の値 (unknown 等) は "" (= list で "?")。
+func mapHerdrStatus(status string) string {
+	switch status {
+	case "working":
+		return sessWorking
+	case "blocked":
+		return sessBlocked
+	case "idle":
+		return sessIdle
+	}
+	return ""
+}
+
+// herdr スナップショット (session_id → agent_status) の短 TTL キャッシュ。
+// 1 回の list/watch 描画で in-progress タスクごとに herdr を叩かないためのメモ化。
+// --watch は間隔ごとに runList を呼ぶので、TTL 超過で自動的に取り直される。
+var (
+	herdrSnapMu   sync.Mutex
+	herdrSnapData map[string]string
+	herdrSnapAt   time.Time
+	herdrSnapOK   bool
+)
+
+const herdrSnapTTL = time.Second
+
+// herdrStateSnapshot は herdr の全 agent から session_id → agent_status の対応を作って返す。
+// herdr 外 (HERDR_ENV≠1) や取得失敗なら ok=false (呼び出し側はマーカーにフォールバック)。
+func herdrStateSnapshot() (map[string]string, bool) {
+	herdrSnapMu.Lock()
+	defer herdrSnapMu.Unlock()
+	if herdrSnapOK && time.Since(herdrSnapAt) < herdrSnapTTL {
+		return herdrSnapData, true
+	}
+	if !herdrEnabled() {
+		herdrSnapOK = false
+		return nil, false
+	}
+	agents, err := herdrAgentList()
+	if err != nil {
+		herdrSnapOK = false
+		return nil, false
+	}
+	m := make(map[string]string, len(agents))
+	for _, a := range agents {
+		if a.AgentSession.Value != "" {
+			m[a.AgentSession.Value] = a.AgentStatus
+		}
+	}
+	herdrSnapData, herdrSnapAt, herdrSnapOK = m, time.Now(), true
+	return m, true
+}
+
+// resetHerdrSnapshotCache はキャッシュを無効化する (テスト用。次回 herdrStateSnapshot で取り直す)。
+func resetHerdrSnapshotCache() {
+	herdrSnapMu.Lock()
+	herdrSnapOK = false
+	herdrSnapMu.Unlock()
 }
 
 // sessionStateFor は hook イベント名 (と通知種別) から遷移後の状態を返す。
@@ -257,7 +354,10 @@ func appendWorktimeEvent(sessionID, state string, now time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	line, err := json.Marshal(worktimeEvent{Ts: now.Format(time.RFC3339), State: state})
+	// タイムスタンプは秒未満まで残す (RFC3339Nano)。herdr の状態遷移は Claude hook より高頻度で、
+	// 秒精度だと同一秒に複数遷移 (例: 承認プロンプト即時許可の blocked→working) が同じ ts になり、
+	// 読み出し時の整列で順序が壊れて dedup/区間復元を誤らせる。ナノ秒精度でこの衝突をほぼ無くす。
+	line, err := json.Marshal(worktimeEvent{Ts: now.Format(time.RFC3339Nano), State: state})
 	if err != nil {
 		return err
 	}
@@ -295,7 +395,10 @@ func readWorktimeEvents(sessionID string) ([]worktimeEvent, error) {
 		}
 		evs = append(evs, e)
 	}
-	slices.SortFunc(evs, func(a, b worktimeEvent) int {
+	// 安定ソート: ts が同値のイベント (同一秒/同一ナノ秒) は追記順 (= 実際の遷移順) を保つ。
+	// 非安定ソートだと同値キーが任意順に入れ替わり、lastWorktimeState や workingIntervals が
+	// 遷移順を誤認する。ログは append-only なので追記順が真の順序。
+	slices.SortStableFunc(evs, func(a, b worktimeEvent) int {
 		return parseSessionTime(a.Ts).Compare(parseSessionTime(b.Ts))
 	})
 	return evs, nil
@@ -508,12 +611,18 @@ func sessionCell(t Task, c colors) cell {
 		return cell{"?", c.dim}
 	}
 	switch st.State {
+	case sessBlocked:
+		return cell{"blocked", c.block} // 承認/許可待ち = 要対応。最も目立たせる
 	case sessWaiting:
-		return cell{"waiting", c.review} // 入力待ち = 要対応。目立たせる
+		return cell{"waiting", c.review} // フォールバック (マーカー由来): 入力/許可待ち
 	case sessWorking:
 		return cell{"working", c.prog}
+	case sessIdle:
+		return cell{"idle", c.dim} // 応答完了・入力待ち (承認待ちではない)
 	case sessEnded:
 		return cell{"ended", c.dim}
+	case "":
+		return cell{"?", c.dim} // herdr で unknown 等、判定不能
 	default:
 		return cell{st.State, ""}
 	}
@@ -557,15 +666,11 @@ func cmdSessionHook(args []string) error {
 	}
 	// (2) session_id キーのマーカー: 同一セッション start (cwd がメインリポのまま) でも、
 	// session-link が cwd で逆引きして紐づけられるよう、cwd とともに常に記録する。
+	//
+	// 注: worktime (実稼働ログ) の記録源は herdr プラグインの event hook (worktime-record) に
+	// 移した (0114)。session-hook はもう worktime を書かない (二重記録を避けるため)。ここに残る
+	// マーカー書込みは SESSION 状態の**フォールバック** (herdr 外・link 未記録時。0109) のためだけ。
 	if in.SessionID != "" {
-		// (2a) 実稼働ログ: 状態が「変わった」ときだけ遷移を追記する (worktime 集計の生データ)。
-		// 直前の状態は上書き前の sess マーカーから読む。working→working のような変化なしは
-		// 記録しない (PreToolUse/PostToolUse 等の高頻度発火で肥大化しないため)。
-		if prev, had := readSessionState(sessionMarkerKey(in.SessionID)); !had || prev.State != state {
-			if err := appendWorktimeEvent(in.SessionID, state, now); err != nil {
-				fmt.Fprintf(os.Stderr, "agent-tasks session-hook: worktime ログ追記失敗: %v\n", err)
-			}
-		}
 		st := sessionState{State: state, Updated: now.Format(time.RFC3339), Cwd: in.Cwd, SessionID: in.SessionID}
 		if err := writeSessionMarker(sessionMarkerKey(in.SessionID), st); err != nil {
 			fmt.Fprintf(os.Stderr, "agent-tasks session-hook: sess マーカー書込み失敗: %v\n", err)
@@ -595,6 +700,96 @@ func sessionHookConfig() string {
 // 書かれないため、start 手順の中で本コマンドを呼んでセッションを明示的に対応づける。
 // 自分の session_id は直接知れない (env が無い) ので、hook が書いた sess マーカーを
 // 現在 cwd で逆引きして特定する。見つからない (hook 未導入など) ときはエラーにせず案内のみ。
+// detectSelfSessionID は「今このプロセスを起動した agent セッションの session_id」を自動検出する。
+// これがあると session-link 等で --session を明示しなくても自セッションを特定できる
+// (かつての「スクラッチパッドのパス末尾から抜く」裏技 (0027) が CLI 側で不要になる)。
+//
+// 優先順位 (0110 でユーザーと合意):
+//  1. CLAUDE_CODE_SESSION_ID … Claude Code が export する env。herdr 内外を問わず効き最も素直。
+//  2. herdr agent get self  … HERDR_ENV=1 のとき自 pane の agent_session.value。他 agent や
+//     env 未設定時の保険で agent 中立。
+//
+// どちらも取れなければ ("", "")。呼び出し側は --session 明示や cwd 逆引きにフォールバックする
+// (scratchpad 由来は「エージェントが --session で渡す」経路で存続)。
+//
+// session_id はマーカー/worktime のファイル名・キーに使うので、パス区切りを含む値は弾く。
+func detectSelfSessionID() (id, source string) {
+	if v := os.Getenv("CLAUDE_CODE_SESSION_ID"); v != "" && !strings.ContainsAny(v, `/\`) {
+		return v, "CLAUDE_CODE_SESSION_ID"
+	}
+	if herdrEnabled() {
+		if a, err := herdrSelfAgent(); err == nil {
+			if v := a.AgentSession.Value; v != "" && !strings.ContainsAny(v, `/\`) {
+				return v, "herdr agent get"
+			}
+		}
+	}
+	return "", ""
+}
+
+// validWebSessionID は claude.ai の web セッション id (session_01... 形式) として妥当かを見る。
+// URL (https://claude.ai/code/<id>) に素で埋め込む (エンコード無し) ので英数字と _ のみ許す。
+func validWebSessionID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// detectSelfWebSessionURL は自セッションの claude.ai web URL を自動検出する。
+// CLAUDE_CODE_BRIDGE_SESSION_ID は Claude Code (v2.1.199+) が Remote Control 接続中だけ
+// export する web セッション id (session_01...)。herdr は Remote Control 経由で Claude を
+// 駆動するため herdr 内では設定される (素の tmux では設定されない)。detectSelfSessionID が
+// 返す UUID (状態突合用) とは別空間の id なので、ブラウザ/アプリで開くリンク用に別途取る。
+// env が無い (Remote Control 非接続) ときは ("", "")。
+func detectSelfWebSessionURL() (url, source string) {
+	if v := os.Getenv("CLAUDE_CODE_BRIDGE_SESSION_ID"); validWebSessionID(v) {
+		return "https://claude.ai/code/" + v, "CLAUDE_CODE_BRIDGE_SESSION_ID"
+	}
+	return "", ""
+}
+
+// setTaskSessionIfEmpty はタスク frontmatter の session: が空のときだけ val を書く
+// (project ロック下で再確認 → 手動記録や別セッションの記録を尊重する)。scalar キーのみ
+// 触る applyFrontmatterEdits を使うので本文・進捗ログ・コメントは保全される。
+// 書いたら true。既に埋まっていれば false (no-op)。
+func setTaskSessionIfEmpty(project, id, val string) (bool, error) {
+	projDir := filepath.Join(storeDir(), project)
+	unlock, err := lockProject(projDir)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	path, err := resolveTaskPath(project, id)
+	if err != nil {
+		return false, err
+	}
+	t, err := parseTask(path)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(t.Session) != "" {
+		return false, nil // 既に記録済み → 尊重
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	out, err := applyFrontmatterEdits(content, []fmKV{{"session", val}}, nil)
+	if err != nil {
+		return false, err
+	}
+	if err := atomicWriteFile(path, out, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func cmdSessionLink(args []string) error {
 	// --session <id> を先に抜く。残りを <project>/<id> として解決する。
 	// 取得層は agent 固有なので、自分の session_id を言える agent (例: Claude Code) は
@@ -645,6 +840,12 @@ func cmdSessionLink(args []string) error {
 	sessionID := explicitSession
 	via := "明示 (--session)"
 	if sessionID == "" {
+		// --session 省略時はまず自セッションを自動検出する (env → herdr)。
+		if id, src := detectSelfSessionID(); id != "" {
+			sessionID, via = id, src
+		}
+	}
+	if sessionID == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -661,6 +862,20 @@ func cmdSessionLink(args []string) error {
 		return err
 	}
 	fmt.Printf("linked %s → session %s (%s)\n", key, sessionID, via)
+
+	// web セッション URL (claude.ai) も frontmatter session: に自動記録する。
+	// local session_id (link.json, 上で記録) は状態/worktime/cost の突合用で、claude.ai の
+	// web id とは別空間。serve / tui はこの session: を読んでブラウザ/アプリで開くリンクにするので、
+	// 両方を残す。既存 session: が空のときだけ埋め (手動記録を尊重)、env が無ければ何もしない。
+	if url, src := detectSelfWebSessionURL(); url != "" {
+		set, err := setTaskSessionIfEmpty(project, id, url)
+		if err != nil {
+			return err
+		}
+		if set {
+			fmt.Printf("recorded session URL %s (%s)\n", url, src)
+		}
+	}
 	return nil
 }
 

@@ -170,11 +170,19 @@ func dispatch(args []string) error {
 		return cmdReport(args)
 	case "worktime":
 		return cmdWorktime(args)
+	case "worktime-record":
+		return cmdWorktimeRecord(args)
+	case "tui-overlay":
+		return cmdTuiOverlay(args)
 	case "open":
 		return cmdOpen(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
+	case "herdr-probe":
+		return cmdHerdrProbe(args)
+	case "spawn":
+		return cmdSpawn(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage(os.Stderr)
@@ -562,7 +570,7 @@ func runList(w io.Writer, filterStatus string, filterProjects []string, showAll,
 		if showBlocked {
 			cells = append(cells, blockedCell(t, c, now))
 		}
-		cells = append(cells, cell{displayTitle(t), ""}, cell{displayDate(t.Updated), c.dim})
+		cells = append(cells, cell{displayTitle(t), ""}, cell{displayDateOr(t.Updated, t.Created), c.dim})
 		tbl.add(cells...)
 	}
 	tbl.render(w, c)

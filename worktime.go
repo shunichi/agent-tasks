@@ -9,8 +9,10 @@ import (
 )
 
 // worktime は「そのタスクに実際に手が動いていた時間」を集計する。着手〜完了の壁時計
-// (リードタイム) ではなく、hook が記録する working/waiting 遷移ログ (worktime/<session_id>.jsonl)
-// から working だった区間だけを合計する (ユーザーの入力待ち = waiting は除く)。
+// (リードタイム) ではなく、herdr プラグインの event hook (worktime-record) が記録する
+// 状態遷移ログ (worktime/<session_id>.jsonl) から working だった区間だけを合計する
+// (idle/blocked = 入力・承認待ち等は除く)。状態値は herdr の agent_status
+// (working / idle / blocked / done)。working で区間を開き、それ以外で閉じる。
 //
 // タスクへの帰属: タスクは session-link で session_id に紐づく。1 セッションで複数タスクを直列に
 // こなす (batch / 同一セッションで順に start) と 1 つのログに複数タスクの遷移が混ざるので、
@@ -27,8 +29,8 @@ type timeInterval struct {
 }
 
 // workingIntervals は状態遷移イベント (時刻昇順) から working だった区間を復元する。
-// working イベントで区間を開き、次のイベント (waiting/ended 等) で閉じる。最後が working のまま
-// 閉じられていなければ openEnd で閉じる (セッション継続中や SessionEnd 未達のとき)。
+// working イベントで区間を開き、次のイベント (idle/blocked/done 等) で閉じる。最後が working のまま
+// 閉じられていなければ openEnd で閉じる (セッション継続中や pane 消滅で done 未達のとき)。
 func workingIntervals(events []worktimeEvent, openEnd time.Time) []timeInterval {
 	var out []timeInterval
 	var curStart time.Time

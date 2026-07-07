@@ -49,6 +49,7 @@ var completionSubcommands = []completionSubcommand{
 	{"session-prune", "state dir の古いマーカー/link を掃除する"},
 	{"statusline", "実行中タスクを status line に表示"},
 	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
+	{"spawn", "別 pane で新セッションを開き対象タスクに着手させる (herdr)"},
 	{"claim", "着手時に in-progress をロック下で原子的に予約 (start の TOCTOU 回避)"},
 	{"done", "完了/レビュー待ちの frontmatter を確定 (status/completed_at)"},
 	{"block", "保留の frontmatter を確定 (status/blocked_at/blocked_reason)"},
@@ -85,14 +86,31 @@ func cmdCompletion(args []string) error {
 	}
 	switch shell {
 	case "bash":
-		fmt.Print(bashCompletionScript())
+		fmt.Print(renameCompletion(bashCompletionScript()))
 	case "zsh":
-		fmt.Print(zshCompletionScript())
+		fmt.Print(renameCompletion(zshCompletionScript()))
 	default:
 		return usagef("completion: unknown shell %q (want bash|zsh)", shell)
 	}
 	_ = os.Stdout.Sync()
 	return nil
+}
+
+// renameCompletion は別名ビルド (progName != "agent-tasks") 向けに、生成済み補完スクリプトの
+// コマンド名 ("agent-tasks") と補完関数名 ("_agent_tasks…") を progName 由来へ置換する。
+// これで同一シェルに本体版と別名版の両補完を読み込んでも関数名が衝突せず、内部の
+// `agent-tasks completion-values` 呼び出しも別名バイナリを指すようになる。
+// 既定 (progName=="agent-tasks") では無変換。
+func renameCompletion(script string) string {
+	if progName == "agent-tasks" {
+		return script
+	}
+	// 関数名はハイフン不可なので _ に正規化 (例: agent-tasks-herdr -> _agent_tasks_herdr)。
+	funcBase := "_" + strings.ReplaceAll(progName, "-", "_")
+	script = strings.ReplaceAll(script, "_agent_tasks", funcBase)
+	// コマンド名 (登録名・内部呼び出し) はそのまま progName に。
+	script = strings.ReplaceAll(script, "agent-tasks", progName)
+	return script
 }
 
 // cmdCompletionValues は補完スクリプトが動的候補を得るための内部コマンド。
@@ -286,7 +304,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|done|block|worktime)
+        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|done|block|worktime|spawn)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" && "$prev" != "--agent" && "$prev" != "--reason" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -473,13 +491,15 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit|open|archive|unarchive|issue|worktime)
+        show|edit|open|archive|unarchive|issue|worktime|spawn)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then
                     _values 'option' '--archived[アーカイブ済みを開く]' '--json[JSON 出力]' '--color[色出力]' '--help[ヘルプ]'
                 elif [[ $sub == issue ]]; then
                     _values 'option' '--repo[owner/repo を明示]' '--color[色出力]' '--help[ヘルプ]'
+                elif [[ $sub == spawn ]]; then
+                    _values 'option' '--split[分割方向 right|down]' '--focus[前面で起動]' '--force[二重着手ガードを無視]' '--help[ヘルプ]'
                 elif [[ $sub == worktime ]]; then
                     _values 'option' '--all[全タスクを横断集計]' '--json[JSON 出力]' \
                         '--project[project を指定]' '--projects[project をカンマ区切り]' \

@@ -25,7 +25,39 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+### Added
+- worktime (実稼働時間) の記録源を herdr プラグインの event hook に移行 (#0114)。同梱
+  `herdr-plugin.toml` (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)
+  を `herdr plugin link` で導入すると、herdr が状態遷移ごとに worktime ログを追記する。状態ソースが
+  herdr に一本化され、worktime が Claude 固有 hook に依存しなくなる。
+- `agent-tasks tui` を herdr の overlay pane で開けるようにした (#0117。tmux `display-popup` の置換)。
+  同梱プラグイン `herdr-plugin.toml` に pane entrypoint `tui` (placement=overlay) と、それを開く
+  action `open-tui` を追加。config.toml に `[[keys.command]] type="plugin_action"
+  command="agent-tasks.open-tui"` を足すと、どの pane からでもキー一発で tui を前面表示できる。
+- 上記 overlay の tui が **開いた時点でアクティブだった pane のプロジェクト**のタスクを初期表示する
+  ようにした (#0124)。action `open-tui` を `agent-tasks-herdr tui-overlay` 経由にし、
+  `HERDR_PLUGIN_CONTEXT_JSON` の `focused_pane_cwd` を読んで overlay pane をその cwd で開く
+  (tui の現在 project 判定が cwd 依存なので、アクティブ pane の project になる)。cwd が取れなければ
+  従来どおりプラグイン root の project にフォールバック。
+- `session-link` がセッションの **claude.ai web URL を frontmatter `session:` に自動記録**する
+  ようになった (#0123)。Remote Control 接続中に Claude Code が export する
+  `CLAUDE_CODE_BRIDGE_SESSION_ID` (web セッション id = `session_01...`) から
+  `https://claude.ai/code/<id>` を組み立てて記録する。これで serve / tui の既存リンク
+  (`claudeAppURL` 等) が大半のタスクで有効になる (従来は `session:` が手動任せでほとんど空だった)。
+  状態突合用のローカル session_id (UUID) は従来どおり link.json に記録され、両方が残る。既存の
+  `session:` が空のときだけ埋め (手動記録を尊重)、env が無い (Remote Control 非接続) 環境では
+  従来どおり空のまま。
+- `agent-tasks tui` に **`O` キー**を追加 (#0125。#0123 の後続)。選択タスクのセッション URL
+  (`session:` = claude.ai の Claude Code セッション) を既定ブラウザで開く。`o` (PR を開く) と対の
+  導線。`session:` が URL でなければフッターにメッセージを出すだけ。#0123 で `session:` が
+  自動記録されるようになったので、大半のタスクで使える。
+
 ### Changed
+- 一覧の **UPDATED 列**で、`updated:` が未記録 (空) のタスクは `created:` にフォールバック表示する
+  ようにした (#0121。tui / `list` / `serve` 共通)。旧データや状態遷移を経ていないタスクで列が空欄に
+  なるのを防ぐ。表示専用のフォールバックで、`--json` の `updated` は生値のまま (機械可読の意味は不変)。
+- `session-hook` は worktime ログを書かなくなった (プラグインへ移行したため。二重記録の解消)。
+  SESSION 状態のマーカー・フォールバック (herdr 外・link 未記録時) としては存続する。
 - `serve` の稼働時間ビュー (`/worktime`) を「時刻タイムライン」から**時間配分ビュー**へ作り直した
   (#0104)。一次ビューは **日/週/月 × プロジェクトの積み上げバー** (表示中で最も稼働の多い期間を
   100%幅の基準にしてスケールを揃え、期間をまたいで量を比較できる)。プロジェクト帯をタップすると
@@ -38,6 +70,16 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 ### Removed
 - `/worktime` の旧「日 × 24時間 絶対時刻トラック」表示を廃止 (#0104)。稼働は短バーストの集まりで、
   24h 軸ではスマホ幅で帯が針化して読めなかったため。時間帯別・並列稼働の可視化は **PC 限定で別途** (#0127)。
+
+### Fixed
+- `agent-tasks session-rename` (herdr 内) で `/rename` が送信されず入力欄に改行だけ入る不安定さを修正
+  (#0131)。`herdr pane send-text` + 別呼び出しの `pane send-keys Enter` の 2 リクエストに分けていたのを、
+  文字列 + Enter を 1 リクエストでアトミックに送る `herdr pane run` に変更。2 プロセス起動間のギャップで
+  Enter が「送信」でなく「改行」として食われるレースを解消した (負荷/タイミング依存で稀に発生していた)。
+- `agent-tasks tui` のタスク ID・ヘッダーが暗くて読みづらい問題を修正 (#0126)。dim 表示に使っていた
+  固定色 `Color("8")` (bright black。端末/テーマによっては潰れる) を ANSI faint (SGR 2) に変更し、
+  端末の前景色に追従して読めるようにした (CLI 側の dim と同じ方式)。タスク ID は主キーなので
+  `list` と同様デフォルト前景で描き、ヘッダの状態情報も dim をやめた。
 
 ## 2026-07-02
 

@@ -6,16 +6,25 @@ import (
 	"os/exec"
 )
 
-// cmdSessionRename は「このセッションの名前を対象タスク名 (`task <NNNN>: <title>`) に変える」。
-// Claude Code のセッション名は `/rename` でしか変えられず、Claude 自身はスラッシュコマンドを
-// ツールから直接実行できない。そこで tmux 内なら**自分の pane** (`$TMUX_PANE`) へ `send-keys` で
-// `/rename …` を打ち込んで発火させる。本物の `/rename` 経路を通るので web / スマホアプリの
-// セッション名 (Bridge 同期先) にも反映される。tmux 外では発火できないので、ユーザーが実行
-// できるよう `/rename …` 行を stdout に出すフォールバックにする。
+// cmdSessionRename は「**Claude セッション自体**の名前を対象タスク名 (`task <NNNN>: <title>`) に変える」。
+// Claude Code のセッション名は `/rename` スラッシュコマンドでしか変えられず、Claude 自身はスラッシュ
+// コマンドをツールから直接実行できない。そこで**自分の pane の入力欄に `/rename …` を打ち込んで発火**
+// させる。本物の /rename 経路を通るので claude.ai web / スマホアプリのセッション名にも反映される。
+//
+// herdr 移行 (0111): **herdr 内なら `herdr pane run` で自 pane (`HERDR_PANE_ID`) に打ち込む**
+// (tmux 非依存)。herdr 外は従来どおり tmux `send-keys` にフォールバック。tmux も無ければ
+// `/rename …` 行を stdout に出してユーザーに実行してもらう。
+// いずれの経路も「Claude セッション名を変える」= 同じゴール (herdr 内ラベルだけを変える agent rename とは別)。
+//
+// 送信の確実性 (0131): 旧実装は `pane send-text` (文字列注入) と `pane send-keys Enter` を**別々の
+// herdr 呼び出し 2 回**に分けていたが、2 プロセス起動の間隔が可変で、Enter が「送信」ではなく入力欄への
+// 「改行」として食われることが (負荷/タイミング依存で) あった。`pane run` は文字列 + 本物の Enter を
+// **1 リクエストでアトミックに**送る (herdr が順序をサーバ側で保証) ので、この 2 呼び出し間のレースが
+// 原理的に無くなる。herdr の recipe でも claude への入力送出 (submit) はこの `pane run` を使う。
 //
 // skill の start / batch から「着手指示の直後 (タスク特定・二重着手チェックの直後、worktree より
-// 前)」に 1 回呼ぶ想定。id 指定だけで title 解決〜送出まで CLI 内で完結させ、Claude 側の手数
-// (= 入力欄が空でなくなり send-keys と競合する窓) を最小にする。
+// 前)」に 1 回呼ぶ想定。自 pane の入力欄に打つので、**入力欄が空なうち (指示直後) が最も
+// 競合しにくい**。打ち込まれた `/rename` はこのターン終了後に実行される (現在の作業は壊さない)。
 func cmdSessionRename(args []string) error {
 	s := newArgScan(args)
 	for {
@@ -37,27 +46,40 @@ func cmdSessionRename(args []string) error {
 	if err != nil {
 		return err
 	}
-
 	renameCmd := "/rename " + sessionRenameName(t)
 
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		// tmux 外: 自動送信できないので、ユーザーが実行できる形で出す (フォールバック)。
-		fmt.Println(renameCmd)
-		fmt.Fprintln(os.Stderr, "(tmux 外のため自動送信できません。上の行を実行するとセッション名が変わります)")
+	// herdr 内 (主経路): 自 pane の入力欄へ /rename + Enter を pane run で 1 リクエスト送出し発火。
+	// text と Enter を分けず 1 リクエストにすることで 2 呼び出し間のレース (Enter が改行として
+	// 食われる) を避ける (上のコメント 0131 参照)。tmux 非依存。
+	if herdrEnabled() {
+		pane := herdrPaneID()
+		if pane == "" {
+			return fmt.Errorf("HERDR_PANE_ID が未設定で自 pane を特定できません")
+		}
+		if err := herdrPaneRun(pane, renameCmd); err != nil {
+			return fmt.Errorf("herdr pane run に失敗: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "セッション名を送信しました (herdr): %s (pane %s)\n", sessionRenameName(t), pane)
 		return nil
 	}
 
+	// herdr 外フォールバック: tmux send-keys /rename。
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		// tmux も無い: 自動送信できないので、ユーザーが実行できる形で出す。
+		fmt.Println(renameCmd)
+		fmt.Fprintln(os.Stderr, "(herdr/tmux 外のため自動送信できません。上の行を実行するとセッション名が変わります)")
+		return nil
+	}
 	// 自分の pane へリテラル送信 (-l) → Enter。exec 経由なのでシェルのクォート不要で、
-	// title に `:` / 空白 / 引用符が含まれても安全に送れる。send-keys された `/rename` は
-	// このターン終了後に入力として実行される (現在の作業は壊さない)。
+	// title に `:` / 空白 / 引用符が含まれても安全に送れる。
 	if err := exec.Command("tmux", "send-keys", "-t", pane, "-l", renameCmd).Run(); err != nil {
 		return fmt.Errorf("tmux send-keys (文字列) に失敗: %w", err)
 	}
 	if err := exec.Command("tmux", "send-keys", "-t", pane, "Enter").Run(); err != nil {
 		return fmt.Errorf("tmux send-keys (Enter) に失敗: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "セッション名を送信しました: %s (pane %s)\n", sessionRenameName(t), pane)
+	fmt.Fprintf(os.Stderr, "セッション名を送信しました (tmux): %s (pane %s)\n", sessionRenameName(t), pane)
 	return nil
 }
 

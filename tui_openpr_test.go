@@ -80,3 +80,42 @@ func TestOpenURLsNoOpener(t *testing.T) {
 		t.Error("オープナーが無いのにエラーにならなかった")
 	}
 }
+
+// sessionBrowserAction は session: が http(s) URL のときそれを返し、空/非 URL では
+// nil + メッセージを返す。
+func TestSessionBrowserAction(t *testing.T) {
+	// http URL → 1 件返す。
+	urls, msg := sessionBrowserAction(Task{Session: "https://claude.ai/code/session_01ABC"})
+	if msg != "" {
+		t.Errorf("URL ありでメッセージが出た: %q", msg)
+	}
+	if !slices.Equal(urls, []string{"https://claude.ai/code/session_01ABC"}) {
+		t.Errorf("urls = %v, want session URL 1 件", urls)
+	}
+
+	// 空 → nil + 「セッション URL はありません」。
+	urls, msg = sessionBrowserAction(Task{Session: ""})
+	if urls != nil || msg == "" {
+		t.Errorf("session 空: urls=%v msg=%q, want nil + メッセージ", urls, msg)
+	}
+
+	// 非 URL (手動で変な値) → nil + メッセージ。
+	urls, msg = sessionBrowserAction(Task{Session: "not-a-url"})
+	if urls != nil || msg == "" {
+		t.Errorf("非 URL: urls=%v msg=%q, want nil + メッセージ", urls, msg)
+	}
+}
+
+// ヘルプに O (セッション URL を開く) の項目がある。
+func TestHelpHasOpenSessionKey(t *testing.T) {
+	found := false
+	for _, e := range helpEntries() {
+		if e[0] == "O" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("helpEntries に O (セッション URL を開く) が無い")
+	}
+}

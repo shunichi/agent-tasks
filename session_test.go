@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -267,6 +268,90 @@ func TestTaskSessionState(t *testing.T) {
 	}
 }
 
+func TestMapHerdrStatus(t *testing.T) {
+	cases := map[string]string{
+		"working": sessWorking,
+		"blocked": sessBlocked,
+		"idle":    sessIdle,
+		"unknown": "",
+		"":        "",
+	}
+	for in, want := range cases {
+		if got := mapHerdrStatus(in); got != want {
+			t.Errorf("mapHerdrStatus(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHerdrStateSnapshot(t *testing.T) {
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
+	resetHerdrSnapshotCache()
+	const js = `{"result":{"agents":[` +
+		`{"agent":"claude","agent_status":"blocked","pane_id":"w3:p1","agent_session":{"value":"sid-a"}},` +
+		`{"agent":"claude","agent_status":"working","pane_id":"w3:p2","agent_session":{"value":"sid-b"}}]}}`
+	stubHerdrRun(t, []byte(js), nil)
+
+	snap, ok := herdrStateSnapshot()
+	if !ok {
+		t.Fatal("herdr 有効なのに ok=false")
+	}
+	if snap["sid-a"] != "blocked" || snap["sid-b"] != "working" {
+		t.Errorf("snapshot = %v", snap)
+	}
+}
+
+func TestHerdrStateSnapshotDisabled(t *testing.T) {
+	t.Setenv("HERDR_ENV", "0")
+	resetHerdrSnapshotCache()
+	if _, ok := herdrStateSnapshot(); ok {
+		t.Error("herdr 外では ok=false であるべき")
+	}
+}
+
+// taskSessionState は herdr 経路 (link の session_id を agent_status に突合) を優先する。
+func TestTaskSessionStateHerdr(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	t.Setenv("HERDR_ENV", "1")
+	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	task := Task{Status: "in-progress", Worktree: "../agent-tasks--0109"}
+	key := "agent-tasks--0109"
+
+	// link を張り、herdr にその session_id が blocked で存在 → blocked。
+	if err := writeSessionLink(key, "sid-x", now); err != nil {
+		t.Fatal(err)
+	}
+	resetHerdrSnapshotCache()
+	stubHerdrRun(t, []byte(`{"result":{"agents":[{"agent_status":"blocked","pane_id":"w3:p1","agent_session":{"value":"sid-x"}}]}}`), nil)
+	if st, ok := taskSessionState(task); !ok || st.State != sessBlocked {
+		t.Fatalf("herdr blocked: %+v ok=%v", st, ok)
+	}
+
+	// link はあるが herdr に該当 agent 無し → ended。
+	resetHerdrSnapshotCache()
+	stubHerdrRun(t, []byte(`{"result":{"agents":[{"agent_status":"working","pane_id":"w3:p9","agent_session":{"value":"other"}}]}}`), nil)
+	if st, ok := taskSessionState(task); !ok || st.State != sessEnded {
+		t.Fatalf("herdr に無い→ended: %+v ok=%v", st, ok)
+	}
+}
+
+// herdr 外ではマーカー経路にフォールバックする (既存挙動維持)。
+func TestTaskSessionStateFallbackWhenNoHerdr(t *testing.T) {
+	t.Setenv("AGENT_TASKS_STATE_DIR", t.TempDir())
+	t.Setenv("HERDR_ENV", "0")
+	resetHerdrSnapshotCache()
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	task := Task{Status: "in-progress", Worktree: "../agent-tasks--0109"}
+	key := "agent-tasks--0109"
+	if err := writeSessionState(key, sessWorking, "/wt", now); err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := taskSessionState(task); !ok || st.State != sessWorking {
+		t.Fatalf("フォールバック: %+v ok=%v", st, ok)
+	}
+}
+
 // TestPlanSessionPrune は掃除対象の判定を網羅する:
 //   - 対応タスクが done / 存在しない worktree マーカー・link は対象。
 //   - in-progress / blocked のタスクのマーカーは残す。
@@ -435,5 +520,93 @@ func TestCmdSessionPrune(t *testing.T) {
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Fatalf("実行後もマーカーが残っている (err=%v)", err)
+	}
+}
+
+func TestValidWebSessionID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"session_01LU7EecqycqUbqHbhPMJ8gr", true},
+		{"abc123", true},
+		{"", false},
+		{"has space", false},
+		{"has/slash", false},
+		{"has-dash", false}, // URL に素で埋め込むので英数字と _ のみ
+	}
+	for _, c := range cases {
+		if got := validWebSessionID(c.in); got != c.want {
+			t.Errorf("validWebSessionID(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDetectSelfWebSessionURL(t *testing.T) {
+	// env あり → claude.ai URL を組み立てる。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "session_01ABC")
+	url, src := detectSelfWebSessionURL()
+	if url != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("url = %q, want claude.ai/code/session_01ABC", url)
+	}
+	if src != "CLAUDE_CODE_BRIDGE_SESSION_ID" {
+		t.Errorf("src = %q", src)
+	}
+	// env なし → 何も返さない (Remote Control 非接続 / 素の tmux)。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "")
+	if url, _ := detectSelfWebSessionURL(); url != "" {
+		t.Errorf("env 空なら空を返すべき, got %q", url)
+	}
+	// 不正な値 (URL に埋められない) → 弾く。
+	t.Setenv("CLAUDE_CODE_BRIDGE_SESSION_ID", "bad/value")
+	if url, _ := detectSelfWebSessionURL(); url != "" {
+		t.Errorf("不正な id は弾くべき, got %q", url)
+	}
+}
+
+func TestSetTaskSessionIfEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_TASKS_STORE", dir)
+	proj := filepath.Join(dir, "demo")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(proj, "0001-x.md")
+	src := "---\nid: \"0001\"\nproject: demo\ntitle: X\nstatus: in-progress\nsession:\n---\n\n# 要件\n本文はそのまま。\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 空なので書き込む。
+	set, err := setTaskSessionIfEmpty("demo", "0001", "https://claude.ai/code/session_01ABC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set {
+		t.Fatal("空の session: には書き込むべき (set=false)")
+	}
+	pt, err := parseTask(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt.Session != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("session = %q, want claude.ai URL", pt.Session)
+	}
+	// 本文が保全されている。
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "本文はそのまま。") {
+		t.Errorf("本文が保全されていない:\n%s", b)
+	}
+
+	// 既に埋まっているので上書きしない (手動記録を尊重)。
+	set, err = setTaskSessionIfEmpty("demo", "0001", "https://claude.ai/code/session_OTHER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set {
+		t.Error("既に埋まっているなら no-op であるべき (set=true)")
+	}
+	pt, _ = parseTask(path)
+	if pt.Session != "https://claude.ai/code/session_01ABC" {
+		t.Errorf("上書きされてしまった: session = %q", pt.Session)
 	}
 }

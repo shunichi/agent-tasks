@@ -34,6 +34,17 @@ func displayDate(s string) string {
 	return tm.Format("2006-01-02")
 }
 
+// displayDateOr は s の日付を返し、s が空なら fallback の日付を返す (0121)。
+// 一覧の UPDATED 列は updated を出すが、updated 未記録のタスク (旧データや状態遷移前) は
+// 空欄になるので、その場合 created へフォールバックして空欄を避ける。表示専用のフォールバックで、
+// json など機械可読出力は生値 (Updated) を使う (意味を変えない)。
+func displayDateOr(s, fallback string) string {
+	if s != "" {
+		return displayDate(s)
+	}
+	return displayDate(fallback)
+}
+
 // humanizeSince は now から見た経過を **単一単位** で短く整形する ("3d" / "5h" / "12m" / "now")。
 // 一覧の BLOCKED 列のように幅を抑えたい用途向け。解析できなければ "" を返す。
 // 所要時間など 2 単位で精密に出したいときは humanizeDuration を使う。

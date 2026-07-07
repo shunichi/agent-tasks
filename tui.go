@@ -282,9 +282,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case openResultMsg:
 		if msg.err != nil {
-			m.flash = "PR を開けません: " + msg.err.Error()
+			m.flash = msg.what + " を開けません: " + msg.err.Error()
 		} else {
-			m.flash = fmt.Sprintf("PR を開きました: %d 件", msg.n)
+			m.flash = fmt.Sprintf("%s を開きました: %d 件", msg.what, msg.n)
 		}
 		return m, nil
 
@@ -438,7 +438,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.flash = msg
 					return m, nil
 				}
-				return m, openCmd(urls)
+				return m, openCmd("PR", urls)
+			}
+			return m, nil
+		case "O":
+			// 選択タスクのセッション URL (session: = claude.ai の Claude Code セッション) を
+			// 既定ブラウザで開く。o (PR) と対の導線。session: が URL でなければフラッシュのみ。
+			if t, ok := m.selectedTask(); ok {
+				urls, msg := sessionBrowserAction(t)
+				if msg != "" {
+					m.flash = msg
+					return m, nil
+				}
+				return m, openCmd("セッション", urls)
 			}
 			return m, nil
 		case "r":
@@ -476,16 +488,32 @@ func prBrowserAction(t Task) (urls []string, msg string) {
 	return t.PRs, ""
 }
 
-// openResultMsg は非同期のブラウザ起動の結果 (開いた件数と成否)。
+// sessionBrowserAction は O キー (セッション URL をブラウザで開く) の振る舞いを決める
+// (テスト用に純粋化)。session: が http(s) URL のときそれを返す。空/URL でなければ nil と
+// 表示メッセージを返す。session: は start (session-link) が claude.ai の web URL を記録する。
+func sessionBrowserAction(t Task) (urls []string, msg string) {
+	if isHTTPURL(t.Session) {
+		return []string{t.Session}, ""
+	}
+	if strings.TrimSpace(t.Session) == "" {
+		return nil, "このタスクにセッション URL はありません"
+	}
+	return nil, "session 欄が URL ではありません"
+}
+
+// openResultMsg は非同期のブラウザ起動の結果 (何を・何件開いたか・成否)。
+// what はフラッシュ表示用の対象名 ("PR" / "セッション")。
 type openResultMsg struct {
-	n   int
-	err error
+	what string
+	n    int
+	err  error
 }
 
 // openCmd は urls を既定ブラウザで開く処理を非同期で行い、結果を openResultMsg で返す。
-func openCmd(urls []string) tea.Cmd {
+// what はフラッシュ表示に使う対象名 (PR / セッション)。
+func openCmd(what string, urls []string) tea.Cmd {
 	return func() tea.Msg {
-		return openResultMsg{n: len(urls), err: openURLs(urls)}
+		return openResultMsg{what: what, n: len(urls), err: openURLs(urls)}
 	}
 }
 
@@ -714,9 +742,12 @@ func clampInt(v, lo, hi int) int {
 // 列幅・スタイル定義
 var (
 	tuiHeaderStyle = lipgloss.NewStyle().Bold(true)
-	tuiFooterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiSepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	// dim 系は ANSI faint (SGR 2) を使う。従来の固定色 Color("8") (bright black) は端末/テーマに
+	// よっては暗すぎて潰れる (ID・ヘッダーが読めない: 0126)。faint はデフォルト前景を減光するので
+	// 端末の配色に追従して読める。CLI 側 (render.go の dim = "\033[2m") とも揃う。
+	tuiFooterStyle = lipgloss.NewStyle().Faint(true)
+	tuiDimStyle    = lipgloss.NewStyle().Faint(true)
+	tuiSepStyle    = lipgloss.NewStyle().Faint(true)
 	tuiPointStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	tuiBoldStyle   = lipgloss.NewStyle().Bold(true)
 )
@@ -751,8 +782,10 @@ func (m *tuiModel) renderHeader() string {
 		done = "表示"
 	}
 	left := tuiHeaderStyle.Render("agent-tasks tui")
-	info := tuiDimStyle.Render(fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
-		scope, filt, done, len(m.rows), m.updated.Format("15:04:05")))
+	// ヘッダの状態情報 (scope/status/件数/時刻) はデフォルト前景で描く。ユーザーが読む情報なので
+	// dim にしない (bold のタイトルが先頭に立つので階層は保てる)。0126: 従来は dim で暗く読めなかった。
+	info := fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
+		scope, filt, done, len(m.rows), m.updated.Format("15:04:05"))
 	line := left + info
 	if m.searching || m.searchQuery != "" {
 		target := "title"
@@ -806,6 +839,7 @@ func helpEntries() [][2]string {
 		{"マウスホイール", "詳細をスクロール"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
+		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},
@@ -918,7 +952,8 @@ func (m *tuiModel) renderList() string {
 			line.WriteString(tuiDimStyle.Render(padDisp(t.Project, projW)))
 			line.WriteByte(' ')
 		}
-		line.WriteString(tuiDimStyle.Render(fmt.Sprintf("%-*s", tuiIDColW, t.ID)))
+		// ID は一覧の主キー。CLI の list と同様デフォルト前景で描く (dim にしない。0126)。
+		line.WriteString(fmt.Sprintf("%-*s", tuiIDColW, t.ID))
 		line.WriteByte(' ')
 		line.WriteString(statusStyle(t.Status).Render(fmt.Sprintf("%-*s", tuiStatusColW, t.Status)))
 		line.WriteByte(' ')
@@ -952,7 +987,7 @@ func (m *tuiModel) renderList() string {
 				pad = 1
 			}
 			line.WriteString(strings.Repeat(" ", pad))
-			line.WriteString(tuiDimStyle.Render(displayDate(t.Updated)))
+			line.WriteString(tuiDimStyle.Render(displayDateOr(t.Updated, t.Created)))
 		}
 		b.WriteString(line.String())
 		if i < end-1 {
@@ -1010,7 +1045,7 @@ func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 func (m *tuiModel) updatedColWidth() int {
 	mx := 0
 	for _, t := range m.rows {
-		if dw := dispWidth(displayDate(t.Updated)); dw > mx {
+		if dw := dispWidth(displayDateOr(t.Updated, t.Created)); dw > mx {
 			mx = dw
 		}
 	}

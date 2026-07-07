@@ -74,6 +74,9 @@ type Task struct {
 }
 
 // storeDir はタスクデータの置き場を返す。AGENT_TASKS_STORE、未設定なら ~/agent-tasks-store。
+// state dir (session.go) と違い、ここは **progName 由来にしない**。別名ビルド
+// (agent-tasks-herdr 等) も稼働中の本体版と同じ ~/agent-tasks-store を共有し、タスクデータの
+// 互換を保つため (共存の方針: バイナリ/state dir は分離、ストアは共有)。
 func storeDir() string {
 	if v := os.Getenv("AGENT_TASKS_STORE"); v != "" {
 		return v

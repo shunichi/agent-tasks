@@ -152,6 +152,8 @@ func dispatch(args []string) error {
 		return cmdAllocID(args)
 	case "claim":
 		return cmdClaim(args)
+	case "resume":
+		return cmdResume(args)
 	case "done":
 		return cmdDone(args)
 	case "block":
@@ -254,6 +256,10 @@ USAGE:
                                      タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks resume [<project>] <id> [--agent <name>] [--session <url>]  blocked/review のタスクを
+                                     in-progress に戻して作業を再開 (skill の resume 手順が呼ぶ)。
+                                     started_at は保持し blocked_* / completed_at は落とす。todo は
+                                     start へ、done は worktree 作り直しのため start へ誘導
   agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
                                      done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
                                      --review は status=review (completed_at は付けない)。blocked_* は落とす。

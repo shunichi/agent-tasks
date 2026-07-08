@@ -129,6 +129,14 @@ func cmdServe(args []string) error {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// ?format=json: データだけ返す (ページの自動更新ポーリング用。全ページ再読込しない)。
+		if r.URL.Query().Get("format") == "json" {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			if err := renderTimelineJSON(w, results); err != nil {
+				fmt.Fprintf(os.Stderr, "serve: timeline json error: %v\n", err)
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := renderTimeline(w, results, interval, now); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: timeline render error: %v\n", err)

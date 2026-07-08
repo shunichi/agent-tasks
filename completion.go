@@ -354,7 +354,7 @@ _agent_tasks() {
         session-rename)    flags="--project --color --help" ;;
         session-prune)     flags="--older-than --dry-run --color --help" ;;
         statusline)        flags="--print-config --color --help" ;;
-        alloc-id)          flags="--slug --project --pull --color --help" ;;
+        alloc-id)          flags="--slug --title --kind --body-file --project --pull --color --help" ;;
         claim)             flags="--agent --session --release --to --force --color --help" ;;
         resume)            flags="--agent --session --color --help" ;;
         done)              flags="--review --color --help" ;;
@@ -637,6 +637,9 @@ _agent_tasks() {
         alloc-id)
             _arguments \
                 '--slug[内容を表すケバブケース]:slug:' \
+                '--title[フル生成モード: frontmatter+本文まで書く]:title:' \
+                '--kind[人手タスク (branch/worktree を空に)]:kind:(human code)' \
+                '--body-file[本文 (要件) を読むファイル (- で stdin)]:file:_files' \
                 '--project[project を指定]:project:_agent_tasks_projects' \
                 '--pull[採番前にストアを pull --rebase]' \
                 '--color[色出力]:mode:(%[3]s)'

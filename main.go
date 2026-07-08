@@ -261,9 +261,14 @@ USAGE:
                                      ids に --with-title で "<id>\t<title>" 形式 (zsh の説明付き補完用)、
                                      --archived でアーカイブ済みの id を列挙 (unarchive 補完用)
   agent-tasks alloc-id --slug <slug> [--project <name>] [--pull]
-                                     タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
+                                     タスク id を原子的に採番し空の予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks alloc-id --slug <slug> --title <t> [--kind human] [--body-file <f>] [--project <name>]
+                                     フル生成モード: 採番と同時に frontmatter + 本文まで書き込む
+                                     (skill が Write を使わず済み、"File has not been read yet" を回避)。
+                                     本文 (要件) は --body-file (省略時は stdin) から読む。
+                                     --kind human で人手タスク (branch/worktree を空にする)
   agent-tasks resume [<project>] <id> [--agent <name>] [--session <url>]  blocked/review のタスクを
                                      in-progress に戻して作業を再開 (skill の resume 手順が呼ぶ)。
                                      started_at は保持し blocked_* / completed_at は落とす。todo は
@@ -271,7 +276,9 @@ USAGE:
   agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
                                      done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
                                      --review は status=review (completed_at は付けない)。blocked_* は落とす。
-                                     worktree 撤去・PR 作成・進捗ログ追記は skill 側が担う
+                                     worktree 撤去・PR 作成・進捗ログ追記は skill 側が担う。
+                                     完了直後にそのタスク 1 件へ軽量な整合チェック (doctor と同じ検査) を
+                                     走らせ、矛盾があれば stderr に警告する (start を経ない done の検出)
   agent-tasks block [<project>] <id> --reason <理由>  保留の frontmatter を確定 (skill の block 手順が
                                      呼ぶ)。status=blocked + blocked_at (現在時刻) + blocked_reason。
                                      --reason 必須 (一覧に表示する保留理由)
@@ -292,8 +299,8 @@ USAGE:
                                      working/waiting 遷移から入力待ちを除いた「実際に動いていた時間」。
                                      --json は可視化 Web アプリの入力にできる形で区間を出力
   agent-tasks worktime --all [--project <name>|--all-projects] [--json]  スコープ内の全タスクを
-                                     横断集計 (実稼働の多い順)。稼働区間のタイムラインは serve の
-                                     /worktime で可視化 (agent-tasks serve → ブラウザで /worktime)
+                                     横断集計 (実稼働の多い順)。日/週/月×プロジェクトの時間配分は
+                                     serve の /worktime で可視化 (agent-tasks serve → ブラウザで /worktime)
   agent-tasks issue [<project>] <id> [--repo owner/repo]  タスクを GitHub issue として共有
                                      (起票し URL を frontmatter issue: に記録。連携済みなら本文を更新)。
                                      --repo 省略時は cwd のコード repo を gh で推論。gh CLI が必要

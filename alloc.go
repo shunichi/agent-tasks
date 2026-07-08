@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,9 +18,16 @@ import (
 // 引く競合が実際に多発した。alloc-id は project ごとのロック下で「採番 → 予約ファイル作成」を
 // 行い、ローカル並行セッション間の衝突を確実に防ぐ。
 //
-// 予約ファイルは空の <NNNN>-<slug>.md。stdout にそのパスを 1 行返すので、skill は中身
+// 予約ファイルは既定では空の <NNNN>-<slug>.md。stdout にそのパスを 1 行返すので、skill は中身
 // (frontmatter + 本文) を書き込むだけでよい。別マシン間の衝突 (push 時に判明) は git の性質上
 // 残るため、doctor の重複検査をフォールバックとして併用する。
+//
+// --title を渡すと「フル生成モード」になり、採番と同時に frontmatter + 本文まで書き込む。
+// これは Claude Code の Write ツールが「既存 (空) ファイルを未読で上書き」を拒否する
+// (`File has not been read yet`) のを避けるため: alloc-id が中身まで書けば skill は Write を
+// 使わずに済む (Read→Write の往復とエラーが消える)。本文は stdin (既定) か --body-file で受ける。
+// id/branch/worktree/created 等の id 依存メタは採番後に CLI が埋めるので、skill は id を知らずに
+// title と本文だけ渡せばよい (chicken-and-egg を避ける)。
 const (
 	allocLockName  = ".alloc.lock"    // project ディレクトリ直下のロックファイル名
 	allocLockStale = 30 * time.Second // これより古いロックは残骸とみなして奪う
@@ -27,13 +35,21 @@ const (
 	allocLockPoll  = 50 * time.Millisecond
 )
 
-// cmdAllocID はタスク id を原子的に採番し、予約用の空ファイルを作って絶対パスを stdout に出す。
-// 使い方: agent-tasks alloc-id [--project <p>] --slug <slug> [--pull]
-//   - --project 省略時は cwd の git リポジトリから判定 (list と同じ規則)。
-//   - --pull を付けると採番前にストアを git pull --rebase する (別マシン衝突の軽減。best-effort)。
+// cmdAllocID はタスク id を原子的に採番し、予約ファイルを作って絶対パスを stdout に出す。
+// 使い方:
+//
+//		agent-tasks alloc-id [--project <p>] --slug <slug> [--pull]                # 空予約 (従来)
+//		agent-tasks alloc-id [--project <p>] --slug <slug> --title <t> [--kind human] [--body-file <f>]  # フル生成
+//
+//	  - --project 省略時は cwd の git リポジトリから判定 (list と同じ規則)。
+//	  - --pull を付けると採番前にストアを git pull --rebase する (別マシン衝突の軽減。best-effort)。
+//	  - --title を渡すと frontmatter + 本文まで書き込む (フル生成モード)。本文 (要件) は
+//	    --body-file <path> (`-` で stdin) から、省略時は stdin から読む。--kind human で人手タスク
+//	    (branch/worktree を空にする)。--title 無しなら従来どおり空ファイルだけ予約する。
 func cmdAllocID(args []string) error {
-	var project, slug string
+	var project, slug, title, kind, bodyFile string
 	pull := false
+	full := false // --title が来たらフル生成モード
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
@@ -49,6 +65,25 @@ func cmdAllocID(args []string) error {
 			}
 			i++
 			slug = args[i]
+		case "--title":
+			if i+1 >= len(args) {
+				return usagef("--title には値が必要")
+			}
+			i++
+			title = args[i]
+			full = true
+		case "--kind":
+			if i+1 >= len(args) {
+				return usagef("--kind には値が必要")
+			}
+			i++
+			kind = args[i]
+		case "--body-file":
+			if i+1 >= len(args) {
+				return usagef("--body-file には値が必要")
+			}
+			i++
+			bodyFile = args[i]
 		case "--pull":
 			pull = true
 		default:
@@ -58,6 +93,19 @@ func cmdAllocID(args []string) error {
 			}
 			if v, ok := strings.CutPrefix(a, "--slug="); ok {
 				slug = v
+				continue
+			}
+			if v, ok := strings.CutPrefix(a, "--title="); ok {
+				title = v
+				full = true
+				continue
+			}
+			if v, ok := strings.CutPrefix(a, "--kind="); ok {
+				kind = v
+				continue
+			}
+			if v, ok := strings.CutPrefix(a, "--body-file="); ok {
+				bodyFile = v
 				continue
 			}
 			return usagef("unknown option: %s", a)
@@ -73,6 +121,13 @@ func cmdAllocID(args []string) error {
 	if err := validateSlug(slug); err != nil {
 		return err
 	}
+	kind, err := normalizeKind(kind)
+	if err != nil {
+		return err
+	}
+	if !full && (kind != "" || bodyFile != "") {
+		return usagef("--kind / --body-file は --title (フル生成モード) と併用してください")
+	}
 
 	projDir := filepath.Join(storeDir(), project)
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
@@ -82,14 +137,105 @@ func cmdAllocID(args []string) error {
 		pullStore() // best-effort。失敗してもローカル採番は続行する
 	}
 
-	id, path, err := allocTaskFile(projDir, slug)
+	// フル生成モードは採番前に本文を読み込む (採番ロックの保持時間を最小化し、read エラーで
+	// 空ファイルだけ予約されるのを防ぐ)。
+	var write func(id string) []byte
+	if full {
+		if strings.TrimSpace(title) == "" {
+			return usagef("--title は空にできません")
+		}
+		body, err := readBody(bodyFile)
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		write = func(id string) []byte {
+			return buildNewTaskMarkdown(id, project, slug, title, kind, body, now)
+		}
+	}
+
+	id, path, err := allocReserve(projDir, slug, write)
 	if err != nil {
 		return err
 	}
 	// stderr に人間向けの一言、stdout は予約ファイルの絶対パス 1 行 (skill / スクリプトが取り込む)。
-	fmt.Fprintf(os.Stderr, "予約しました: %s/%s-%s.md (id %s)\n", project, id, slug, id)
+	verb := "予約しました"
+	if full {
+		verb = "作成しました"
+	}
+	fmt.Fprintf(os.Stderr, "%s: %s/%s-%s.md (id %s)\n", verb, project, id, slug, id)
 	fmt.Println(path)
 	return nil
+}
+
+// normalizeKind は --kind の値を検証する。空 / "code" は "" (= 既定の code タスク。kind 行は書かない)、
+// "human" はそのまま返す。それ以外はエラー (doctor が弾く不正値を入口で防ぐ)。
+func normalizeKind(kind string) (string, error) {
+	switch kind {
+	case "", "code":
+		return "", nil
+	case "human":
+		return "human", nil
+	default:
+		return "", usagef("--kind は human か code のいずれか (got %q)", kind)
+	}
+}
+
+// readBody はフル生成モードの本文 (要件) を読む。bodyFile が空か "-" なら stdin、そうでなければ
+// そのファイルから読む。末尾は buildNewTaskMarkdown 側で整形するのでここでは素の内容を返す。
+func readBody(bodyFile string) (string, error) {
+	if bodyFile == "" || bodyFile == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("stdin から本文を読めません: %w", err)
+		}
+		return string(b), nil
+	}
+	b, err := os.ReadFile(bodyFile)
+	if err != nil {
+		return "", fmt.Errorf("--body-file を読めません: %w", err)
+	}
+	return string(b), nil
+}
+
+// buildNewTaskMarkdown は新規 todo タスクの完全な Markdown (frontmatter + 本文) を組み立てる。
+// id 依存のメタ (id / branch / worktree) と時刻 (created/updated/登録ログ) は CLI が採番後に埋める。
+// kind=="human" のときは branch/worktree を空にする (start で worktree を作らないタスク)。
+// title は既存ファイルの表記に合わせて素のまま書く (parseTask は最初の ':' で切るので ':' を含む
+// title も読める)。body は要件セクションに入れ、進捗ログの「登録」行を 1 行付ける。
+func buildNewTaskMarkdown(id, project, slug, title, kind, body string, now time.Time) []byte {
+	iso := now.Format(time.RFC3339)
+	logDate := now.Format("2006-01-02 15:04")
+	branch, worktree := "", ""
+	if kind != "human" {
+		branch = "task/" + id + "-" + slug
+		worktree = "../" + project + "--" + id
+	}
+
+	var b strings.Builder
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "id: %q\n", id)
+	b.WriteString("project: " + project + "\n")
+	b.WriteString("title: " + title + "\n")
+	b.WriteString("status: todo\n")
+	if kind == "human" {
+		b.WriteString("kind: human\n")
+	}
+	b.WriteString("agent:\n")
+	b.WriteString("session:\n")
+	b.WriteString(fmLine("branch", branch) + "\n") // human は空値 (末尾スペースなしの "branch:")
+	b.WriteString(fmLine("worktree", worktree) + "\n")
+	fmt.Fprintf(&b, "created: %q\n", iso)
+	fmt.Fprintf(&b, "updated: %q\n", iso)
+	b.WriteString("---\n\n")
+
+	b.WriteString("# 要件\n\n")
+	if body = strings.TrimSpace(body); body != "" {
+		b.WriteString(body + "\n\n")
+	}
+	b.WriteString("## 進捗ログ\n")
+	b.WriteString("- " + logDate + " 登録\n")
+	return []byte(b.String())
 }
 
 // validateSlug は slug が英小文字・数字・ハイフンのみのケバブケースかを検査する。
@@ -112,11 +258,19 @@ func validateSlug(slug string) error {
 }
 
 // allocTaskFile は projDir のロックを取り、その下で「最大 id + 1」を採番して
-// 予約ファイル <NNNN>-<slug>.md を作成する。返り値は採番した id とその絶対パス。
+// 空の予約ファイル <NNNN>-<slug>.md を作成する。返り値は採番した id とその絶対パス。
+// (allocReserve の空予約版。中身まで書くフル生成は allocReserve に write を渡す。)
+func allocTaskFile(projDir, slug string) (id, path string, err error) {
+	return allocReserve(projDir, slug, nil)
+}
+
+// allocReserve は projDir のロック下で「最大 id + 1」を採番し、予約ファイル <NNNN>-<slug>.md を
+// O_EXCL で作成する。write != nil ならその id 向けの中身を書き込む (フル生成モード)、nil なら
+// 空ファイル (従来の予約)。返り値は採番した id とその絶対パス。
 //
 // ロック下なので採番とファイル作成は他のローカルプロセスと排他される。O_EXCL は
 // 万一同名ファイルが既にある場合 (同 id 同 slug) の保険で、その場合は次の番号へ進む。
-func allocTaskFile(projDir, slug string) (id, path string, err error) {
+func allocReserve(projDir, slug string, write func(id string) []byte) (id, path string, err error) {
 	unlock, err := lockProject(projDir)
 	if err != nil {
 		return "", "", err
@@ -129,6 +283,13 @@ func allocTaskFile(projDir, slug string) (id, path string, err error) {
 		path = filepath.Join(projDir, id+"-"+slug+".md")
 		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if openErr == nil {
+			if write != nil {
+				if _, werr := f.Write(write(id)); werr != nil {
+					f.Close()
+					os.Remove(path) // 中途半端なファイルを残さない
+					return "", "", fmt.Errorf("タスクファイルを書き込めません: %w", werr)
+				}
+			}
 			f.Close()
 			return id, path, nil
 		}

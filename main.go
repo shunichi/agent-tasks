@@ -256,9 +256,14 @@ USAGE:
                                      ids に --with-title で "<id>\t<title>" 形式 (zsh の説明付き補完用)、
                                      --archived でアーカイブ済みの id を列挙 (unarchive 補完用)
   agent-tasks alloc-id --slug <slug> [--project <name>] [--pull]
-                                     タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
+                                     タスク id を原子的に採番し空の予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks alloc-id --slug <slug> --title <t> [--kind human] [--body-file <f>] [--project <name>]
+                                     フル生成モード: 採番と同時に frontmatter + 本文まで書き込む
+                                     (skill が Write を使わず済み、"File has not been read yet" を回避)。
+                                     本文 (要件) は --body-file (省略時は stdin) から読む。
+                                     --kind human で人手タスク (branch/worktree を空にする)
   agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
                                      done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
                                      --review は status=review (completed_at は付けない)。blocked_* は落とす。

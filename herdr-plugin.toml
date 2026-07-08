@@ -11,8 +11,7 @@
 #     display-popup 相当。1 つのプラグインに worktime 記録と tui popup を同居させ、導入
 #     (plugin link) を 1 回で済ませる。
 #
-# command が呼ぶ agent-tasks-herdr は herdr 対応ビルド (別名バイナリ)。稼働中の本体版
-# (agent-tasks) と共存させるため名前を分けてある (progName 由来で state dir も分離。0113)。
+# command が呼ぶ agent-tasks は PATH 上の agent-tasks (herdr 版が本採用)。
 id = "agent-tasks"
 name = "agent-tasks"
 version = "0.1.0"
@@ -22,7 +21,7 @@ min_herdr_version = "0.7.0"
 # env HERDR_PLUGIN_EVENT_JSON で渡る (pane_id / agent_status を含むが session_id は含まない)。
 [[events]]
 on = "pane.agent_status_changed"
-command = ["agent-tasks-herdr", "worktime-record"]
+command = ["agent-tasks", "worktime-record"]
 
 # tui を overlay pane で開くエントリポイント (0117)。overlay = アクティブ pane の上に一時的な
 # zoomed 表示で開き、閉じると元の focus/zoom に戻る (tmux display-popup 相当)。
@@ -31,7 +30,7 @@ command = ["agent-tasks-herdr", "worktime-record"]
 id = "tui"
 title = "agent-tasks"
 placement = "overlay"
-command = ["agent-tasks-herdr", "tui"]
+command = ["agent-tasks", "tui"]
 
 # 上記 overlay pane を開く action。キー一発で開けるようにするための間接層:
 # herdr の custom keybinding (`[[keys.command]]`) は plugin の *pane* を直接開けず、
@@ -43,7 +42,7 @@ command = ["agent-tasks-herdr", "tui"]
 #   command = "agent-tasks.open-tui"
 #   description = "agent-tasks tui (overlay)"
 #
-# command は `agent-tasks-herdr tui-overlay` を経由する (0124)。これが action コンテキスト
+# command は `agent-tasks tui-overlay` を経由する (0124)。これが action コンテキスト
 # (env HERDR_PLUGIN_CONTEXT_JSON) の focused_pane_cwd を読み、`herdr plugin pane open … --cwd
 # <アクティブ pane の cwd>` を実行する。→ overlay の tui が「今見ている pane のプロジェクト」を
 # 初期表示する。`herdr plugin pane open …` を直接指定すると cwd を渡せず、常にプラグイン root の
@@ -52,4 +51,4 @@ command = ["agent-tasks-herdr", "tui"]
 id = "open-tui"
 title = "agent-tasks tui (overlay)"
 contexts = ["workspace"]
-command = ["agent-tasks-herdr", "tui-overlay"]
+command = ["agent-tasks", "tui-overlay"]

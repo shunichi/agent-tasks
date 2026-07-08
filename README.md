@@ -24,40 +24,15 @@ make install
   (CLI 自体は symlink で最新だが補完だけ古くなるため)。zsh は `~/.zcompdump` キャッシュの都合で
   反映は新しいシェルから (即時にしたいときは `rm -f ~/.zcompdump && compinit`)。
 
-### herdr 対応版の共存ビルド + env による自動振り分け (herdr ブランチ)
+### herdr 前提について
 
-`herdr` ブランチ (herdr 全面移行の開発。→ `docs/herdr-migration.md`) では、**稼働中の本体版
-(`agent-tasks`) を壊さない**よう、別名 `agent-tasks-herdr` でビルド/インストールする。既定の `NAME`
-がこのブランチでは `agent-tasks-herdr` なので、通常どおり `make install` で共存インストールできる:
-
-```sh
-make install                 # agent-tasks-herdr として入る (本体版に触れない)
-make NAME=agent-tasks install # 本体版と同名で入れたいとき (上書きに注意)
-```
-
-- **バイナリ / 補完**は `NAME` (既定 `agent-tasks-herdr`) 名で入るので、本体版の symlink・補完を
-  上書きしない。補完のコマンド名・関数名も別名側に追従する (同一シェルで衝突しない)。
-- **skill は常に `agent-tasks` の1つに統合**される (`SKILL_NAME` 固定。同目的の skill を2つ入れると
-  Claude の選択が不確実になるため)。herdr worktree で `make install` すると
-  `~/.claude/skills/agent-tasks` が herdr 対応の統合 SKILL.md (env 分岐を内蔵) に向く。
-- **CLI 名の振り分けはルーター経由** (agent-tasks/0118)。`~/.local/agent-tasks-router/bin/agent-tasks`
-  が `HERDR_ENV=1` なら herdr 版、そうでなければ本体版を `exec` する。このディレクトリを
-  `~/.local/bin` より前に PATH へ通しておく必要がある (1回だけ):
-  ```sh
-  echo 'export PATH="$HOME/.local/agent-tasks-router/bin:$PATH"' >> ~/.zshrc
-  ```
-  `make install` (`install-router`) がルーター本体は都度書き直すが、この PATH 設定自体は
-  自動化していない。詳細・既知の制約 (main 側で `make install` を再実行すると skill 名が
-  巻き戻る等) は `docs/herdr-migration.md` の「ドッグフード準備」参照。
-- **state dir** (`~/.local/state/<name>/sessions`。マーカー/link/worktime) も名前で分離される
-  (`main.progName` を ldflags で埋め込み)。本体版が使う `~/.local/state/agent-tasks/` を壊さない。
-- **ストア** (`~/agent-tasks-store`) は**共有**する (両版で同じデータを読み書き。データ互換を保つ)。
-- herdr 版は継続運用の母艦として `../agent-tasks--herdr` (branch `herdr` の永続 worktree) を使う
-  (タスク用 worktree はタスク完了時に撤去されるため)。
-- アンインストール: `rm ~/.local/bin/agent-tasks-herdr ~/.claude/skills/agent-tasks`
-  `~/.local/share/bash-completion/completions/agent-tasks-herdr`
-  `~/.local/share/zsh/site-functions/_agent_tasks_herdr`
-  `~/.local/agent-tasks-router/bin/agent-tasks` (+ 不要なら `~/.local/state/agent-tasks-herdr`)。
+このツールは [herdr](https://github.com/shunichi/herdr) (エージェント対応マルチプレクサ) 前提で
+作られている (移行の経緯は `docs/herdr-migration.md`)。spawn (別 pane 起動)・セッション状態検出・
+自 session_id / pane 特定・session-rename は herdr の socket API を使うので、**herdr 上で最も素直に
+動く**。herdr 外 (素の tmux など) でも **degrade して動作**する (spawn は tmux フォールバック、状態は
+hook 由来マーカー等)。導入は上記の `make install` だけ (以前あった別名ビルド / env ルーターは、
+herdr 版を本採用したので不要になった)。worktime 記録と tui overlay は herdr プラグインで提供する
+(次節)。
 
 ### herdr プラグイン (worktime 記録 + tui overlay)
 
@@ -69,7 +44,7 @@ herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ..
 
 プラグインが提供するもの:
 
-- **worktime 記録** (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)。
+- **worktime 記録** (event hook `pane.agent_status_changed` → `agent-tasks worktime-record`)。
   pane の agent 状態遷移を実稼働ログに追記する (`agent-tasks worktime` で集計)。詳細は 0114 /
   `docs/herdr-migration.md`。
 - **tui overlay** (pane entrypoint `tui` + action `open-tui`)。`agent-tasks tui` を herdr の overlay
@@ -88,11 +63,9 @@ herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ..
     command = "agent-tasks.open-tui"
     description = "agent-tasks tui (overlay)"
     ```
-    追加後 `herdr server reload-config` (または再起動) で反映。`agent-tasks-herdr` が PATH に
-    必要 (上の共存インストールで入る)。action は `agent-tasks-herdr tui-overlay` を経由し、
+    追加後 `herdr server reload-config` (または再起動) で反映。`agent-tasks` が PATH に必要
+    (`make install` で入る)。action は `agent-tasks tui-overlay` を経由し、
     アクティブ pane の cwd を解決して overlay を開く (詳細は 0124 / `docs/herdr-migration.md`)。
-
-`agent-tasks-herdr` は herdr 対応ビルド (別名バイナリ)。プラグインはこれを呼ぶ。
 
 ## 使い方
 

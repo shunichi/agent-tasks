@@ -20,8 +20,8 @@ import (
 // ⚠️ イベント JSON は pane_id / agent_status / agent のみで session_id を含まない。worktime は
 // session_id キーなので、pane_id から `herdr agent get` して agent_session.value を解決する。
 //
-// 記録先は state dir (session.go の worktimeDir)。別名ビルド (agent-tasks-herdr) は progName 由来の
-// 隔離 state dir を使うので、稼働中の本体版 worktime ログを壊さない (0113 の共存制約)。
+// 記録先は state dir (session.go の worktimeDir。progName 由来)。別名ビルド (NAME=... で progName を
+// 変えたビルド) は隔離 state dir を使うので併存時も互いの worktime ログを壊さない (0113 の名残)。
 
 // herdrPluginEvent は HERDR_PLUGIN_EVENT_JSON の構造 (実地確認済み・0114)。
 // フィールドは data の下にネストする:
@@ -145,6 +145,6 @@ func worktimePluginManifest() string {
 # 導入: herdr plugin link <このファイルのあるディレクトリ>
 [[events]]
 on = "pane.agent_status_changed"
-command = ["agent-tasks-herdr", "worktime-record"]
+command = ["agent-tasks", "worktime-record"]
 `
 }

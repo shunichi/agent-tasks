@@ -51,6 +51,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   (`session:` = claude.ai の Claude Code セッション) を既定ブラウザで開く。`o` (PR を開く) と対の
   導線。`session:` が URL でなければフッターにメッセージを出すだけ。#0123 で `session:` が
   自動記録されるようになったので、大半のタスクで使える。
+- `done` / `done --review` が完了直後に**軽量な整合チェック**を走らせ、frontmatter に矛盾があれば
+  stderr に警告するようにした (#0120)。検査は doctor と同じ (`started_at`/`completed_at` の欠落・逆転、
+  `blocked_*` のクリア漏れ) を**そのタスク 1 件だけ**に適用する scoped なもの。`claim` (start) を経ずに
+  done して `started_at` が無いまま `completed_at` が付くケースを、その場で気づけるようにする狙い
+  (再発防止)。警告は stdout の完了行を汚さず done 自体は成功する。
 
 ### Changed
 - 一覧の **UPDATED 列**で、`updated:` が未記録 (空) のタスクは `created:` にフォールバック表示する

@@ -1,10 +1,30 @@
 package main
 
 import (
+	"io"
 	"os"
 	"strings"
 	"testing"
 )
+
+// captureStderr は f 実行中の os.Stderr を捕捉して返す。
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+	f()
+	w.Close()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
 const doneBlockTaskTodo = "---\nid: \"0001\"\nproject: webapp\ntitle: x\nstatus: in-progress\nagent: claude\nsession:\nstarted_at: \"2026-06-28T00:00:00+09:00\"\ncreated: \"2026-06-28T00:00:00+09:00\"\nupdated: \"2026-06-28T00:00:00+09:00\"\n---\n\n# 要件\n本文はそのまま。\n\n## 進捗ログ\n- 2026-06-28 登録\n"
 
@@ -81,6 +101,45 @@ func TestDoneClearsBlocked(t *testing.T) {
 	pt, _ := parseTask(store + "/webapp/0001-x.md")
 	if pt.BlockedAt != "" || pt.BlockedReason != "" {
 		t.Errorf("blocked_* が残っている: at=%q reason=%q", pt.BlockedAt, pt.BlockedReason)
+	}
+}
+
+// started_at が無いまま done すると、完了後の整合チェックが警告する (案B: start を経ない done の再発防止)。
+func TestDoneWarnsMissingStartedAt(t *testing.T) {
+	store := t.TempDir()
+	// started_at 無し (claim を経ずに done されるケース)。
+	body := "---\nid: \"0001\"\nproject: webapp\ntitle: x\nstatus: in-progress\nagent: claude\nsession:\ncreated: \"2026-06-28T00:00:00+09:00\"\nupdated: \"2026-06-28T00:00:00+09:00\"\n---\n"
+	writeTask(t, store, "webapp", "", "0001-x.md", body)
+	t.Setenv("AGENT_TASKS_STORE", store)
+
+	var doneErr error
+	stderr := captureStderr(t, func() { doneErr = cmdDone([]string{"webapp", "0001"}) })
+	if doneErr != nil {
+		t.Fatal(doneErr)
+	}
+	// done 自体は成功する (警告は出すが失敗させない)。
+	pt, _ := parseTask(store + "/webapp/0001-x.md")
+	if pt.Status != "done" {
+		t.Errorf("status = %q, want done", pt.Status)
+	}
+	if !strings.Contains(stderr, "started_at が無い") {
+		t.Errorf("started_at 欠落の警告が stderr に出ていない: %q", stderr)
+	}
+}
+
+// 整合の取れた done (started_at あり) では警告を出さない。
+func TestDoneNoWarnWhenConsistent(t *testing.T) {
+	store := t.TempDir()
+	writeTask(t, store, "webapp", "", "0001-x.md", doneBlockTaskTodo) // started_at あり
+	t.Setenv("AGENT_TASKS_STORE", store)
+
+	stderr := captureStderr(t, func() {
+		if err := cmdDone([]string{"webapp", "0001"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if strings.Contains(stderr, "警告") {
+		t.Errorf("整合の取れた done で警告が出た: %q", stderr)
 	}
 }
 

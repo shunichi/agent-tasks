@@ -93,6 +93,20 @@ func cmdDone(args []string) error {
 		return err
 	}
 	fmt.Println(msg)
+
+	// 完了直後に軽量な整合チェック (doctor と同じ検査をこのタスク 1 件だけに適用) を走らせ、
+	// frontmatter に矛盾があれば警告する (案B: done コマンド内蔵)。書いた直後のファイルを読み直して
+	// 確定後の状態を検査する。started_at が無いまま completed_at を付けたケース (claim を経ない done) の
+	// 再発防止も兼ねる。警告は stdout の完了行 (msg) を汚さないよう stderr に出す (done 自体は成功)。
+	if t2, err := parseTask(path); err == nil {
+		if warns := doneIntegrityWarnings(t2); len(warns) > 0 {
+			c := newColors()
+			fmt.Fprintf(os.Stderr, "%s警告: 完了後の整合チェックで問題を検出しました (agent-tasks doctor で全体確認):%s\n", c.warn, c.reset)
+			for _, w := range warns {
+				fmt.Fprintf(os.Stderr, "  - %s\n", w)
+			}
+		}
+	}
 	return nil
 }
 

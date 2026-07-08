@@ -69,3 +69,19 @@ func findTimestampIssues(tasks []Task) []TimestampIssue {
 	}
 	return out
 }
+
+// doneIntegrityWarnings は done / review 直後の 1 タスクに doctor と同じ整合チェック
+// (findTimestampIssues / findBlockedIssues) を適用し、見つかった問題の説明文を返す。
+// done で completed_at を付けたので、claim (start) を経ずに done したタスク (= started_at 無し) は
+// ここで「completed_at があるのに started_at が無い」として検出できる = start を経ない done の再発防止。
+// scoped (このタスク 1 件だけ) なので毎回 done で走らせても軽い。
+func doneIntegrityWarnings(t Task) []string {
+	var out []string
+	for _, ts := range findTimestampIssues([]Task{t}) {
+		out = append(out, ts.Detail)
+	}
+	for _, bi := range findBlockedIssues([]Task{t}) {
+		out = append(out, bi.Detail)
+	}
+	return out
+}

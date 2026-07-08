@@ -25,7 +25,18 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-08
+
+**herdr (エージェント対応マルチプレクサ) への全面移行 + 本採用。** これまで tmux + Claude Code 固有
+hook に依存していた spawn / セッション状態検出 / 自 session_id・pane 特定 / session-rename を、herdr の
+socket API 経由に作り直した (herdr 上で最も素直に動き、herdr 外＝素の tmux 等でも degrade して動く)。
+開発中は別名ビルド `agent-tasks-herdr` + state dir 隔離で稼働中の tmux 版と共存していた (#0113) が、
+本採用に伴い命名・state dir とも `agent-tasks` に復帰した (state dir のマーカー/リンク/worktime の
+フォーマットは両版で互換なので、既存データの移行は不要)。
+
 ### Added
+- herdr の socket/CLI クライアント層を追加 (全面移行の基盤)。herdr の unix socket 越しに agent / pane を
+  操作する薄いクライアントで、以降の spawn・状態検出・session-rename はこの層を通す。(#0106)
 - worktime (実稼働時間) の記録源を herdr プラグインの event hook に移行 (#0114)。同梱
   `herdr-plugin.toml` (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)
   を `herdr plugin link` で導入すると、herdr が状態遷移ごとに worktime ログを追記する。状態ソースが
@@ -53,6 +64,15 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   自動記録されるようになったので、大半のタスクで使える。
 
 ### Changed
+- `spawn` を herdr の `agent start` ベースに刷新し、独立サブコマンドとして新設した (#0108)。tmux の
+  `split-window` + `send-keys` ハックを置き換え、別 pane での新セッション起動を herdr が正規化して行う。
+  herdr 外では従来の tmux フォールバックが残る。
+- **SESSION 状態**の信号源を herdr の `agent_status` に移行した (#0109)。従来の hook 由来マーカーに代えて
+  herdr が状態遷移を push するので、working / **blocked** / idle を区別できる (旧マーカーはフォールバック)。
+- 自 session_id / 自 pane の特定を herdr 化した (#0110)。`agent get self` (+ `HERDR_PANE_ID` / env) で
+  自動検出するようになり、`session-link` の `--session` 明示が不要になった (取れなければ従来の cwd 逆引き)。
+- `session-rename` を herdr の `agent rename` に移行した (#0111)。Claude セッション自体を rename するので
+  web / アプリのセッション一覧にも反映される。herdr 外では従来の send-keys `/rename` がフォールバック。
 - 一覧の **UPDATED 列**で、`updated:` が未記録 (空) のタスクは `created:` にフォールバック表示する
   ようにした (#0121。tui / `list` / `serve` 共通)。旧データや状態遷移を経ていないタスクで列が空欄に
   なるのを防ぐ。表示専用のフォールバックで、`--json` の `updated` は生値のまま (機械可読の意味は不変)。
@@ -64,6 +84,31 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   固定色 `Color("8")` (bright black。端末/テーマによっては潰れる) を ANSI faint (SGR 2) に変更し、
   端末の前景色に追従して読めるようにした (CLI 側の dim と同じ方式)。タスク ID は主キーなので
   `list` と同様デフォルト前景で描き、ヘッダの状態情報も dim をやめた。
+
+## 2026-07-07
+
+### Added
+
+- `resume [<project>] <id> [--agent <name>] [--session <url>]` サブコマンドを追加。`blocked` / `review`
+  にしたタスクを `in-progress` に戻して作業を再開する正規の手段 (これまでは frontmatter を手編集する
+  しかなかった)。`done`/`block`/`claim` と同じく project ロック下で scalar キーを決定的に確定する:
+  `status`=in-progress + `agent` (未指定なら既存を保持) + `updated`、`blocked_at`/`blocked_reason`/
+  `completed_at` は削除、`started_at` は初回着手のまま保持。未着手 (todo) と完了済み (done) は worktree の
+  新規作成/作り直しが要るため `start` へ誘導する (エラー)。skill の resume 手順は start と対称で、
+  セッション同一化 (session-rename + session-link) をセットで行う。(#0128)
+- `doctor` に **`session:` の URL 形式チェック**を追加。`session:` は「人が開く web セッション URL」
+  (`https://claude.ai/code/session_…`) を入れる定義だが、`claim`/`session-link` の `--session` に渡す
+  ローカル session_id (UUID) と混同され UUID が貼られることがある。空でなく `http(s)://` で始まらない値を
+  「session URL の形式 (ローカル session_id の貼り間違い?)」として検出する (prs:/tracker: の URL 検査と同じ流儀)。(#0130)
+
+### Fixed
+
+- `agent-tasks help` の USAGE 一覧に `session-rename` が漏れていたのを追加 (実装・補完には既にあったが
+  help だけ未記載だった)。
+- SKILL (`/agent-tasks`): start 手順 5 と claim (手順 2) の案内に「**`--session` のローカル session_id (UUID) を
+  `session:` に貼らない。web URL が取れなければ空でよい**」を明示 (UUID 混入の再発防止)。あわせて過去に
+  UUID が入っていた既存タスク (agent-tasks/0111・0112、team-invoice/0005、workforce/0005) を、transcript の
+  bridge session id / 自コミットの `Claude-Session` トレーラーから web URL を復元して置換 (store 側データ修正)。(#0130)
 
 ## 2026-07-02
 

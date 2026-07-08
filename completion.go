@@ -51,6 +51,7 @@ var completionSubcommands = []completionSubcommand{
 	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
 	{"spawn", "別 pane で新セッションを開き対象タスクに着手させる (herdr)"},
 	{"claim", "着手時に in-progress をロック下で原子的に予約 (start の TOCTOU 回避)"},
+	{"resume", "blocked/review を in-progress に戻して作業を再開"},
 	{"done", "完了/レビュー待ちの frontmatter を確定 (status/completed_at)"},
 	{"block", "保留の frontmatter を確定 (status/blocked_at/blocked_reason)"},
 	{"where", "データディレクトリのパスを表示"},
@@ -304,7 +305,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|done|block|worktime|spawn)
+        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|resume|done|block|worktime|spawn)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" && "$prev" != "--agent" && "$prev" != "--reason" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -355,6 +356,7 @@ _agent_tasks() {
         statusline)        flags="--print-config --color --help" ;;
         alloc-id)          flags="--slug --project --pull --color --help" ;;
         claim)             flags="--agent --session --release --to --force --color --help" ;;
+        resume)            flags="--agent --session --color --help" ;;
         done)              flags="--review --color --help" ;;
         block)             flags="--reason --color --help" ;;
         completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
@@ -655,6 +657,31 @@ _agent_tasks() {
                     if (( skip )); then skip=0; continue; fi
                     case $w in
                         --agent|--session|--to|--color) skip=1 ;;
+                        -*) ;;
+                        *) pos+=$w ;;
+                    esac
+                done
+                if (( ${#pos} == 0 )); then
+                    _agent_tasks_projects
+                    _agent_tasks_ids
+                else
+                    _agent_tasks_ids ${pos[1]}
+                fi
+            fi
+            ;;
+        resume)
+            # [<project>] <id> の位置引数 + フラグ (--agent / --session)。
+            if [[ ${words[CURRENT]} == -* ]]; then
+                _values 'option' \
+                    '--agent[記録する agent 名]' \
+                    '--session[session URL を記録]' \
+                    '--color[色出力]' '--help[ヘルプ]'
+            else
+                local -a pos; local w skip=0
+                for w in ${words[3,CURRENT-1]}; do
+                    if (( skip )); then skip=0; continue; fi
+                    case $w in
+                        --agent|--session|--color) skip=1 ;;
                         -*) ;;
                         *) pos+=$w ;;
                     esac

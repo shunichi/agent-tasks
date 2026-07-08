@@ -610,3 +610,20 @@ func TestSetTaskSessionIfEmpty(t *testing.T) {
 		t.Errorf("上書きされてしまった: session = %q", pt.Session)
 	}
 }
+
+func TestFindSessionIssues(t *testing.T) {
+	tasks := []Task{
+		{Project: "p", ID: "0001", Session: "https://claude.ai/code/session_01ABC"}, // OK (web URL)
+		{Project: "p", ID: "0002", Session: ""},                                     // OK (空は正常)
+		{Project: "p", ID: "0003", Session: "0e177131-21cd-45b3-bce2-f81597a63ecd"}, // NG (ローカル UUID)
+		{Project: "p", ID: "0004", Session: "  "},                                   // OK (空白のみ = 空扱い)
+		{Project: "p", ID: "0005", Session: "session_01ABC"},                        // NG (URL でない)
+	}
+	got := findSessionIssues(tasks)
+	if len(got) != 2 {
+		t.Fatalf("findSessionIssues = %d issues, want 2: %+v", len(got), got)
+	}
+	if got[0].ID != "0003" || got[1].ID != "0005" {
+		t.Errorf("unexpected issues: %+v", got)
+	}
+}

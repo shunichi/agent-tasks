@@ -152,6 +152,8 @@ func dispatch(args []string) error {
 		return cmdAllocID(args)
 	case "claim":
 		return cmdClaim(args)
+	case "resume":
+		return cmdResume(args)
 	case "done":
 		return cmdDone(args)
 	case "block":
@@ -242,6 +244,9 @@ USAGE:
   agent-tasks session-link [<project>] <id> [--session <id>]  現在のセッションをタスクに紐づける
                                      (start 手順が呼ぶ)。同一セッション start でも SESSION 状態が出る。
                                      --session で自分の session_id を明示 (省略時は cwd 逆引き)
+  agent-tasks session-rename [<project>] <id>  現在の Claude セッション名をタスク名 (task <NNNN>:
+                                     <title>) に変える (start 手順0 が着手直後に呼ぶ)。tmux 内は自 pane へ
+                                     /rename を send-keys で発火、tmux 外は /rename 行を stdout に出力
   agent-tasks session-prune [--older-than <days>] [--dry-run]  state dir の古いマーカー/link を掃除する。
                                      対応タスクが無い/done の worktree マーカー・link、および参照されず
                                      一定日数 (既定 7) 更新の無い sess マーカーを削除。--dry-run で対象のみ表示。
@@ -259,6 +264,10 @@ USAGE:
                                      タスク id を原子的に採番し予約ファイルを作成、その絶対パスを
                                      stdout に出力 (skill の create が中身を書き込む)。project 省略時は
                                      現在 project。--pull で採番前にストアを pull --rebase
+  agent-tasks resume [<project>] <id> [--agent <name>] [--session <url>]  blocked/review のタスクを
+                                     in-progress に戻して作業を再開 (skill の resume 手順が呼ぶ)。
+                                     started_at は保持し blocked_* / completed_at は落とす。todo は
+                                     start へ、done は worktree 作り直しのため start へ誘導
   agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
                                      done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
                                      --review は status=review (completed_at は付けない)。blocked_* は落とす。
@@ -724,6 +733,7 @@ func cmdDoctor(args []string) error {
 	tsIssues := findTimestampIssues(tasks)
 	blockedIssues := findBlockedIssues(tasks)
 	prIssues := findPRIssues(tasks)
+	sessionIssues := findSessionIssues(tasks)
 	issueProbs := findIssueProblems(tasks)
 	trackerProbs := findTrackerProblems(tasks)
 	kindProbs := findKindProblems(tasks)
@@ -737,7 +747,7 @@ func cmdDoctor(args []string) error {
 		scope = fmt.Sprintf("project: %s", filterProject)
 	}
 
-	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(issueProbs) + len(trackerProbs) + len(kindProbs) + len(incompletes) + len(failures)
+	total := len(dups) + len(mismatches) + len(tsIssues) + len(blockedIssues) + len(prIssues) + len(sessionIssues) + len(issueProbs) + len(trackerProbs) + len(kindProbs) + len(incompletes) + len(failures)
 	if total == 0 {
 		fmt.Printf("%s問題なし%s (%s, %d タスクを点検, dir: %s)\n", c.done, c.reset, scope, len(tasks), dir)
 		return nil
@@ -806,8 +816,17 @@ func cmdDoctor(args []string) error {
 			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, tp.Project, tp.ID, c.reset, tp.Detail, tp.Path)
 		}
 	}
-	if len(kindProbs) > 0 {
+	if len(sessionIssues) > 0 {
 		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("%ssession URL の形式 (session:。ローカル session_id の貼り間違い?):%s\n", c.bold, c.reset)
+		for _, si := range sessionIssues {
+			fmt.Printf("  %s%s/%s%s  %s  %s\n", c.block, si.Project, si.ID, c.reset, si.Detail, si.Path)
+		}
+	}
+	if len(kindProbs) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(sessionIssues) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%sタスク種別の値 (kind:):%s\n", c.bold, c.reset)
@@ -816,7 +835,7 @@ func cmdDoctor(args []string) error {
 		}
 	}
 	if len(incompletes) > 0 {
-		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(kindProbs) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(sessionIssues) > 0 || len(kindProbs) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s作成途中/空の予約ファイル (title 未記入。一覧には出ない。放置なら削除を検討):%s\n", c.bold, c.reset)
@@ -825,7 +844,7 @@ func cmdDoctor(args []string) error {
 		}
 	}
 	if len(failures) > 0 {
-		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(kindProbs) > 0 || len(incompletes) > 0 {
+		if len(dups) > 0 || len(mismatches) > 0 || len(tsIssues) > 0 || len(blockedIssues) > 0 || len(prIssues) > 0 || len(issueProbs) > 0 || len(trackerProbs) > 0 || len(sessionIssues) > 0 || len(kindProbs) > 0 || len(incompletes) > 0 {
 			fmt.Println()
 		}
 		fmt.Printf("%s読めなかったファイル (一覧から無言で落ちる):%s\n", c.bold, c.reset)
@@ -834,8 +853,8 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / issue %d / tracker %d / kind %d / 作成途中 %d / 読込失敗 %d)\n",
-		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(issueProbs), len(trackerProbs), len(kindProbs), len(incompletes), len(failures))
+	fmt.Printf("\n%s%d 件の問題%s (重複 %d / 不一致 %d / 日時矛盾 %d / blocked %d / PR %d / session %d / issue %d / tracker %d / kind %d / 作成途中 %d / 読込失敗 %d)\n",
+		c.block, total, c.reset, len(dups), len(mismatches), len(tsIssues), len(blockedIssues), len(prIssues), len(sessionIssues), len(issueProbs), len(trackerProbs), len(kindProbs), len(incompletes), len(failures))
 	return &silentExit{code: 1}
 }
 

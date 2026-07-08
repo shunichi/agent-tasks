@@ -95,6 +95,25 @@ func TestFindBlockedIssues(t *testing.T) {
 	}
 }
 
+// doneIntegrityWarnings は 1 タスクに timestamp / blocked の整合チェックをまとめて適用する。
+func TestDoneIntegrityWarnings(t *testing.T) {
+	// completed_at あり & started_at 無し → 警告。
+	miss := Task{Project: "p", ID: "0001", Status: "done", CompletedAt: "2026-06-28T12:00:00Z"}
+	if w := doneIntegrityWarnings(miss); len(w) != 1 || !strings.Contains(w[0], "started_at が無い") {
+		t.Errorf("started_at 欠落を検出できていない: %+v", w)
+	}
+	// blocked_* の残骸も拾う。
+	stale := Task{Project: "p", ID: "0002", Status: "done", StartedAt: "2026-06-28T10:00:00Z", CompletedAt: "2026-06-28T12:00:00Z", BlockedReason: "残骸"}
+	if w := doneIntegrityWarnings(stale); len(w) != 1 || !strings.Contains(w[0], "クリア漏れ") {
+		t.Errorf("blocked_* 残骸を検出できていない: %+v", w)
+	}
+	// 整合が取れていれば空。
+	ok := Task{Project: "p", ID: "0003", Status: "done", StartedAt: "2026-06-28T10:00:00Z", CompletedAt: "2026-06-28T12:00:00Z"}
+	if w := doneIntegrityWarnings(ok); len(w) != 0 {
+		t.Errorf("整合の取れたタスクで警告が出た: %+v", w)
+	}
+}
+
 // containsAll は s が部分文字列 subs を全て含むか。
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {

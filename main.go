@@ -262,7 +262,9 @@ USAGE:
   agent-tasks done [<project>] <id> [--review]  完了/レビュー待ちの frontmatter を確定 (skill の
                                      done 手順が呼ぶ)。既定は status=done + completed_at (初回のみ)、
                                      --review は status=review (completed_at は付けない)。blocked_* は落とす。
-                                     worktree 撤去・PR 作成・進捗ログ追記は skill 側が担う
+                                     worktree 撤去・PR 作成・進捗ログ追記は skill 側が担う。
+                                     完了直後にそのタスク 1 件へ軽量な整合チェック (doctor と同じ検査) を
+                                     走らせ、矛盾があれば stderr に警告する (start を経ない done の検出)
   agent-tasks block [<project>] <id> --reason <理由>  保留の frontmatter を確定 (skill の block 手順が
                                      呼ぶ)。status=blocked + blocked_at (現在時刻) + blocked_reason。
                                      --reason 必須 (一覧に表示する保留理由)

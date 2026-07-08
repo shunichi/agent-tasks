@@ -26,6 +26,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
 ### Added
+- `agent-tasks alloc-id` に **`--title` フル生成モード**を追加 (#0122)。採番と同時に frontmatter + 本文
+  まで書き込むので、skill の create が Write ツールを使わずに済む。予約済みの空ファイルを Write しようと
+  すると Claude Code が `File has not been read yet` で弾き Read→Write の往復が必要になっていた問題を
+  解消する。本文 (要件) は stdin (既定) か `--body-file <path>` (`-` で stdin) から受け、id 依存のメタ
+  (`id`/`branch`/`worktree`/`created`/`updated`) は採番後に CLI が埋める。`--kind human` で人手タスク
+  (branch/worktree を空にする)。`--title` なしは従来どおり空予約ファイルを作る (後方互換・フォールバック)。
 - worktime (実稼働時間) の記録源を herdr プラグインの event hook に移行 (#0114)。同梱
   `herdr-plugin.toml` (event hook `pane.agent_status_changed` → `agent-tasks-herdr worktime-record`)
   を `herdr plugin link` で導入すると、herdr が状態遷移ごとに worktime ログを追記する。状態ソースが
@@ -81,6 +87,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   (#0131)。`herdr pane send-text` + 別呼び出しの `pane send-keys Enter` の 2 リクエストに分けていたのを、
   文字列 + Enter を 1 リクエストでアトミックに送る `herdr pane run` に変更。2 プロセス起動間のギャップで
   Enter が「送信」でなく「改行」として食われるレースを解消した (負荷/タイミング依存で稀に発生していた)。
+- `agent-tasks tui` のタスク ID・ヘッダーが暗くて読みづらい問題を修正 (#0126)。dim 表示に使っていた
+  固定色 `Color("8")` (bright black。端末/テーマによっては潰れる) を ANSI faint (SGR 2) に変更し、
+  端末の前景色に追従して読めるようにした (CLI 側の dim と同じ方式)。タスク ID は主キーなので
+  `list` と同様デフォルト前景で描き、ヘッダの状態情報も dim をやめた。
+
+### Fixed
 - `agent-tasks tui` のタスク ID・ヘッダーが暗くて読みづらい問題を修正 (#0126)。dim 表示に使っていた
   固定色 `Color("8")` (bright black。端末/テーマによっては潰れる) を ANSI faint (SGR 2) に変更し、
   端末の前景色に追従して読めるようにした (CLI 側の dim と同じ方式)。タスク ID は主キーなので

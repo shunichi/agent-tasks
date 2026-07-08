@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +127,107 @@ func TestAllocTaskFileConcurrent(t *testing.T) {
 		if want := fmt.Sprintf("%04d", i+1); id != want {
 			t.Errorf("got[%d] = %q, want %q", i, id, want)
 		}
+	}
+}
+
+func TestNormalizeKind(t *testing.T) {
+	for in, want := range map[string]string{"": "", "code": "", "human": "human"} {
+		got, err := normalizeKind(in)
+		if err != nil {
+			t.Errorf("normalizeKind(%q) err = %v", in, err)
+		}
+		if got != want {
+			t.Errorf("normalizeKind(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if _, err := normalizeKind("bogus"); err == nil {
+		t.Error("normalizeKind(bogus) = nil, want error")
+	}
+}
+
+// buildNewTaskMarkdown の生成物が parseTask で読み戻せる (往復) こと。code タスク。
+func TestBuildNewTaskMarkdownCode(t *testing.T) {
+	now := time.Date(2026, 7, 8, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
+	body := "ドラッグで並び替え。\n\n- 対象: 一覧"
+	md := buildNewTaskMarkdown("0042", "webapp", "bookmark-dnd", "DnD 並び替え: 一覧", "", body, now)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "0042-bookmark-dnd.md")
+	if err := os.WriteFile(path, md, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseTask(path)
+	if err != nil {
+		t.Fatalf("parseTask: %v", err)
+	}
+	if got.ID != "0042" || got.Project != "webapp" || got.Status != "todo" {
+		t.Errorf("id/project/status = %q/%q/%q", got.ID, got.Project, got.Status)
+	}
+	// title に ':' を含んでも最初の ':' 以降を丸ごと拾える。
+	if want := "DnD 並び替え: 一覧"; got.Title != want {
+		t.Errorf("title = %q, want %q", got.Title, want)
+	}
+	if got.Kind != "" {
+		t.Errorf("kind = %q, want empty (code)", got.Kind)
+	}
+	if got.Branch != "task/0042-bookmark-dnd" || got.Worktree != "../webapp--0042" {
+		t.Errorf("branch/worktree = %q/%q", got.Branch, got.Worktree)
+	}
+	if got.Created != "2026-07-08T09:30:00+09:00" || got.Updated != got.Created {
+		t.Errorf("created/updated = %q/%q", got.Created, got.Updated)
+	}
+	if !strings.Contains(string(md), "## 進捗ログ\n- 2026-07-08 09:30 登録\n") {
+		t.Errorf("進捗ログの登録行が期待通りでない:\n%s", md)
+	}
+	if !strings.Contains(string(md), "# 要件\n\nドラッグで並び替え。") {
+		t.Errorf("要件セクションが期待通りでない:\n%s", md)
+	}
+}
+
+// human タスクは kind: human 行を持ち、branch/worktree が空 (末尾スペースなし)。
+func TestBuildNewTaskMarkdownHuman(t *testing.T) {
+	now := time.Date(2026, 7, 8, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
+	md := buildNewTaskMarkdown("0003", "webapp", "deploy", "デプロイ設定変更", "human", "手で変更。", now)
+	s := string(md)
+	if !strings.Contains(s, "\nkind: human\n") {
+		t.Errorf("kind: human 行が無い:\n%s", s)
+	}
+	if !strings.Contains(s, "\nbranch:\n") || !strings.Contains(s, "\nworktree:\n") {
+		t.Errorf("human は branch:/worktree: が空値 (末尾スペースなし) であるべき:\n%s", s)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "0003-deploy.md")
+	if err := os.WriteFile(path, md, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseTask(path)
+	if err != nil {
+		t.Fatalf("parseTask: %v", err)
+	}
+	if got.Kind != "human" || got.Branch != "" || got.Worktree != "" {
+		t.Errorf("kind/branch/worktree = %q/%q/%q", got.Kind, got.Branch, got.Worktree)
+	}
+}
+
+// allocReserve に write を渡すと採番と同時に中身を書き込む (フル生成モード)。
+func TestAllocReserveWritesContent(t *testing.T) {
+	dir := t.TempDir()
+	id, path, err := allocReserve(dir, "task", func(id string) []byte {
+		return []byte("id=" + id + "\n")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "0001" {
+		t.Errorf("id = %q, want 0001", id)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "id=0001\n" {
+		t.Errorf("content = %q, want %q", b, "id=0001\n")
 	}
 }
 

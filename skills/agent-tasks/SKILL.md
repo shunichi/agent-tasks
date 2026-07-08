@@ -153,32 +153,38 @@ updated: "2026-06-28T14:30:00+09:00"
 
 1. project キーを決める (上記)。
 2. `slug` を決める。ユーザー指定があれば英語ケバブケースに変換、なければ確認する。
-3. **採番と予約は CLI に任せる (推奨)。** `agent-tasks alloc-id` が project ごとのロック下で
-   「最大連番 + 1」を原子的に確保し、予約用の空ファイルを作ってそのパスを stdout に返す。
-   ローカル並行 create で同じ id を引く競合 (TOCTOU) を確実に防げる。
+3. **採番と作成は CLI に任せる (推奨)。** `agent-tasks alloc-id --title` に**フル生成モード**があり、
+   project ごとのロック下で「最大連番 + 1」を原子的に確保しつつ、**frontmatter + 本文まで書き込んで**
+   くれる。id 依存メタ (`id`/`branch`/`worktree`/`created`/`updated`/`status: todo`) は CLI が採番後に
+   埋めるので、こちらは **title と要件本文だけ渡せばよい** (Write ツールを使わない)。要件本文は
+   **stdin (ヒアドキュメント) で渡す**。
    ```sh
-   path=$(agent-tasks alloc-id --slug <slug>)   # project 省略時は現在 project
+   agent-tasks alloc-id --slug <slug> --title '<タイトル>' <<'BODY'
+   （要件本文。Markdown 可。# 要件 の見出しと ## 進捗ログ は CLI が付けるので不要）
+   BODY
    ```
+   - stdout に作成したファイルの絶対パスが 1 行返る。**Write / Read は不要** (これが本モードの目的:
+     予約済み空ファイルを Write しようとすると Claude Code が `File has not been read yet` で弾く問題を
+     回避する)。要件本文をファイルで渡したいときは `--body-file <path>` (`-` で stdin)。
+   - **人手タスク (コードを触らない)** のとき (「デプロイ設定を手で変更」「顧客に確認」「本番でデータ移行」
+     「レビュー依頼」など、ユーザーが *human/人手/手作業/コードを触らない* と示したとき) は **`--kind human`**
+     を付ける (CLI が `kind: human` を書き、`branch`/`worktree` を空にする)。判断に迷うとき (コードを触るか
+     曖昧) はユーザーに確認する。既定 (コードを実装するタスク) は `--kind` を付けない (= code)。
    - ストアにアクセスするのは**基本 1 マシン**という前提なので、採番前の pull は不要 (`--pull` は付けない)。
      ストア側に未コミット変更があると `--pull` の `git pull --rebase` が失敗してノイズになるため、
      既定では使わない。同期は別途 `sync` が担う。複数マシンでストアを共有する場合だけ、必要に応じて
      手動で `git pull --rebase` するか `--pull` を付ける (フラグ自体は残っている)。
-   - 返ってきた `path` (= `<root>/<project>/<NNNN>-<slug>.md`) に**中身を書き込む**。id はファイル名先頭の連番。
    - **CLI が無い環境のフォールバック**: 既存 `<root>/<project>/*.md` の最大連番 + 1 を自分で採番し、
-     `<root>/<project>/<NNNN>-<slug>.md` を作る (この経路は並行時に id 衝突があり得るので、手順 5 の
-     doctor 検査を必ず行う)。
-4. 予約ファイルに上記形式の中身を書き込む。`status: todo`、`agent`/`session`/`branch`/`worktree` は空、
-   `created`/`updated` は現在の日時 (`date --iso-8601=seconds`)。`branch`/`worktree` はファイル名の id・slug に合わせる。
-   - **コードを変更しない人手タスク**のとき (「デプロイ設定を手で変更」「顧客に確認」「本番でデータ移行」
-     「レビュー依頼」など、ユーザーが *human/人手/手作業/コードを触らない* と示したとき) は
-     **`kind: human` を書く**。この場合 `branch`/`worktree` は使わないので **空のままにする**
-     (start で worktree を作らないため。ファイル名は他と同様に `<NNNN>-<slug>.md` でよい)。
-     判断に迷うとき (コードを触るか曖昧) はユーザーに確認する。既定 (コードを実装するタスク) は
-     `kind:` を書かない (= code)。
-5. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する** (alloc-id 利用時も、
+     `<root>/<project>/<NNNN>-<slug>.md` を上記形式の中身つきで作る (`status: todo`、`agent`/`session` は空、
+     `branch`/`worktree` はファイル名の id・slug に合わせる。人手タスクは `kind: human` を書き
+     `branch`/`worktree` は空。`created`/`updated` は `date --iso-8601=seconds`)。この経路は並行時に
+     id 衝突があり得るので、手順 4 の doctor 検査を必ず行う。
+   - **旧来の空予約モード** (`--title` なしで `path=$(agent-tasks alloc-id --slug <slug>)`) も残っているが、
+     返ったパスは未読の空ファイルなので Write が弾かれる。通常はフル生成モード (`--title`) を使う。
+4. **作成後に `agent-tasks doctor --project <project>` で重複/不一致を検査する** (alloc-id 利用時も、
    別マシン間衝突などの保険として実行する)。重複 id が出たら、空いている最大連番 + 1 に振り直して
    ファイル名と frontmatter `id:` の両方を直し、再度 doctor が通ることを確認する。
-6. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
+5. 作成したパスを報告して**そこで止まる**。**コードリポジトリには一切コミットしない。**
    報告では作成したタスクを `ID + タイトル` で示す (「ユーザーへの報告」参照)。
 
 ---

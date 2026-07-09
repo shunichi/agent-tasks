@@ -110,7 +110,8 @@ function startParallel(PIECES, COLORS) {
         var x = labW + h * (cell + gap), v = grid[r][h] / mx;
         var op = v <= 0 ? 0.04 : (0.12 + v * 0.85);
         var fill = v <= 0 ? "var(--card)" : "var(--accent)";
-        svg.push('<rect x="' + x + '" y="' + y + '" width="' + cell + '" height="' + cell + '" rx="4" fill="' + fill + '" fill-opacity="' + op.toFixed(3) + '"><title>' + WD[r] + ' ' + h + ':00 · 平均並列 ' + grid[r][h].toFixed(2) + '</title></rect>');
+        var tip = esc(WD[r] + " " + h + ":00 · 平均並列 " + grid[r][h].toFixed(2));
+        svg.push('<rect x="' + x + '" y="' + y + '" width="' + cell + '" height="' + cell + '" rx="4" fill="' + fill + '" fill-opacity="' + op.toFixed(3) + '" data-tip="' + tip + '" aria-label="' + tip + '"/>');
       }
     }
     svg.push('</svg>');
@@ -148,7 +149,8 @@ function startParallel(PIECES, COLORS) {
       svg.push('<text class="axis-lab" x="' + (PADL - 6) + '" y="' + (y + rowH / 2 + 3) + '" text-anchor="end">' + esc(dlabel(d)) + '</text>');
       m[d].forEach(function (p) {
         var x1 = xOf(p.s, W), x2 = xOf(p.e, W), w = Math.max(1.5, x2 - x1);
-        svg.push('<rect x="' + x1.toFixed(1) + '" y="' + (y + 3) + '" width="' + w.toFixed(1) + '" height="' + (rowH - 6) + '" rx="2.5" fill="' + colorOf(p.p) + '" fill-opacity="0.5"><title>#' + esc(p.id) + ' ' + esc(p.ti) + '</title></rect>');
+        var tip = "#" + esc(p.id) + " " + esc(p.ti);
+        svg.push('<rect x="' + x1.toFixed(1) + '" y="' + (y + 3) + '" width="' + w.toFixed(1) + '" height="' + (rowH - 6) + '" rx="2.5" fill="' + colorOf(p.p) + '" fill-opacity="0.5" data-tip="' + tip + '" aria-label="' + tip + '"/>');
       });
       svg.push('</g>');
     });
@@ -252,7 +254,8 @@ function startParallel(PIECES, COLORS) {
       svg.push('<text class="lane-dr" x="' + (labW2 - 8) + '" y="' + (y + laneH / 2 + 3) + '" text-anchor="end">' + hm(tk.total) + '</text>');
       tk.ivs.forEach(function (iv) {
         var x1 = xd(iv.s), x2 = xd(iv.e), w = Math.max(2, x2 - x1);
-        svg.push('<rect x="' + x1.toFixed(1) + '" y="' + (y + 4) + '" width="' + w.toFixed(1) + '" height="' + (laneH - 8) + '" rx="2.5" fill="' + colorOf(tk.proj) + '" fill-opacity="0.9"><title>#' + esc(tk.id) + ' ' + esc(tk.ti) + ' ' + fmtT(iv.s) + '–' + fmtT(iv.e) + '</title></rect>');
+        var tip = "#" + esc(tk.id) + " " + esc(tk.ti) + " " + fmtT(iv.s) + "–" + fmtT(iv.e);
+        svg.push('<rect x="' + x1.toFixed(1) + '" y="' + (y + 4) + '" width="' + w.toFixed(1) + '" height="' + (laneH - 8) + '" rx="2.5" fill="' + colorOf(tk.proj) + '" fill-opacity="0.9" data-tip="' + tip + '" aria-label="' + tip + '"/>');
       });
     });
     svg.push('</svg>');
@@ -268,6 +271,40 @@ function startParallel(PIECES, COLORS) {
     document.getElementById("pcwarn").style.display = window.innerWidth < 820 ? "block" : "none";
   }
   window.addEventListener("resize", pcGuard);
+
+  // カスタムツールチップ。ネイティブ SVG <title> はブラウザ UI が描画し、ページの font-family も
+  // lang="ja" も継承しないため、環境によっては日本語が中国語グリフで出る (0139)。data-tip を持つ
+  // 要素にページ内 DOM のツールチップ (--sans + lang=ja が効く) を出して日本語グリフを保証する。
+  // render() で innerHTML を作り直しても効くよう、document への委譲で 1 度だけ張る。
+  function initTooltip() {
+    var tip = document.createElement("div");
+    tip.className = "tooltip";
+    tip.style.display = "none";
+    document.body.appendChild(tip);
+    var cur = null;
+    function place(e) {
+      var pad = 14, tw = tip.offsetWidth, th = tip.offsetHeight;
+      var x = e.clientX + pad, y = e.clientY + pad;
+      if (x + tw > window.innerWidth - 4) x = Math.max(4, e.clientX - tw - pad);
+      if (y + th > window.innerHeight - 4) y = Math.max(4, e.clientY - th - pad);
+      tip.style.left = x + "px"; tip.style.top = y + "px";
+    }
+    function hide() { if (cur) { cur = null; tip.style.display = "none"; } }
+    function tipTarget(e) { var t = e.target; return t && t.closest ? t.closest("[data-tip]") : null; }
+    document.addEventListener("mouseover", function (e) {
+      var el = tipTarget(e); if (!el) return;
+      cur = el; tip.textContent = el.getAttribute("data-tip"); tip.style.display = "block"; place(e);
+    });
+    document.addEventListener("mousemove", function (e) {
+      if (!cur) return;
+      if (!cur.isConnected) { hide(); return; } // 再描画で対象が消えたときの保険
+      place(e);
+    });
+    document.addEventListener("mouseout", function (e) {
+      if (cur && tipTarget(e) === cur) hide();
+    });
+  }
+  initTooltip();
 
   // このビューは自動更新しない (0134)。ロード時に一度だけ描画する。最新データが要るときは手動リロード。
   render();

@@ -62,3 +62,11 @@ h2.sec::after { content:""; flex:1; height:1px; background:var(--border); }
 
 .empty { color:var(--dim); text-align:center; margin-top:3rem; }
 svg { display:block; }
+
+/* カスタムツールチップ。ネイティブ SVG <title> はブラウザ UI が描画し、ページの font-family も
+   lang="ja" も継承しないため、環境によっては日本語が中国語グリフで出る。data-tip を持つ要素には
+   ページ内 DOM のこのツールチップ (--sans + lang=ja が効く) を出して日本語グリフを保証する (0139)。 */
+.tooltip { position:fixed; z-index:50; pointer-events:none; max-width:min(22rem, 90vw);
+           background:var(--card2); color:var(--fg); border:1px solid var(--border);
+           border-radius:.4rem; padding:.3rem .55rem; font-family:var(--sans); font-size:.76rem;
+           line-height:1.35; box-shadow:0 4px 14px rgba(0,0,0,.4); }

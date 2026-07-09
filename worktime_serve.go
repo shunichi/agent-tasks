@@ -149,7 +149,7 @@ func renderTimeline(w io.Writer, results []taskWorktimeResult, interval int, _ t
 	})
 }
 
-var worktimeTemplate = template.Must(template.New("worktime").Parse(worktimeHTML))
+var worktimeTemplate = template.Must(template.New("worktime").Parse(worktimeHTML + viewNavTmpl))
 
 // worktimeHTML は自己完結ページ。Go の raw 文字列 (backtick) なので、埋め込む JS では
 // テンプレートリテラル (backtick) を使わず文字列連結 (+) で組む (backtick 衝突を避けるため)。
@@ -158,7 +158,7 @@ const worktimeHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agent-tasks — 稼働時間</title>
+<title>agent-tasks — 時間配分</title>
 <style>
   :root {
     --bg:#0f1115; --panel:#171a21; --card:#1d222b; --card2:#232936; --border:#2a2f3a;
@@ -229,8 +229,9 @@ const worktimeHTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1>稼働時間 <a href="/">← 一覧</a> <a href="/worktime?view=parallel">時間帯・並列 →</a></h1>
+  <h1>agent-tasks</h1>
   <div class="meta" id="meta"></div>
+  {{template "viewnav" "alloc"}}
 </header>
 <main id="app"></main>
 {{if .HasData}}

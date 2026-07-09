@@ -410,7 +410,7 @@ func renderDashboard(w io.Writer, rows []Task, interval int, now time.Time) erro
 	return dashTemplate.Execute(w, buildDashData(rows, interval, now))
 }
 
-var dashTemplate = template.Must(template.New("dashboard").Parse(dashHTML))
+var dashTemplate = template.Must(template.New("dashboard").Parse(dashHTML + viewNavTmpl))
 
 const dashHTML = `<!doctype html>
 <html lang="ja">
@@ -503,8 +503,9 @@ const dashHTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1>agent-tasks <a href="/worktime">⏱ 稼働時間</a></h1>
+  <h1>agent-tasks</h1>
   <div class="meta">{{.Count}} tasks · {{.Now}}{{if .Refresh}} · 自動更新 {{.Interval}}s{{end}}</div>
+  {{template "viewnav" "list"}}
 </header>
 {{range .Groups}}
 <section class="sec-{{.Key}}">

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -122,6 +123,14 @@ type tuiModel struct {
 	showHelp   bool   // ヘルプ (キーバインド一覧) を表示中か (? で開閉)
 	flash      string // 一時メッセージ (コピー結果など)。次のキー入力で消える
 
+	// 選択 + アーカイブ (書き込み操作)。selected は Space でトグルするマルチセレクトで、
+	// project/id キーで再読込 (ポーリング) や絞り込み変更をまたいで保持する (cursor と同じ方針)。
+	// confirming 中は x の確認プロンプトを出し、y=実行 / n・Esc=中止。confirmTargets はその
+	// 時点の対象スナップショット (以降の再読込で対象が変わらないよう固定する)。
+	selected       map[string]bool
+	confirming     bool
+	confirmTargets []Task
+
 	searching     bool   // 検索入力モード中か (/ で開始、Enter 確定 / Esc 解除)
 	searchQuery   string // 検索クエリ (タイトル部分一致、大小無視)。空 = フィルタ無し
 	searchContent bool   // 本文も検索対象にするか (Tab でトグル)
@@ -159,7 +168,26 @@ func (m *tuiModel) reload() {
 	}
 	m.sig = storeSignature(m.dir)
 	m.updated = time.Now()
+	m.pruneSelection()
 	m.applyFilter()
+}
+
+// pruneSelection は既にストアから消えた (別セッションでアーカイブ/完了移動された等) タスクの
+// 選択を落とす。選択は絞り込みをまたいで保持する (隠れていても選択のまま) ので、可視行 (rows) では
+// なく全タスク (all) の存在で判定する。
+func (m *tuiModel) pruneSelection() {
+	if len(m.selected) == 0 {
+		return
+	}
+	exist := make(map[string]bool, len(m.all))
+	for _, t := range m.all {
+		exist[taskKey(t)] = true
+	}
+	for k := range m.selected {
+		if !exist[k] {
+			delete(m.selected, k)
+		}
+	}
 }
 
 // applyFilter は all から表示行を絞り込む (list の selectTasks と同じ規則)。
@@ -288,6 +316,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case archiveSyncMsg:
+		// アーカイブ後の非同期 scoped sync の結果。ローカルの移動と一覧反映は doArchive の
+		// 発火時に済んでいるので、ここでは同期結果を flash に出すだけ (失敗しても移動は完了済みで、
+		// 後で手動 sync すれば取り込める)。
+		if msg.err != nil {
+			m.flash = "アーカイブ済み。同期は失敗 (後で sync してください): " + firstLine(msg.err.Error())
+		} else {
+			m.flash = "アーカイブして同期しました: " + strings.Join(msg.lines, " / ")
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		// マウスホイールは詳細ペインのスクロールに使う。
 		var cmd tea.Cmd
@@ -303,6 +342,25 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "?", "q", "esc":
 				m.showHelp = false
+			}
+			return m, nil
+		}
+		// アーカイブ確認モード: y=実行 / n・Esc・q=中止 のみ受ける (誤操作防止)。
+		// 実行時はローカルの移動を同期で行って即座に一覧へ反映し、git の scoped sync だけを
+		// 非同期 (tea.Cmd) に回して UI をブロックしない。
+		if m.confirming {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "y", "Y":
+				m.confirming = false
+				targets := m.confirmTargets
+				m.confirmTargets = nil
+				return m, m.doArchive(targets)
+			case "n", "N", "esc", "q":
+				m.confirming = false
+				m.confirmTargets = nil
+				m.flash = "アーカイブを中止しました"
 			}
 			return m, nil
 		}
@@ -455,6 +513,30 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.reload()
+		case " ":
+			// Space: 選択トグル (マルチセレクト)。選択は project/id で保持され、絞り込み・再読込を
+			// またいで残る。x で選択中の全タスクを一括アーカイブできる。
+			if t, ok := m.selectedTask(); ok {
+				k := taskKey(t)
+				if m.selected[k] {
+					delete(m.selected, k)
+				} else {
+					if m.selected == nil {
+						m.selected = map[string]bool{}
+					}
+					m.selected[k] = true
+				}
+			}
+		case "x":
+			// x: アーカイブ。選択があれば選択中の全タスク、無ければカーソル行の 1 件を対象に、
+			// 件数を添えた確認プロンプトを出す (実行は y)。
+			targets := m.archiveTargets()
+			if len(targets) == 0 {
+				m.flash = "アーカイブ対象がありません"
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmTargets = targets
 		}
 		return m, nil
 	}
@@ -467,6 +549,65 @@ func (m *tuiModel) selectedTask() (Task, bool) {
 		return Task{}, false
 	}
 	return m.rows[m.cursor], true
+}
+
+// archiveTargets は x キーでアーカイブする対象を決める。Space で選択 (マルチセレクト) が
+// あれば選択中の全タスク (絞り込みで隠れていても選択は保持されるので all から解決)、無ければ
+// カーソル行の 1 件。選択・カーソルとも無ければ nil。
+func (m *tuiModel) archiveTargets() []Task {
+	if len(m.selected) > 0 {
+		var out []Task
+		for _, t := range m.all {
+			if m.selected[taskKey(t)] {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	if t, ok := m.selectedTask(); ok {
+		return []Task{t}
+	}
+	return nil
+}
+
+// archiveSyncMsg はアーカイブ後の非同期 scoped sync の結果 (人間向け結果行と成否)。
+type archiveSyncMsg struct {
+	lines []string
+	err   error
+}
+
+// doArchive は targets をローカルでアーカイブ (<project>/archive/ へ移動) して即座に一覧へ
+// 反映し、git への反映 (scoped sync) を行う tea.Cmd を返す (push を含むので非同期にして UI を
+// ブロックしない)。移動は os.Rename でアトミック。一部が失敗しても成功分は反映し、失敗は
+// flash で知らせる。移動対象が 0 件なら nil (sync 不要)。
+func (m *tuiModel) doArchive(targets []Task) tea.Cmd {
+	moved := 0
+	var paths []string // scoped sync 用: 各タスクの from(旧) と to(新) の store 相対パス
+	var errs []error
+	for _, t := range targets {
+		dest, err := moveTaskToArchive(t.Project, t.Path)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", t.Project, t.ID, err))
+			continue
+		}
+		moved++
+		delete(m.selected, taskKey(t))
+		paths = append(paths, storeRel(t.Path), storeRel(dest))
+	}
+	m.reload() // 移動済みファイルは一覧から消える (loadTasks は archive/ を読まない)
+	if len(errs) > 0 {
+		m.flash = fmt.Sprintf("%d 件アーカイブ (一部失敗: %v)", moved, errors.Join(errs...))
+	} else {
+		m.flash = fmt.Sprintf("%d 件アーカイブしました。同期中…", moved)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	dir := m.dir
+	return func() tea.Msg {
+		lines, err := syncStore(dir, paths, true)
+		return archiveSyncMsg{lines: lines, err: err}
+	}
 }
 
 // startCommandFor は TUI からコピーする start コマンド文字列 ("start task <N>") を返す。
@@ -750,6 +891,7 @@ var (
 	tuiSepStyle    = lipgloss.NewStyle().Faint(true)
 	tuiPointStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	tuiBoldStyle   = lipgloss.NewStyle().Bold(true)
+	tuiSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // 選択マーカー (yellow)
 )
 
 // statusStyle は status 名の色を ANSI パレット (render.go の palette) に合わせる。
@@ -787,6 +929,9 @@ func (m *tuiModel) renderHeader() string {
 	info := fmt.Sprintf("  %s  status:%s  done:%s  %d件  %s",
 		scope, filt, done, len(m.rows), m.updated.Format("15:04:05"))
 	line := left + info
+	if n := len(m.selected); n > 0 {
+		line += tuiSelectStyle.Render(fmt.Sprintf("  選択:%d", n))
+	}
 	if m.searching || m.searchQuery != "" {
 		target := "title"
 		if m.searchContent {
@@ -805,6 +950,12 @@ func (m *tuiModel) renderHeader() string {
 }
 
 func (m *tuiModel) renderFooter() string {
+	// アーカイブ確認中は最優先で件数付きプロンプトを出す (list/detail の別に関わらず)。
+	if m.confirming {
+		n := len(m.confirmTargets)
+		prompt := fmt.Sprintf("%d 件をアーカイブします (一覧から退避)。 y=実行  n/Esc=中止", n)
+		return tuiTrunc(tuiSelectStyle.Render(prompt), m.width)
+	}
 	var keys string
 	switch {
 	case m.showHelp:
@@ -812,9 +963,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/^n^p 選択  jk 行  ^u^d 半画面  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  / 検索  c コピー  o PR  a done  s status  p project  r 更新  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
 	}
 	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
 	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
@@ -837,6 +988,8 @@ func helpEntries() [][2]string {
 		{"PgUp/PgDn, K/J", "詳細をスクロール"},
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},
+		{"Space", "選択トグル (マルチセレクト。絞り込み/再読込をまたいで保持)"},
+		{"x", "選択タスク (無ければカーソル行) をアーカイブ (確認あり)"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
 		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
@@ -947,6 +1100,12 @@ func (m *tuiModel) renderList() string {
 			ptr = tuiPointStyle.Render("❯ ")
 		}
 		var line strings.Builder
+		// 先頭 1 桁は選択マーカー (Space で付けたマルチセレクトの印)。未選択は空白。
+		if m.selected[taskKey(t)] {
+			line.WriteString(tuiSelectStyle.Render("*"))
+		} else {
+			line.WriteByte(' ')
+		}
 		line.WriteString(ptr)
 		if cross {
 			line.WriteString(tuiDimStyle.Render(padDisp(t.Project, projW)))
@@ -1030,8 +1189,9 @@ func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 		projW = clampInt(projW, 0, 16)
 	}
 	sessW = m.sessionColWidth()
-	// 行構成: "❯ " + [project] + id + " " + status + " " + [session + " "] + title
-	fixed = 2 + tuiIDColW + 1 + tuiStatusColW + 1
+	// 行構成: sel(1) + "❯ " + [project] + id + " " + status + " " + [session + " "] + title
+	// 先頭 1 桁は選択マーカー (Space によるマルチセレクト。未選択時は空白) の固定ガター。
+	fixed = 1 + 2 + tuiIDColW + 1 + tuiStatusColW + 1
 	if cross {
 		fixed += projW + 1
 	}

@@ -25,6 +25,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-09
+
 - **serve の並列稼働ビューのフロントエンドを外部ファイル化した** (`/worktime?view=parallel`。内部変更、
   表示・挙動は不変) — これまで Go の raw 文字列 const に直書きしていた HTML/CSS/JS (約 400 行) を
   `webassets/parallel.{html,css,js}` の実ファイルに分離し、`//go:embed` でバイナリに取り込む形にした
@@ -32,8 +34,6 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
   純粋関数 (並列度・日付・整形) を **vitest で単体テスト**できるようにした (`make test` が Go テストに
   加えて `webassets/` の JS テストも実行する。JS テストの実行には pnpm + node が要る)。後続で他ビュー
   (時間配分・ダッシュボード) も同様に移行予定。
-
-## 2026-07-09
 
 - **`tui` で選択タスクを `S` キーで spawn できるようにした** — 一覧を眺めながら、そのまま別 pane で
   新セッションを開いて着手 (start) させられる (ターミナルに戻って `agent-tasks spawn <NNNN>` を打つ

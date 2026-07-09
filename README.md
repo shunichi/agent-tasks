@@ -123,6 +123,8 @@ agent-tasks report --month       # その月に完了したタスクを markdown
 agent-tasks show 0001            # 1 タスクの全文 (--archived で退避済みを開く)
 agent-tasks edit 0001            # 1 タスクをエディタで開く
 agent-tasks open 0001            # タスクの worktree (作業ツリー) をエディタで開く
+agent-tasks focus 0001           # 実行中タスクの herdr pane にフォーカスを移す (別 pane の作業へ飛ぶ。
+                                 #   TUI では f キー。herdr 内のみ。未リンク/終了済み pane は案内して終了)
 agent-tasks archive 0001         # タスクを退避 (削除せず archive/ へ移動。一覧から外す)
 agent-tasks auto-archive --dry-run          # 完了後 N 日 (既定 30) 超の done を一括退避 (対象確認)
 agent-tasks auto-archive --older-than 60    # 完了後 60 日超の done を一括退避 (--dry-run を外すと実行)

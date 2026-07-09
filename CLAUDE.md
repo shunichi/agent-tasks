@@ -24,6 +24,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行) / worktree-remove: 撤去フック (post-remove 実行 + git worktree remove)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)
+  focus.go                      # focus: 実行中タスクの herdr pane にフォーカスを移す (link→session_id→pane 突合。tui の f キーと共有)
   session_rename.go             # session-rename: 着手時に自 pane へ /rename を send-keys しセッション名をタスク名に
   statusline.go                 # statusline: Claude Code の status line に実行中タスクを 1 行表示
   completion.go                 # completion: bash/zsh の補完スクリプト生成 (静的) + completion-values (動的候補 project/id)

@@ -337,6 +337,16 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case focusResultMsg:
+		// f キーの pane フォーカスの結果。成功時は対象 pane が前面に出る (この TUI は背面に
+		// 回る) ので、戻ってきたとき用に flash を残す。特定できなければ理由を出す。
+		if msg.err != nil {
+			m.flash = "pane へ移動できません: " + firstLine(msg.err.Error())
+		} else {
+			m.flash = fmt.Sprintf("pane %s へ移動しました", msg.pane)
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		// マウスホイールは詳細ペインのスクロールに使う。
 		var cmd tea.Cmd
@@ -487,6 +497,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.flash = "spawn 中…"
 				return m, spawnCmd(t)
+			}
+			return m, nil
+		case "f":
+			// 選択タスクを実行中の herdr pane にフォーカスを移す (別 pane で spawn した作業へ飛ぶ)。
+			// pane 特定は list の SESSION 列と同じ突合 (session-link → herdr agent list)。herdr 内のみ。
+			// herdr へのシェルアウトを伴うので tea.Cmd で非同期実行し、結果を focusResultMsg で受ける。
+			if t, ok := m.selectedTask(); ok {
+				m.flash = "pane へ移動中…"
+				return m, focusCmd(t)
 			}
 			return m, nil
 		case "p":
@@ -679,6 +698,23 @@ func spawnCmd(t Task) tea.Cmd {
 			return spawnResultMsg{err: err}
 		}
 		return spawnResultMsg{label: spawnLabel(t), pane: pane.PaneID}
+	}
+}
+
+// focusResultMsg は非同期 focus (f キー) の結果。成功時は移動先 pane、失敗時はエラー。
+// Update が flash 表示に使う。
+type focusResultMsg struct {
+	pane string
+	err  error
+}
+
+// focusCmd は選択タスクを実行中の herdr pane にフォーカスを移す処理を非同期で行い、結果を
+// focusResultMsg で返す tea.Cmd。herdr へのシェルアウトを伴うので UI をブロックしない。
+// pane 特定 (session-link → herdr agent list) と focus は focusTaskPane が担う (CLI の focus と共有)。
+func focusCmd(t Task) tea.Cmd {
+	return func() tea.Msg {
+		pane, err := focusTaskPane(t)
+		return focusResultMsg{pane: pane, err: err}
 	}
 }
 
@@ -1025,9 +1061,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
 	}
 	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
 	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
@@ -1054,6 +1090,7 @@ func helpEntries() [][2]string {
 		{"x", "選択タスク (無ければカーソル行) をアーカイブ (確認あり)"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"S", "選択タスクを別 pane で spawn (別セッションで start。herdr 内のみ)"},
+		{"f", "選択タスクを実行中の herdr pane にフォーカス (別 pane の作業へ飛ぶ。herdr 内のみ)"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
 		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},

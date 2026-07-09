@@ -232,6 +232,20 @@ func herdrAgentRename(target, name string) error {
 	return err
 }
 
+// --- フォーカス (focus コマンド = 0047) ---
+
+// herdrAgentFocus は target の pane を前面に出す (workspace / tab / pane をまたぐ切り替えは
+// herdr が内部で面倒を見る)。target は pane id (例 w3:p1) を渡す。session_id は target に
+// 取れない (agent_not_found になる) ので、呼び出し側は必ず agent list で pane_id を得てから
+// 渡すこと (resolveTaskPane 参照)。
+func herdrAgentFocus(target string) error {
+	if err := requireHerdr(); err != nil {
+		return err
+	}
+	_, err := herdrRun("agent", "focus", target)
+	return err
+}
+
 // --- pane 起動 (spawn の中核) ---
 
 // herdrAgentStart は新しい pane で agent を起動する (spawn=0108 の中核)。

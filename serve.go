@@ -140,7 +140,8 @@ func cmdServe(args []string) error {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := renderParallel(w, results, interval); err != nil {
+			// parallel ビューは自動更新しない (0134) ので interval は渡さない。
+			if err := renderParallel(w, results); err != nil {
 				fmt.Fprintf(os.Stderr, "serve: parallel render error: %v\n", err)
 			}
 			return

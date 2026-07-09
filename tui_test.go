@@ -717,6 +717,15 @@ func TestStoreSignatureDetectsChange(t *testing.T) {
 	}
 }
 
+func TestRenderHelpShowsVersion(t *testing.T) {
+	m := &tuiModel{width: 100, height: 40, showHelp: true}
+	got := m.renderHelp()
+	want := formatVersion(readVCSInfo())
+	if !strings.Contains(got, want) {
+		t.Fatalf("ヘルプにバージョン行 %q が含まれていない:\n%s", want, got)
+	}
+}
+
 func TestReloadReadsStore(t *testing.T) {
 	dir := t.TempDir()
 	writeTaskFile(t, dir, "alpha", "0001-x.md", "---\nid: \"0001\"\nproject: alpha\nstatus: todo\ntitle: x\n---\n# x\n")

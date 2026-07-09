@@ -1090,6 +1090,9 @@ func (m *tuiModel) renderHelp() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(tuiDimStyle.Render("ストアの変更は自動で反映されます (r で即時)。"))
+	// どの commit 時点のバイナリで動いているか、ヘルプを開いたまま確認できるようにする。
+	b.WriteString("\n")
+	b.WriteString(tuiDimStyle.Render(formatVersion(readVCSInfo())))
 
 	// 枠の内側幅 = 端末幅から枠 (2) + 左右パディング (2) を引いた幅。広すぎても読みやすい幅に留める。
 	innerW := m.width - 4

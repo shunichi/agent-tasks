@@ -1094,10 +1094,28 @@ func (m *tuiModel) renderHelp() string {
 	b.WriteString("\n")
 	b.WriteString(tuiDimStyle.Render(formatVersion(readVCSInfo())))
 
-	// 枠の内側幅 = 端末幅から枠 (2) + 左右パディング (2) を引いた幅。広すぎても読みやすい幅に留める。
+	// 内容の必要幅 (最長行) を求める。行の内訳は
+	// 「キー列 (keyW) + 区切り 2 桁 + 説明」/ 見出し / 末尾の淡色 2 行。
+	natural := dispWidth("キーバインド")
+	for _, e := range entries {
+		if w := keyW + 2 + dispWidth(e[1]); w > natural {
+			natural = w
+		}
+	}
+	for _, s := range []string{"ストアの変更は自動で反映されます (r で即時)。", formatVersion(readVCSInfo())} {
+		if w := dispWidth(s); w > natural {
+			natural = w
+		}
+	}
+
+	// 枠の内側幅 = 端末幅から枠 (2) + 左右パディング (2) を引いた幅。ターミナルが広ければ内容を
+	// 折り返さずに収める。ただし内容の必要幅を超えては広げない (間延び防止)。狭い端末では端末幅に
+	// 収め、収まらない説明は lipgloss が折り返す (既存の下限処理を維持)。
+	// lipgloss の Width は左右パディング (Padding(0,1) の 2 桁) を内側に含むので、テキストの必要幅
+	// natural に 2 を足したものが折り返さない最小の Width。
 	innerW := m.width - 4
-	if innerW > 72 {
-		innerW = 72
+	if need := natural + 2; innerW > need {
+		innerW = need
 	}
 	if innerW < 1 {
 		innerW = 1

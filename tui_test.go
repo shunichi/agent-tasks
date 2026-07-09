@@ -726,6 +726,36 @@ func TestRenderHelpShowsVersion(t *testing.T) {
 	}
 }
 
+func TestRenderHelpFitsWideTerminal(t *testing.T) {
+	m := &tuiModel{width: 200, height: 40, showHelp: true}
+	lines := strings.Split(stripANSI(m.renderHelp()), "\n")
+
+	// 広い端末では各説明が折り返されず 1 行に収まること (本タスクの主眼)。
+	for _, e := range helpEntries() {
+		onOneLine := false
+		for _, ln := range lines {
+			if strings.Contains(ln, e[1]) {
+				onOneLine = true
+				break
+			}
+		}
+		if !onOneLine {
+			t.Errorf("説明が折り返されている (広い端末で 1 行に収まっていない): %q", e[1])
+		}
+	}
+
+	// 旧実装の 72 桁固定上限が外れ、内容幅に追随して広がっていること。
+	maxW := 0
+	for _, ln := range lines {
+		if w := dispWidth(strings.TrimRight(ln, " ")); w > maxW {
+			maxW = w
+		}
+	}
+	if maxW <= 72 {
+		t.Errorf("広い端末でもヘルプ枠が 72 桁以下に留まっている (幅に追随していない): maxW=%d", maxW)
+	}
+}
+
 func TestReloadReadsStore(t *testing.T) {
 	dir := t.TempDir()
 	writeTaskFile(t, dir, "alpha", "0001-x.md", "---\nid: \"0001\"\nproject: alpha\nstatus: todo\ntitle: x\n---\n# x\n")

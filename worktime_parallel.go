@@ -160,6 +160,12 @@ const parallelHTML = `<!doctype html>
   .capt { font-family:var(--mono); font-size:.73rem; color:var(--dim); display:flex;
           justify-content:space-between; margin-bottom:.6rem; gap:1rem; flex-wrap:wrap; }
   .capt .badge { color:var(--dim2); }
+  .lanenav { display:flex; gap:.4rem; align-items:center; margin:0 0 .7rem; flex-wrap:wrap; }
+  .lnav { background:var(--card); border:1px solid var(--border); color:var(--fg);
+          font-family:var(--sans); font-size:.78rem; cursor:pointer; padding:.3rem .7rem; border-radius:.4rem; }
+  .lnav:hover:not([disabled]) { border-color:var(--accent); color:var(--accent); }
+  .lnav[disabled] { opacity:.4; cursor:default; }
+  .lnav.on { background:var(--accent); color:#08111f; border-color:var(--accent); font-weight:600; }
 
   .plegend { display:flex; flex-wrap:wrap; gap:.3rem .9rem; margin:.8rem 0 0;
              font-size:.72rem; font-family:var(--mono); }
@@ -204,7 +210,7 @@ const parallelHTML = `<!doctype html>
   var app = document.getElementById("app");
   var metaEl = document.getElementById("meta");
   var WD = ["月","火","水","木","金","土","日"];  // 0=月
-  var SHOW_DAYS = 14;   // スイムレーンに出す直近日数
+  var PAGE_DAYS = 14;   // スイムレーンの 1 ページ日数 (この単位で過去へページング)
   var MAX_LANE  = 12;   // 詳細ビューのレーン上限 (超過分は畳む)
   var W = 980, PADL = 52, PADR = 10;
 
@@ -222,7 +228,9 @@ const parallelHTML = `<!doctype html>
   function xOf(min, w){ return PADL + (min/1440)*(w-PADL-PADR); }
   function hourTicks(){ var o=[]; for(var h=0;h<=24;h+=3) o.push(h); return o; }
 
-  var state = { day:null }; // 詳細で開いている日 (Date 文字列)
+  // day: 詳細で開いている日。pageStart: スイムレーン表示窓の先頭 index (0=最新)。
+  // showAll: 全期間 (窓を使わず全日表示) トグル。
+  var state = { day:null, pageStart:0, showAll:false };
 
   // 日ごとに piece をまとめる
   function byDate(){
@@ -242,11 +250,12 @@ const parallelHTML = `<!doctype html>
 
     app.innerHTML =
       '<h2 class="sec">典型的な1週間 — 曜日 × 時刻ヒートマップ</h2>'+
-      '<div class="panelbox"><div class="capt"><span>直近の稼働を曜日×時刻で重ね合わせ</span>'+
+      '<div class="panelbox"><div class="capt"><span>全期間の稼働を曜日×時刻で重ね合わせ</span>'+
         '<span class="badge">濃さ = 平均並列度</span></div><div id="heat"></div></div>'+
       '<h2 class="sec">日別 — 0–24h スイムレーン</h2>'+
-      '<div class="panelbox"><div class="capt"><span>直近 '+Math.min(SHOW_DAYS,dates.length)+' 日 · 各行 0–24h</span>'+
+      '<div class="panelbox"><div class="capt"><span id="laneRange"></span>'+
         '<span class="badge">重なり = 並列度 · 色 = プロジェクト · 日をクリックで詳細 ↓</span></div>'+
+        '<div class="lanenav" id="lanenav"></div>'+
         '<div id="lanes"></div><div class="plegend" id="legend"></div></div>'+
       '<h2 class="sec">1日の詳細 — タスク別レーン</h2>'+
       '<div class="panelbox"><div class="capt"><span>上 = 並列度 / 下 = タスク別レーン</span>'+
@@ -299,9 +308,22 @@ const parallelHTML = `<!doctype html>
     document.getElementById("heat").innerHTML = svg.join("");
   }
 
-  // ---- 日別スイムレーン ----
+  // ---- 日別スイムレーン (ページング + 全期間トグル) ----
   function renderLanes(m, dates){
-    var show = dates.slice(0, SHOW_DAYS);
+    var total = dates.length;
+    // 表示窓を決める。全期間トグル時は全日、そうでなければ pageStart から PAGE_DAYS 日分。
+    var maxStart = Math.max(0, total - PAGE_DAYS);
+    if(state.pageStart > maxStart) state.pageStart = maxStart;
+    if(state.pageStart < 0) state.pageStart = 0;
+    var show, winStart, winEnd;
+    if(state.showAll){
+      show = dates; winStart = 0; winEnd = total;
+    } else {
+      winStart = state.pageStart; winEnd = Math.min(total, winStart+PAGE_DAYS);
+      show = dates.slice(winStart, winEnd);
+    }
+    renderLaneNav(dates, total, winStart, winEnd);
+
     var rowH=22, gap=6, topH=16;
     var Hc=topH+show.length*(rowH+gap)+6;
     var svg=['<svg viewBox="0 0 '+W+' '+Hc+'" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="日別スイムレーン">'];
@@ -326,6 +348,30 @@ const parallelHTML = `<!doctype html>
       g.addEventListener("click", function(){ state.day=g.dataset.day; render();
         document.getElementById("detail").scrollIntoView({behavior:"smooth", block:"nearest"}); });
     });
+  }
+
+  // 表示窓のページング操作 + 現在範囲ラベル。全 piece はクライアントに埋め込み済みなので
+  // ページングはサーバ往復なしで完結する (古い日も遡れる。全期間トグルで一気に全日表示)。
+  function renderLaneNav(dates, total, winStart, winEnd){
+    var rangeEl=document.getElementById("laneRange"), navEl=document.getElementById("lanenav");
+    if(!rangeEl || !navEl) return;
+    if(total===0){ rangeEl.textContent="データなし"; navEl.innerHTML=""; return; }
+    if(state.showAll){
+      rangeEl.textContent="全期間 "+total+" 日 ("+esc(dlabel(dates[total-1]))+" 〜 "+esc(dlabel(dates[0]))+")";
+    } else {
+      rangeEl.textContent=esc(dlabel(dates[winEnd-1]))+" 〜 "+esc(dlabel(dates[winStart]))+
+        " · 全 "+total+" 日中 "+(winStart+1)+"–"+winEnd+" 日目";
+    }
+    var canOlder = !state.showAll && winEnd < total;
+    var canNewer = !state.showAll && winStart > 0;
+    navEl.innerHTML =
+      '<button class="lnav" id="lnOlder"'+(canOlder?"":" disabled")+'>← 古い'+PAGE_DAYS+'日</button>'+
+      '<button class="lnav" id="lnNewer"'+(canNewer?"":" disabled")+'>新しい'+PAGE_DAYS+'日 →</button>'+
+      '<button class="lnav'+(state.showAll?" on":"")+'" id="lnAll">'+(state.showAll?"直近だけに戻す":"全期間 ("+total+"日)")+'</button>';
+    var older=document.getElementById("lnOlder"), newer=document.getElementById("lnNewer"), all=document.getElementById("lnAll");
+    if(older) older.onclick=function(){ if(canOlder){ state.pageStart+=PAGE_DAYS; render(); } };
+    if(newer) newer.onclick=function(){ if(canNewer){ state.pageStart=Math.max(0,state.pageStart-PAGE_DAYS); render(); } };
+    if(all)   all.onclick=function(){ state.showAll=!state.showAll; if(!state.showAll) state.pageStart=0; render(); };
   }
 
   function renderLegend(){

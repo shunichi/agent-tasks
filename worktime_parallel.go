@@ -133,7 +133,10 @@ const parallelHTML = `<!doctype html>
 <style>
   :root {
     --bg:#0f1115; --panel:#171a21; --card:#1d222b; --card2:#232936; --border:#2a2f3a;
-    --fg:#e6e8ec; --dim:#8b93a1; --dim2:#636b78; --accent:#4a9eff; --id:#ffd479;
+    /* dim/dim2 は補助テキスト (dim=範囲表示/凡例/所要, dim2=軸ラベル/ヒント/見出し)。小さめ・淡い文字が
+       多いので WCAG AAA 目安 (7:1) 以上まで濃くする (dim #b3bac6=9.7:1 / dim2 #9aa2b1=7.4:1。bg 比)。
+       これより暗くすると軸ラベル等が潰れる (0133)。fg>dim>dim2 の階層は維持。 */
+    --fg:#e6e8ec; --dim:#b3bac6; --dim2:#9aa2b1; --accent:#4a9eff; --id:#ffd479;
     --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
   }
@@ -172,7 +175,7 @@ const parallelHTML = `<!doctype html>
   .plegend .it { display:inline-flex; align-items:center; gap:.34rem; color:var(--dim); }
   .plegend .sw { width:.7rem; height:.7rem; border-radius:2px; flex:none; }
 
-  .axis-lab { fill:var(--dim2); font-family:var(--mono); font-size:9px; }
+  .axis-lab { fill:var(--dim2); font-family:var(--mono); font-size:10.5px; font-weight:500; }
   .grid-line { stroke:var(--border); stroke-width:1; }
   .cday { cursor:pointer; }
 

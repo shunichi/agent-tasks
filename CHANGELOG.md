@@ -27,6 +27,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-09
 
+- **serve の並列稼働ビューのツールチップを日本語グリフで表示するようにした** (`/worktime?view=parallel`)。
+  ヒートマップ／スイムレーン／詳細レーンのツールチップはネイティブ SVG `<title>` で描画しており、
+  ブラウザ UI 描画のためページの `font-family` も `lang="ja"` も継承せず、環境によっては日本語が
+  中国語グリフで表示されていた (例: ヒートマップの「平均並列」)。ページ内 DOM のカスタムツールチップに
+  置き換え、`--sans` + `lang=ja` を効かせて日本語グリフで表示する (アクセシビリティ名は `aria-label` で保持)。
+
 - **serve の並列稼働ビューのフロントエンドを外部ファイル化した** (`/worktime?view=parallel`。内部変更、
   表示・挙動は不変) — これまで Go の raw 文字列 const に直書きしていた HTML/CSS/JS (約 400 行) を
   `webassets/parallel.{html,css,js}` の実ファイルに分離し、`//go:embed` でバイナリに取り込む形にした

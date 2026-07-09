@@ -1100,77 +1100,89 @@ func cmdSync(args []string) error {
 		paths = append(paths, p)
 	}
 
-	dir := storeDir()
+	lines, err := syncStore(storeDir(), paths, push)
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	return err
+}
+
+// syncStore はストア dir を同期する (scoped add or add -A → commit → pull --rebase → push)。
+// cmdSync 本体を切り出したもので、**表示はせず人間向けの結果行を返す** ので、CLI (cmdSync が
+// 印字) と TUI (アーカイブ後の scoped sync を flash 表示) の双方から使える。paths 指定があれば
+// そのファイルだけ stage する scoped sync、空なら従来どおり全体 (add -A)。push=false で commit で止める。
+func syncStore(dir string, paths []string, push bool) ([]string, error) {
 	if out, err := git(dir, "rev-parse", "--is-inside-work-tree"); err != nil || out != "true" {
-		return fmt.Errorf("%s は git リポジトリではありません (git init とリモート設定が必要)", dir)
+		return nil, fmt.Errorf("%s は git リポジトリではありません (git init とリモート設定が必要)", dir)
 	}
 
 	// 並列セッションの sync を直列化する (index.lock 衝突や add -A の取りこぼしを防ぐ)。
 	// ロックは git 管理下に置くと add -A で混入するため、ストア外 (OS temp) にパス由来の名前で置く。
 	unlock, err := lockFile(syncLockPath(dir), syncLockWait, syncLockStale)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer unlock()
 
+	var out []string
 	// scoped add: 指定があればそのファイルだけ stage する (他セッションの dirty を巻き込まない)。
 	// 指定なしは従来どおり全体 (add -A) = 手動の全体同期。
 	if len(paths) > 0 {
-		if out, err := git(dir, append([]string{"add", "--"}, paths...)...); err != nil {
-			return fmt.Errorf("git add に失敗しました:\n%s", out)
+		if o, err := git(dir, append([]string{"add", "--"}, paths...)...); err != nil {
+			return nil, fmt.Errorf("git add に失敗しました:\n%s", o)
 		}
 	} else if _, err := git(dir, "add", "-A"); err != nil {
-		return fmt.Errorf("git add に失敗しました: %w", err)
+		return nil, fmt.Errorf("git add に失敗しました: %w", err)
 	}
 
 	staged, err := git(dir, "diff", "--cached", "--name-status")
 	if err != nil {
-		return fmt.Errorf("git diff に失敗しました: %w", err)
+		return nil, fmt.Errorf("git diff に失敗しました: %w", err)
 	}
 	if staged == "" {
-		fmt.Println("コミットする変更はありません")
+		out = append(out, "コミットする変更はありません")
 	} else {
 		msg := syncCommitMessage(dir, staged)
-		if out, err := git(dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit に失敗しました:\n%s", out)
+		if o, err := git(dir, "commit", "-m", msg); err != nil {
+			return out, fmt.Errorf("git commit に失敗しました:\n%s", o)
 		}
-		fmt.Printf("commit: %s\n", firstLine(msg))
+		out = append(out, "commit: "+firstLine(msg))
 	}
 
 	if !push {
-		return nil
+		return out, nil
 	}
 	if remotes, _ := git(dir, "remote"); remotes == "" {
-		fmt.Println("リモート未設定のため push をスキップしました")
-		return nil
+		out = append(out, "リモート未設定のため push をスキップしました")
+		return out, nil
 	}
 
 	branch, _ := git(dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if _, err := git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
 		// upstream 未設定: 初回 push で追跡を設定する。
-		if out, err := git(dir, "push", "-u", "origin", branch); err != nil {
-			return fmt.Errorf("push に失敗しました:\n%s", out)
+		if o, err := git(dir, "push", "-u", "origin", branch); err != nil {
+			return out, fmt.Errorf("push に失敗しました:\n%s", o)
 		}
-		fmt.Printf("push 完了 (%s, upstream を設定)\n", branch)
-		return nil
+		out = append(out, fmt.Sprintf("push 完了 (%s, upstream を設定)", branch))
+		return out, nil
 	}
 
 	// 取り込んで push。push が競合 (non-fast-forward) したら取り込み直して数回リトライする。
 	// pull --rebase --autostash で、他セッションの未 stage 変更があっても rebase できる。
 	for attempt := 1; ; attempt++ {
-		if out, err := git(dir, "pull", "--rebase", "--autostash"); err != nil {
+		if o, err := git(dir, "pull", "--rebase", "--autostash"); err != nil {
 			git(dir, "rebase", "--abort")
-			return fmt.Errorf("pull --rebase に失敗しました。ストアで手動解決してください (%s):\n%s", dir, out)
+			return out, fmt.Errorf("pull --rebase に失敗しました。ストアで手動解決してください (%s):\n%s", dir, o)
 		}
-		out, err := git(dir, "push")
+		o, err := git(dir, "push")
 		if err == nil {
-			fmt.Printf("push 完了 (%s)\n", branch)
-			return nil
+			out = append(out, fmt.Sprintf("push 完了 (%s)", branch))
+			return out, nil
 		}
-		if attempt < syncPushAttempts && isNonFastForward(out) {
+		if attempt < syncPushAttempts && isNonFastForward(o) {
 			continue // 別 push が先着。取り込み直して再試行。
 		}
-		return fmt.Errorf("push に失敗しました:\n%s", out)
+		return out, fmt.Errorf("push に失敗しました:\n%s", o)
 	}
 }
 

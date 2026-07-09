@@ -1,0 +1,12 @@
+{
+  "name": "agent-tasks-webassets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "serve の埋め込みフロントエンド (//go:embed) と、その純粋ロジックの単体テスト",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "4.1.9"
+  }
+}

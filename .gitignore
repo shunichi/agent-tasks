@@ -2,3 +2,6 @@
 /bin/
 # 素の `go build .` が吐くルート直下のバイナリ (モジュール名と同名)
 /agent-tasks
+# serve フロントエンド JS のテスト依存 (webassets/package.json + pnpm)。
+# ロックファイル (pnpm-lock.yaml) はコミットするが依存の実体は含めない。
+/webassets/node_modules/

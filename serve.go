@@ -129,8 +129,24 @@ func cmdServe(args []string) error {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		jsonOut := r.URL.Query().Get("format") == "json"
+		// ?view=parallel: 時間帯・並列ビュー (0127。PC 限定)。既存の時間配分ビューとは別描画。
+		if r.URL.Query().Get("view") == "parallel" {
+			if jsonOut {
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				if err := renderParallelJSON(w, results); err != nil {
+					fmt.Fprintf(os.Stderr, "serve: parallel json error: %v\n", err)
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := renderParallel(w, results, interval); err != nil {
+				fmt.Fprintf(os.Stderr, "serve: parallel render error: %v\n", err)
+			}
+			return
+		}
 		// ?format=json: データだけ返す (ページの自動更新ポーリング用。全ページ再読込しない)。
-		if r.URL.Query().Get("format") == "json" {
+		if jsonOut {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			if err := renderTimelineJSON(w, results); err != nil {
 				fmt.Fprintf(os.Stderr, "serve: timeline json error: %v\n", err)

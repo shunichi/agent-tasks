@@ -81,6 +81,13 @@ func projectColors(entries []wtEntry) map[string]string {
 			names = append(names, e.Project)
 		}
 	}
+	return assignProjectColors(names)
+}
+
+// assignProjectColors は project 名の集合に決定的な色を割り当てる (projectColors の共通部)。
+// 名前をソートしてから割り当てるので、スコープ (入力集合) が変わっても各 project の色は不変。
+// 時間帯・並列ビュー (0127) も同じロジックを共有し、両ビューで色が一致する。
+func assignProjectColors(names []string) map[string]string {
 	slices.Sort(names)
 	hues := []int{210, 30, 150, 340, 265, 185, 12, 55}
 	out := make(map[string]string, len(names))
@@ -222,7 +229,7 @@ const worktimeHTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1>稼働時間 <a href="/">← 一覧</a></h1>
+  <h1>稼働時間 <a href="/">← 一覧</a> <a href="/worktime?view=parallel">時間帯・並列 →</a></h1>
   <div class="meta" id="meta"></div>
 </header>
 <main id="app"></main>

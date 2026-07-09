@@ -55,7 +55,6 @@ h2.sec::after { content:""; flex:1; height:1px; background:var(--border); }
 .d-title .d-date { font-size:1.02rem; font-weight:700; }
 .d-title .d-stat { font-family:var(--mono); font-size:.78rem; color:var(--dim); }
 .d-title .d-stat b { color:var(--fg); font-weight:700; }
-.d-fold { font-family:var(--mono); font-size:.75rem; color:var(--dim2); margin-top:.5rem; }
 .lane-id { fill:var(--id); font-family:var(--mono); font-size:10px; font-weight:700; }
 .lane-ti { fill:var(--fg); font-family:var(--sans); font-size:10.5px; }
 .lane-dr { fill:var(--dim); font-family:var(--mono); font-size:10px; }

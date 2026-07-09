@@ -45,7 +45,6 @@ function startParallel(PIECES, COLORS) {
   var app = document.getElementById("app");
   var metaEl = document.getElementById("meta");
   var PAGE_DAYS = 14;   // スイムレーンの 1 ページ日数 (この単位で過去へページング)
-  var MAX_LANE = 12;    // 詳細ビューのレーン上限 (超過分は畳む)
   var W = 980, PADL = 52, PADR = 10;
 
   function colorOf(p) { return COLORS[p] || "#888"; }
@@ -207,14 +206,7 @@ function startParallel(PIECES, COLORS) {
       byTask[k].ivs.push(p); byTask[k].total += (p.e - p.s); byTask[k].first = Math.min(byTask[k].first, p.s);
     });
     var all = Object.keys(byTask).map(function (k) { return byTask[k]; });
-    // 上限超過は合計降順で上位を採用、残りは畳む
-    var folded = 0, foldedSec = 0;
-    if (all.length > MAX_LANE) {
-      all.sort(function (a, b) { return b.total - a.total; });
-      var keep = all.slice(0, MAX_LANE), rest = all.slice(MAX_LANE);
-      folded = rest.length; rest.forEach(function (t) { foldedSec += t.total; });
-      all = keep;
-    }
+    // その日の全タスクを表示する (上限による省略はしない。レーン数に応じて高さ Hd が追随して縦に伸びる)。
     all.sort(function (a, b) { return a.first - b.first; }); // 開始が早い順 (ガント風)
 
     var dayTot = 0; day.forEach(function (p) { dayTot += (p.e - p.s); });
@@ -259,9 +251,8 @@ function startParallel(PIECES, COLORS) {
       });
     });
     svg.push('</svg>');
-    var foldNote = folded > 0 ? '<div class="d-fold">＋ 他 ' + folded + ' タスク (合計 ' + hm(foldedSec) + ') を省略 (稼働の多い上位 ' + MAX_LANE + ' 件を表示)</div>' : '';
     var box = document.getElementById("detail");
-    box.innerHTML = head + svg.join("") + foldNote;
+    box.innerHTML = head + svg.join("");
     document.getElementById("dBack").addEventListener("click", function () {
       document.getElementById("lanes").scrollIntoView({ behavior: "smooth", block: "center" });
     });

@@ -131,6 +131,12 @@ type tuiModel struct {
 	confirming     bool
 	confirmTargets []Task
 
+	// liveKeys は「link された session_id が今 herdr にいる (= ライブな) タスク」の taskKey 集合。
+	// 自分/他 pane を問わず、今 herdr 内で実体のあるセッションと結びついたタスクを一覧で示す。
+	// herdr 状態はストア mtime と無関係に変わるので、reload だけでなく tick でも更新する
+	// (refreshLiveTasks)。renderList は毎フレーム参照するだけ (link 読取・herdr 呼び出しをしない)。
+	liveKeys map[string]bool
+
 	searching     bool   // 検索入力モード中か (/ で開始、Enter 確定 / Esc 解除)
 	searchQuery   string // 検索クエリ (タイトル部分一致、大小無視)。空 = フィルタ無し
 	searchContent bool   // 本文も検索対象にするか (Tab でトグル)
@@ -170,6 +176,55 @@ func (m *tuiModel) reload() {
 	m.updated = time.Now()
 	m.pruneSelection()
 	m.applyFilter()
+	m.refreshLiveTasks()
+}
+
+// refreshLiveTasks は「link された session_id が今 herdr にいるタスク」の集合を作り直す。
+// herdr の全 agent スナップショット (session_id → status。TTL キャッシュ済み) と各タスクの link を
+// 突合する (状態算出 taskSessionState と同じ経路)。herdr 外や取得失敗なら空にする (印なし = degrade)。
+//
+// 速度: herdrStateSnapshot は TTL キャッシュ越しなので `herdr agent list` の実呼び出しは高々 1 回/秒。
+// link 読取はスコープ内タスク数ぶんの小さな JSON 読取で、tick (既定 2s) ごとに走らせても軽い。
+// ライブ性は herdr 状態に連動するので、ストア不変 (mtime 同じ) でも tick で呼んで更新する。
+func (m *tuiModel) refreshLiveTasks() {
+	snap, ok := herdrStateSnapshot()
+	if !ok || len(snap) == 0 {
+		m.liveKeys = nil
+		return
+	}
+	var live map[string]bool
+	for _, t := range m.all {
+		if liveSessionID(t, snap) != "" {
+			if live == nil {
+				live = map[string]bool{}
+			}
+			live[taskKey(t)] = true
+		}
+	}
+	m.liveKeys = live
+}
+
+// liveSessionID は task の link session_id のうち snap (今 herdr にいる session_id 集合) に
+// 含まれるものを 1 つ返す (無ければ "")。snap のキーは agent_session.value が非空の pane なので、
+// メンバーシップ = herdr 内にライブなセッションがあることを意味する (status の値は問わない)。
+func liveSessionID(t Task, snap map[string]string) string {
+	key := taskSessionKey(t)
+	if key == "" {
+		return ""
+	}
+	link, ok := readSessionLink(key)
+	if !ok {
+		return ""
+	}
+	for _, sid := range linkSessionIDs(link) {
+		if sid == "" {
+			continue
+		}
+		if _, alive := snap[sid]; alive {
+			return sid
+		}
+	}
+	return ""
 }
 
 // pruneSelection は既にストアから消えた (別セッションでアーカイブ/完了移動された等) タスクの
@@ -296,7 +351,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuiTickMsg:
 		if sig := storeSignature(m.dir); sig != m.sig {
-			m.reload()
+			m.reload() // reload 内で refreshLiveTasks も呼ばれる
+		} else {
+			m.refreshLiveTasks() // ストア不変でも herdr 状態は変わるのでライブ性だけ更新する
 		}
 		return m, tuiTick(m.interval)
 
@@ -990,6 +1047,7 @@ var (
 	tuiPointStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	tuiBoldStyle   = lipgloss.NewStyle().Bold(true)
 	tuiSelectStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // 選択マーカー (yellow)
+	tuiLiveStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // ライブセッション印 ● (green)
 )
 
 // statusStyle は status 名の色を ANSI パレット (render.go の palette) に合わせる。
@@ -1029,6 +1087,11 @@ func (m *tuiModel) renderHeader() string {
 	line := left + info
 	if n := len(m.selected); n > 0 {
 		line += tuiSelectStyle.Render(fmt.Sprintf("  選択:%d", n))
+	}
+	// 今 herdr にライブなセッションを持つ「可視行」の数 (● の凡例も兼ねる)。行に出す ● と一致させる
+	// ため、絞り込みで隠れているライブは数えない。0 のときは出さない。
+	if n := m.visibleLiveCount(); n > 0 {
+		line += tuiLiveStyle.Render(fmt.Sprintf("  ●ライブ:%d", n))
 	}
 	if m.searching || m.searchQuery != "" {
 		target := "title"
@@ -1100,6 +1163,7 @@ func helpEntries() [][2]string {
 		{"?", "このヘルプを開閉"},
 		{"q / Esc", "詳細を閉じる / (一覧で) 終了"},
 		{"Ctrl+C", "終了"},
+		{"● (緑)", "その行のタスクが今 herdr にライブなローカルセッションを持つ (自分/他 pane 問わず)"},
 	}
 }
 
@@ -1179,7 +1243,7 @@ func (m *tuiModel) renderList() string {
 		return lipgloss.NewStyle().Width(w).Height(m.listH).Render(tuiDimStyle.Render(msg))
 	}
 
-	cross, projW, sessW, fixed := m.listCols()
+	cross, projW, sessW, liveW, fixed := m.listCols()
 	// 右端に UPDATED 列を出す (幅が足りなければ諦めて title を優先)。
 	rightCol := 0
 	if updW := m.updatedColWidth(); updW > 0 {
@@ -1252,6 +1316,17 @@ func (m *tuiModel) renderList() string {
 			line.WriteByte(' ')
 		}
 
+		// LIVE 印 (●) 列 (可視行に 1 件でもライブがあるときだけ出す。status 非依存)。link された
+		// session_id が今 herdr 内にいるタスク = ライブ。緑の ● で「今 herdr で実体のある作業」を示す。
+		if liveW > 0 {
+			if m.liveKeys[taskKey(t)] {
+				line.WriteString(tuiLiveStyle.Render("●"))
+			} else {
+				line.WriteString(strings.Repeat(" ", tuiLiveColW))
+			}
+			line.WriteByte(' ')
+		}
+
 		ttl := truncateDisp(displayTitle(t), titleW)
 		ttlDisp := dispWidth(ttl)
 		if selected {
@@ -1281,7 +1356,8 @@ func (m *tuiModel) renderList() string {
 const (
 	tuiIDColW      = 4
 	tuiStatusColW  = 11
-	tuiSessionColW = 7 // 最長ラベル "waiting"/"working" の幅
+	tuiSessionColW = 7 // 最長ラベル "waiting"/"working"/"blocked" の幅
+	tuiLiveColW    = 1 // ライブ印 ● の幅 (1 グリフ)
 )
 
 // sessionColWidth は SESSION 列の幅を返す。in-progress 行が一つでもあれば tuiSessionColW、
@@ -1295,10 +1371,38 @@ func (m *tuiModel) sessionColWidth() int {
 	return 0
 }
 
+// liveColWidth は LIVE 印 (●) 列の幅を返す。可視行に 1 件でもライブなタスクがあれば tuiLiveColW、
+// 無ければ 0 (列を出さない。SESSION 列と同じく「必要なときだけ出す」)。
+func (m *tuiModel) liveColWidth() int {
+	if len(m.liveKeys) == 0 {
+		return 0
+	}
+	for _, t := range m.rows {
+		if m.liveKeys[taskKey(t)] {
+			return tuiLiveColW
+		}
+	}
+	return 0
+}
+
+// visibleLiveCount は可視行 (rows) のうちライブなタスク数を返す (ヘッダの ●ライブ:N 用)。
+func (m *tuiModel) visibleLiveCount() int {
+	if len(m.liveKeys) == 0 {
+		return 0
+	}
+	n := 0
+	for _, t := range m.rows {
+		if m.liveKeys[taskKey(t)] {
+			n++
+		}
+	}
+	return n
+}
+
 // listCols は一覧の列構成を返す。cross は横断表示か (= project 列を出すか)、projW は project 列幅、
-// sessW は SESSION 列幅 (0 = 非表示)、fixed は title より前の固定幅 (ポインタ + [project] + id +
-// status + [session] + 余白)。
-func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
+// sessW は SESSION 列幅 (0 = 非表示)、liveW は LIVE 印列幅 (0 = 非表示)、fixed は title より前の
+// 固定幅 (ポインタ + [project] + id + status + [session] + [live] + 余白)。
+func (m *tuiModel) listCols() (cross bool, projW, sessW, liveW, fixed int) {
 	// project 列は「単一 project に絞っているとき」以外は出す (横断=全件も、複数指定の部分集合も出す)。
 	cross = len(m.effProjects) != 1
 	if cross {
@@ -1310,7 +1414,8 @@ func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 		projW = clampInt(projW, 0, 16)
 	}
 	sessW = m.sessionColWidth()
-	// 行構成: sel(1) + "❯ " + [project] + id + " " + status + " " + [session + " "] + title
+	liveW = m.liveColWidth()
+	// 行構成: sel(1) + "❯ " + [project] + id + " " + status + " " + [session + " "] + [live + " "] + title
 	// 先頭 1 桁は選択マーカー (Space によるマルチセレクト。未選択時は空白) の固定ガター。
 	fixed = 1 + 2 + tuiIDColW + 1 + tuiStatusColW + 1
 	if cross {
@@ -1318,6 +1423,9 @@ func (m *tuiModel) listCols() (cross bool, projW, sessW, fixed int) {
 	}
 	if sessW > 0 {
 		fixed += sessW + 1
+	}
+	if liveW > 0 {
+		fixed += liveW + 1
 	}
 	return
 }
@@ -1336,7 +1444,7 @@ func (m *tuiModel) updatedColWidth() int {
 // listNaturalWidth は全タイトルが切れずに収まる一覧の理想幅。横分割でリスト幅を
 // ここまで広げ、固定上限による不要な truncate を避ける (layout で使う)。
 func (m *tuiModel) listNaturalWidth() int {
-	_, _, _, fixed := m.listCols()
+	_, _, _, _, fixed := m.listCols()
 	maxTitle := 0
 	for _, t := range m.rows {
 		if dw := dispWidth(blockedTitle(t)); dw > maxTitle {
@@ -1364,25 +1472,31 @@ func tuiSessionLabel(t Task) string {
 		return "?"
 	}
 	switch st.State {
+	case sessBlocked:
+		return "blocked" // herdr: 承認/許可待ち = 要対応
 	case sessWaiting:
-		return "waiting"
+		return "waiting" // フォールバック (マーカー由来): 入力/許可待ち
 	case sessWorking:
 		return "working"
+	case sessIdle:
+		return "idle" // herdr: 応答完了・入力待ち
 	case sessEnded:
 		return "ended"
 	}
 	return ""
 }
 
-// tuiSessionStyle はセッションラベルの色。list の sessionCell と同じ基準で、入力待ち
-// (waiting) を目立たせ、working は cyan、ended / 未取得 (?) は淡色にする。
+// tuiSessionStyle はセッションラベルの色。list の sessionCell と同じ基準で、承認待ち (blocked) と
+// 入力待ち (waiting) を目立たせ、working は cyan、idle / ended / 未取得 (?) は淡色にする。
 func tuiSessionStyle(label string) lipgloss.Style {
 	switch label {
+	case "blocked":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true) // red bold = 最も目立たせる
 	case "waiting":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true) // review 色 + 太字で目立たせる
 	case "working":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
-	default: // "ended" / "?"
+	default: // "idle" / "ended" / "?"
 		return tuiDimStyle
 	}
 }
@@ -1428,6 +1542,13 @@ func tuiDetail(t Task) string {
 	// hook 由来の working/waiting/ended)。どの pane が応答待ちかを詳細でも確認できる (0070)。
 	if label := tuiSessionLabel(t); label != "" {
 		out = "セッション状態: " + label + "\n\n" + out
+	}
+	// link された session_id が今 herdr にいれば「ライブ」を出す (status 非依存。一覧の ● に対応)。
+	// 一覧の緑 ● が何を指すかを詳細でも確認できる (別 pane のライブセッションも含む)。
+	if snap, ok := herdrStateSnapshot(); ok {
+		if sid := liveSessionID(t, snap); sid != "" {
+			out = "herdr セッション: ライブ (" + sid + ")\n\n" + out
+		}
 	}
 	return out + "\n"
 }

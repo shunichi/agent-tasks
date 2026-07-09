@@ -27,6 +27,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-09
 
+- **`tui` で「今 herdr にライブなローカルセッションを持つタスク」を緑の ● で示すようにした** — link された
+  session_id が今 `herdr agent list` に存在する (= 実体のあるセッションと結びついた) タスクの行に緑の ●
+  マーカーを出す (自分/他 pane を問わない)。ヘッダに `●ライブ:N` の件数、詳細ペインにも `herdr セッション:
+  ライブ (session_id)` を表示。マーカー列は可視行にライブがあるときだけ出す (SESSION 列と同じ「必要な
+  ときだけ」方式)。あわせて tui の SESSION 列が herdr の `blocked` / `idle` 状態も表示するようにした
+  (従来 working/waiting/ended のみで取りこぼしていた)。ライブ判定は `herdrStateSnapshot` (TTL キャッシュ)
+  と link 突合を tick / reload で 1 回だけ計算してキャッシュし、描画は参照のみ (速度: `herdr agent list`
+  の実呼び出しは高々 1 回/秒)。herdr 外は印なし (degrade)。
 - **`agent-tasks focus [<project>] <id>` を追加した** — 指定タスクを実行中の herdr pane に
   フォーカスを移す。spawn で別 pane に散らばった作業セッションへ一覧から素早く飛べる
   (特に blocked = 承認/許可待ちのタスクへの取りこぼしが減る)。pane 特定は session-link

@@ -94,14 +94,18 @@ func renderParallelJSON(w io.Writer, results []taskWorktimeResult) error {
 }
 
 // parallelView はテンプレートへ渡す描画データ。
+//
+// このビューは他ビュー (ダッシュボード / 時間配分ビュー) と違い**自動更新しない** (0134)。
+// 振り返り用のインタラクティブ分析ビュー (日別ページング・日の選択・全期間トグル・タスク別
+// ドリルダウン) なので、定期的な全再描画は操作の邪魔になる。ロード時のスナップショットを表示し、
+// 最新データが要るときはユーザーが手動リロードする。そのため interval は受け取らない。
 type parallelView struct {
 	PiecesJSON template.JS
 	ColorsJSON template.JS
-	Interval   int
 	HasData    bool
 }
 
-func renderParallel(w io.Writer, results []taskWorktimeResult, interval int) error {
+func renderParallel(w io.Writer, results []taskWorktimeResult) error {
 	pieces := buildParallelPieces(results)
 	colors := parallelColors(results)
 	pb, err := json.Marshal(pieces)
@@ -115,7 +119,6 @@ func renderParallel(w io.Writer, results []taskWorktimeResult, interval int) err
 	return parallelTemplate.Execute(w, parallelView{
 		PiecesJSON: template.JS(pb), //nolint:gosec // json.Marshal 済み (HTML エスケープ有効)
 		ColorsJSON: template.JS(cb), //nolint:gosec // 同上
-		Interval:   interval,
 		HasData:    len(pieces) > 0,
 	})
 }
@@ -209,7 +212,7 @@ const parallelHTML = `<!doctype html>
 (function(){
   var PIECES   = {{.PiecesJSON}};   // [{p,id,ti,d,s,e}] s/e = 当日0:00からの分
   var COLORS   = {{.ColorsJSON}};   // project -> css color
-  var INTERVAL = {{.Interval}};     // 秒。>0 なら JSON をポーリングしてその場で再描画
+  // このビューは自動更新しない (0134)。ロード時のスナップショットを表示し、最新が要るときは手動リロード。
   var app = document.getElementById("app");
   var metaEl = document.getElementById("meta");
   var WD = ["月","火","水","木","金","土","日"];  // 0=月
@@ -247,7 +250,7 @@ const parallelHTML = `<!doctype html>
     var dates = datesDesc(m);
     // meta
     var tot=0; PIECES.forEach(function(p){ tot += (p.e-p.s); });
-    metaEl.textContent = dates.length+" 日 · 稼働合計 "+hm(tot)+(INTERVAL>0 ? " · 自動更新 "+INTERVAL+"s" : "");
+    metaEl.textContent = dates.length+" 日 · 稼働合計 "+hm(tot);
     // 選択日の維持 (消えていたら一番活動の多い日)
     if(!state.day || !m[state.day]) state.day = mostActive(m, dates);
 
@@ -456,16 +459,8 @@ const parallelHTML = `<!doctype html>
   }
   window.addEventListener("resize", pcGuard);
 
-  // 自動更新: JSON をポーリングしてデータだけ差し替える (選択日・スクロールは保つ)
-  function poll(){
-    fetch("/worktime?view=parallel&format=json", {cache:"no-store"})
-      .then(function(r){ return r.json(); })
-      .then(function(d){ PIECES=d.p||[]; COLORS=d.c||{}; render(); })
-      .catch(function(){ /* 一時失敗は無視し次周期で再試行 */ });
-  }
-
+  // このビューは自動更新しない (0134)。ロード時に一度だけ描画する。最新データが要るときは手動リロード。
   render();
-  if(INTERVAL>0) setInterval(poll, INTERVAL*1000);
 })();
 </script>
 {{else}}

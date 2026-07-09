@@ -27,6 +27,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-09
 
+- **`agent-tasks tui` のヘルプ画面 (`?`) にバージョンを表示するようにした** — キーバインド一覧の末尾に
+  `agent-tasks version` 相当の 1 行 (commit + CalVer + clean/dirty) を淡色で出す。TUI を開いたまま
+  どの commit 時点のバイナリで動いているか確認できる。version 文字列は既存の `version.go` を再利用。
+
 - **`agent-tasks serve` の起動時にバージョンを表示するようにした** — 待受アドレスの前に
   `agent-tasks version` 相当の 1 行 (commit + CalVer + clean/dirty) を出す。どの commit 時点のバイナリで
   serve が動いているか起動ログですぐ分かり、リビルド忘れ (古いバイナリのまま) にも気づきやすくなる。

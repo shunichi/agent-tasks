@@ -123,7 +123,7 @@ func renderParallel(w io.Writer, results []taskWorktimeResult) error {
 	})
 }
 
-var parallelTemplate = template.Must(template.New("parallel").Parse(parallelHTML))
+var parallelTemplate = template.Must(template.New("parallel").Parse(parallelHTML + viewNavTmpl))
 
 // parallelHTML は自己完結ページ。Go の raw 文字列 (backtick) なので、埋め込む JS では
 // テンプレートリテラル (backtick) を使わず文字列連結 (+) で組む (backtick 衝突を避けるため)。
@@ -132,7 +132,7 @@ const parallelHTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agent-tasks — 時間帯・並列稼働</title>
+<title>agent-tasks — 時間帯・並列</title>
 <style>
   :root {
     --bg:#0f1115; --panel:#171a21; --card:#1d222b; --card2:#232936; --border:#2a2f3a;
@@ -202,8 +202,9 @@ const parallelHTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1>時間帯・並列稼働 <a href="/">← 一覧</a> <a href="/worktime">← 時間配分</a></h1>
+  <h1>agent-tasks</h1>
   <div class="meta" id="meta"></div>
+  {{template "viewnav" "parallel"}}
 </header>
 <div id="pcwarn">このビューは横に広い時刻軸が要るため <b>PC 向け</b>です。画面が狭いと帯が細くなり読みにくくなります (横スクロールで見られます)。</div>
 <main id="app"></main>

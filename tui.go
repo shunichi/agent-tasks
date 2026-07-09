@@ -327,6 +327,16 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case spawnResultMsg:
+		// S キーの spawn の結果。子セッションは別 pane で起動済み (fire-and-forget) なので、
+		// ここでは成否を flash に出すだけ。worktree 作成・追跡は子の start が行う。
+		if msg.err != nil {
+			m.flash = "spawn 失敗: " + firstLine(msg.err.Error())
+		} else {
+			m.flash = fmt.Sprintf("spawn しました: %s (pane %s)", msg.label, msg.pane)
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		// マウスホイールは詳細ペインのスクロールに使う。
 		var cmd tea.Cmd
@@ -466,6 +476,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.filterStatus = cycleStatus(m.filterStatus)
 			m.applyFilter()
+		case "S":
+			// 選択タスクを別 pane で spawn (別セッションを開いて start させる)。fire-and-forget。
+			// 事前条件 (現在リポジトリのタスクか / 着手対象か) は spawnAction で判定し、実際の
+			// herdr 起動は外部プロセスを伴うので tea.Cmd で非同期実行して UI をブロックしない。
+			if t, ok := m.selectedTask(); ok {
+				if proceed, msg := spawnAction(t, m.current); !proceed {
+					m.flash = msg
+					return m, nil
+				}
+				m.flash = "spawn 中…"
+				return m, spawnCmd(t)
+			}
+			return m, nil
 		case "p":
 			if !m.projectPinned && m.current != "" {
 				if len(m.effProjects) == 0 {
@@ -618,6 +641,45 @@ func startCommandFor(t Task) (string, bool) {
 		return "start task " + t.ID, true
 	}
 	return "", false
+}
+
+// spawnAction は S キー (選択タスクを別 pane で spawn) の事前条件を判定する (テスト用に純粋化)。
+// spawn は起動元 (cwd) のメインリポ root で子 pane を開くため、対象タスクは現在のリポジトリ
+// (current) のものに限る (別 project は worktree の場所を特定できない)。また spawn は着手用なので
+// 完了済み (done) は除外する。proceed=true なら spawn 可、false なら msg を flash に出して中止する。
+// in-progress + session ありの二重着手ガードは spawnTask 側で判定し、失敗として flash に出す
+// (TUI からは --force を渡せないため)。
+func spawnAction(t Task, current string) (proceed bool, msg string) {
+	if current == "" {
+		return false, "spawn は git リポジトリ内で tui を起動したときのみ使えます"
+	}
+	if t.Project != current {
+		return false, fmt.Sprintf("spawn は現在のリポジトリ (%s) のタスクのみ対応です (%s は該当リポジトリの pane から)", current, t.Project)
+	}
+	if t.Status == "done" {
+		return false, "完了済みのタスクです (spawn は着手用)"
+	}
+	return true, ""
+}
+
+// spawnResultMsg は非同期 spawn の結果 (起動した子のラベルと pane、成否)。Update が flash 表示に使う。
+type spawnResultMsg struct {
+	label string
+	pane  string
+	err   error
+}
+
+// spawnCmd は選択タスクの spawn (別 pane で新セッションを開いて start させる) を非同期で行い、
+// 結果を spawnResultMsg で返す tea.Cmd。herdr へのシェルアウトを伴うので UI をブロックしない。
+// split=down / focus=false (背面起動で TUI にフォーカスを残す) / force=false (二重着手ガードを尊重)。
+func spawnCmd(t Task) tea.Cmd {
+	return func() tea.Msg {
+		pane, err := spawnTask(t, "down", false, false)
+		if err != nil {
+			return spawnResultMsg{err: err}
+		}
+		return spawnResultMsg{label: spawnLabel(t), pane: pane.PaneID}
+	}
 }
 
 // prBrowserAction は o キー (PR をブラウザで開く) の振る舞いを決める (テスト用に純粋化)。
@@ -963,9 +1025,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
 	}
 	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
 	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
@@ -991,6 +1053,7 @@ func helpEntries() [][2]string {
 		{"Space", "選択トグル (マルチセレクト。絞り込み/再読込をまたいで保持)"},
 		{"x", "選択タスク (無ければカーソル行) をアーカイブ (確認あり)"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
+		{"S", "選択タスクを別 pane で spawn (別セッションで start。herdr 内のみ)"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
 		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},

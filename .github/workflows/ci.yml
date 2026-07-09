@@ -36,3 +36,24 @@ jobs:
 
       - name: go test
         run: go test ./...
+
+      # serve のフロントエンド JS (webassets/) の単体テスト。lockfile 固定で入れるので、
+      # ローカルで min-release-age を満たして選定・固定した版がそのまま再現される。
+      - name: pnpm セットアップ
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webassets/pnpm-lock.yaml
+
+      - name: JS 依存インストール (frozen)
+        run: pnpm install --frozen-lockfile
+        working-directory: webassets
+
+      - name: JS テスト (vitest)
+        run: pnpm test
+        working-directory: webassets

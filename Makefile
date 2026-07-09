@@ -8,11 +8,12 @@ PREFIX ?= $(HOME)/.local
 # (completion.go) がこの値に追従する。既定 NAME=agent-tasks は var の既定値と同じで無害。
 LDFLAGS := -X main.progName=$(NAME)
 
-.PHONY: build install link install-completions clean test fmt vet
+.PHONY: build install link install-completions clean test test-go test-js fmt vet
 
 build: $(BIN)
 
-$(BIN): $(wildcard *.go) $(wildcard templates/*/*) go.mod
+# webassets/* は //go:embed で serve のフロントエンドとしてバイナリに取り込まれるのでビルド依存に含める。
+$(BIN): $(wildcard *.go) $(wildcard templates/*/*) $(wildcard webassets/*.html webassets/*.css webassets/*.js) go.mod
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
 
 # CLI を PATH へ、skill を ~/.claude/skills へ symlink + 補完を再生成 (ビルドも実行)。
@@ -39,8 +40,18 @@ fmt:
 vet:
 	go vet ./...
 
-test:
+# Go と埋め込みフロントエンド JS の両方をテストする。
+test: test-go test-js
+
+test-go:
 	go test ./...
+
+# serve のフロントエンド JS (webassets/) の純粋ロジックを vitest でテストする。
+# 依存は最小限方針だが、JS ロジックは Go から検証できないため webassets 配下だけ pnpm を使う
+# (詳細は webassets/package.json / worktime_parallel.go)。node_modules 未取得なら先に
+# `cd webassets && pnpm install` する。
+test-js:
+	cd webassets && pnpm test
 
 clean:
 	rm -rf bin

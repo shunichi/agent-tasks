@@ -1,0 +1,64 @@
+:root {
+  --bg:#0f1115; --panel:#171a21; --card:#1d222b; --card2:#232936; --border:#2a2f3a;
+  /* dim/dim2 は補助テキスト (dim=範囲表示/凡例/所要, dim2=軸ラベル/ヒント/見出し)。小さめ・淡い文字が
+     多いので WCAG AAA 目安 (7:1) 以上まで濃くする (dim #b3bac6=9.7:1 / dim2 #9aa2b1=7.4:1。bg 比)。
+     これより暗くすると軸ラベル等が潰れる (0133)。fg>dim>dim2 の階層は維持。 */
+  --fg:#e6e8ec; --dim:#b3bac6; --dim2:#9aa2b1; --accent:#4a9eff; --id:#ffd479;
+  --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:0 0 3rem; background:var(--bg); color:var(--fg); font-family:var(--sans);
+       font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+header { position:sticky; top:0; z-index:10; background:var(--panel);
+         border-bottom:1px solid var(--border); padding:.7rem 1rem; }
+header h1 { margin:0; font-size:1.1rem; display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+header h1 a { color:var(--accent); text-decoration:none; font-size:.85rem; font-weight:400; }
+header .meta { color:var(--dim); font-size:.78rem; margin-top:.15rem;
+               font-family:var(--mono); font-variant-numeric:tabular-nums; }
+main { padding:1rem 1.1rem; max-width:1060px; margin:0 auto; }
+
+#pcwarn { display:none; margin:0 1rem 0; background:#2a1e12; border:1px solid #4a3520;
+          color:#f0a868; font-size:.8rem; padding:.5rem .75rem; border-radius:.4rem; }
+
+h2.sec { font-size:.74rem; font-family:var(--mono); letter-spacing:.12em; text-transform:uppercase;
+         color:var(--dim2); margin:1.6rem 0 .7rem; display:flex; align-items:center; gap:.7rem; }
+h2.sec:first-of-type { margin-top:.2rem; }
+h2.sec::after { content:""; flex:1; height:1px; background:var(--border); }
+.panelbox { background:var(--panel); border:1px solid var(--border); border-radius:.7rem;
+            padding:.9rem 1rem 1rem; overflow-x:auto; }
+.capt { font-family:var(--mono); font-size:.73rem; color:var(--dim); display:flex;
+        justify-content:space-between; margin-bottom:.6rem; gap:1rem; flex-wrap:wrap; }
+.capt .badge { color:var(--dim2); }
+.lanenav { display:flex; gap:.4rem; align-items:center; margin:0 0 .7rem; flex-wrap:wrap; }
+.lnav { background:var(--card); border:1px solid var(--border); color:var(--fg);
+        font-family:var(--sans); font-size:.78rem; cursor:pointer; padding:.3rem .7rem; border-radius:.4rem; }
+.lnav:hover:not([disabled]) { border-color:var(--accent); color:var(--accent); }
+.lnav[disabled] { opacity:.4; cursor:default; }
+.lnav.on { background:var(--accent); color:#08111f; border-color:var(--accent); font-weight:600; }
+
+.plegend { display:flex; flex-wrap:wrap; gap:.3rem .9rem; margin:.8rem 0 0;
+           font-size:.72rem; font-family:var(--mono); }
+.plegend .it { display:inline-flex; align-items:center; gap:.34rem; color:var(--dim); }
+.plegend .sw { width:.7rem; height:.7rem; border-radius:2px; flex:none; }
+
+.axis-lab { fill:var(--dim2); font-family:var(--mono); font-size:10.5px; font-weight:500; }
+.grid-line { stroke:var(--border); stroke-width:1; }
+.cday { cursor:pointer; }
+
+/* 詳細ビュー */
+.d-back { background:var(--card); border:1px solid var(--border); color:var(--accent);
+          font-family:var(--sans); font-size:.82rem; cursor:pointer; padding:.32rem .7rem;
+          border-radius:.4rem; margin-bottom:.9rem; }
+.d-back:hover { border-color:var(--accent); }
+.d-title { display:flex; align-items:baseline; gap:1.1rem; flex-wrap:wrap; margin-bottom:.8rem; }
+.d-title .d-date { font-size:1.02rem; font-weight:700; }
+.d-title .d-stat { font-family:var(--mono); font-size:.78rem; color:var(--dim); }
+.d-title .d-stat b { color:var(--fg); font-weight:700; }
+.d-fold { font-family:var(--mono); font-size:.75rem; color:var(--dim2); margin-top:.5rem; }
+.lane-id { fill:var(--id); font-family:var(--mono); font-size:10px; font-weight:700; }
+.lane-ti { fill:var(--fg); font-family:var(--sans); font-size:10.5px; }
+.lane-dr { fill:var(--dim); font-family:var(--mono); font-size:10px; }
+
+.empty { color:var(--dim); text-align:center; margin-top:3rem; }
+svg { display:block; }

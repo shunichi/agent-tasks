@@ -30,6 +30,7 @@ var completionSubcommands = []completionSubcommand{
 	{"show", "1 タスクの全文を表示"},
 	{"edit", "ストア/タスクをエディタで開く"},
 	{"open", "タスクの worktree をエディタで開く"},
+	{"focus", "実行中タスクの herdr pane にフォーカスを移す (herdr)"},
 	{"status", "ストアの未同期状態を表示"},
 	{"sync", "ストアを add/commit/push して同期"},
 	{"worktree-init", "worktree 作成後フックを実行"},
@@ -305,7 +306,7 @@ _agent_tasks() {
     #   第2引数: 第1引数を project とみなしてその id
     # 値を取るフラグ (--session は自由入力) の直後は除く。
     case "$sub" in
-        show|edit|open|session-link|session-rename|archive|unarchive|issue|claim|resume|done|block|worktime|spawn)
+        show|edit|open|focus|session-link|session-rename|archive|unarchive|issue|claim|resume|done|block|worktime|spawn)
             if [[ "$cur" != -* && "$prev" != "--session" && "$prev" != "--repo" && "$prev" != "--agent" && "$prev" != "--reason" ]]; then
                 # unarchive はアーカイブ済みの id を補完する (それ以外はアクティブ)。
                 local idopt=""
@@ -493,7 +494,7 @@ _agent_tasks() {
                 '--all-projects[全 project を横断]' \
                 '--color[色出力]:mode:(%[3]s)'
             ;;
-        show|edit|open|archive|unarchive|issue|worktime|spawn)
+        show|edit|open|focus|archive|unarchive|issue|worktime|spawn)
             # [<project>] <id> の位置引数を補完する。フラグ入力中はフラグ候補。
             if [[ ${words[CURRENT]} == -* ]]; then
                 if [[ $sub == show ]]; then

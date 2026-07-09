@@ -178,6 +178,8 @@ func dispatch(args []string) error {
 		return cmdTuiOverlay(args)
 	case "open":
 		return cmdOpen(args)
+	case "focus":
+		return cmdFocus(args)
 	case "where":
 		fmt.Println(storeDir())
 		return nil
@@ -222,6 +224,10 @@ USAGE:
   agent-tasks edit [[<project>] <id>] ストア (引数なし) か1タスクをエディタで開く
   agent-tasks open [<project>] <id>  タスクの worktree (作業ツリー) をエディタで開く
                                      (worktree: を解決。エディタは edit と同じ。撤去済みならエラー)
+  agent-tasks focus [<project>] <id> タスクを実行中の herdr pane にフォーカスを移す (別 pane で
+                                     spawn した作業へ一覧から素早く飛ぶ)。link → session_id →
+                                     herdr agent list の突合で pane を特定 (herdr 内のみ。未リンク/
+                                     終了済み pane は案内して終了)
   agent-tasks status                 ストアの未同期状態 (未コミット/未push) を1行表示
                                      (未同期があれば exit 1。sync が要るかの確認に使う)
   agent-tasks sync [[<project>] <id>] [--path <p>]... [--no-push]

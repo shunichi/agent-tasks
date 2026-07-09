@@ -27,6 +27,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-09
 
+- **`agent-tasks focus [<project>] <id>` を追加した** — 指定タスクを実行中の herdr pane に
+  フォーカスを移す。spawn で別 pane に散らばった作業セッションへ一覧から素早く飛べる
+  (特に blocked = 承認/許可待ちのタスクへの取りこぼしが減る)。pane 特定は session-link
+  (task → session_id) と `herdr agent list` (session_id → pane) の突合を再利用し、
+  `herdr agent focus` で切り替える (workspace / tab をまたぐ移動は herdr が面倒を見る)。
+  herdr 内のみ (HERDR_ENV≠1 はエラー)。未リンク / 終了済み pane (ended) は理由を案内して終了。
+- **`tui` に pane フォーカス (`f` キー) を追加した** — TUI の一覧から選択タスクの herdr pane に
+  直接飛べる (CLI の `focus` と同じ突合を共有)。フッター/ヘルプ (`?`) にも追記。
 - **並列稼働ビューの「1日の詳細」で、その日の全タスクを表示するようにした** (`/worktime?view=parallel`) —
   これまで稼働の多い上位 12 件だけをタスク別レーンに出し、残りは「＋ 他 N タスク… を省略」と畳んでいたが、
   上限をなくして全タスクをレーン表示するようにした (タスクが多い日は縦に伸びる)。省略ノートは不要になり削除。

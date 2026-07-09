@@ -27,6 +27,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-09
 
+- **`agent-tasks serve` の起動時にバージョンを表示するようにした** — 待受アドレスの前に
+  `agent-tasks version` 相当の 1 行 (commit + CalVer + clean/dirty) を出す。どの commit 時点のバイナリで
+  serve が動いているか起動ログですぐ分かり、リビルド忘れ (古いバイナリのまま) にも気づきやすくなる。
+
 - **serve の並列稼働ビューのツールチップを日本語グリフで表示するようにした** (`/worktime?view=parallel`)。
   ヒートマップ／スイムレーン／詳細レーンのツールチップはネイティブ SVG `<title>` で描画しており、
   ブラウザ UI 描画のためページの `font-family` も `lang="ja"` も継承せず、環境によっては日本語が

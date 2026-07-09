@@ -179,6 +179,8 @@ func printServeURLs(addr string, ln net.Addr, interval int) {
 	}
 	exposed := host == "" || host == "0.0.0.0" || host == "::" || host == "[::]"
 
+	// どの commit 時点のバイナリで動いているか起動時に分かるようにする (リビルド忘れの検知にも役立つ)。
+	fmt.Fprintln(os.Stderr, formatVersion(readVCSInfo()))
 	fmt.Fprintf(os.Stderr, "agent-tasks serve: %s で待受中", addr)
 	if interval > 0 {
 		fmt.Fprintf(os.Stderr, " (自動更新 %d 秒)", interval)

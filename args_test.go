@@ -75,6 +75,89 @@ func TestArgScanPeekSkip(t *testing.T) {
 	}
 }
 
+// value は `--name=value` のインライン形と `--name value` の分離形の両方を透過的に扱う。
+func TestArgScanInlineValue(t *testing.T) {
+	s := newArgScan([]string{"--project=webapp", "--status", "todo"})
+	var project, status string
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch a {
+		case "--project":
+			v, err := s.value("--project")
+			if err != nil {
+				t.Fatalf("value: %v", err)
+			}
+			project = v
+		case "--status":
+			v, err := s.value("--status")
+			if err != nil {
+				t.Fatalf("value: %v", err)
+			}
+			status = v
+		default:
+			t.Fatalf("想定外のトークン: %q", a)
+		}
+	}
+	if project != "webapp" {
+		t.Errorf("project = %q, want webapp (インライン形)", project)
+	}
+	if status != "todo" {
+		t.Errorf("status = %q, want todo (分離形)", status)
+	}
+}
+
+// `--name=` は空文字の値として取れる (エラーにしない)。
+func TestArgScanInlineValueEmpty(t *testing.T) {
+	s := newArgScan([]string{"--project="})
+	a, _ := s.token()
+	if a != "--project" {
+		t.Fatalf("token = %q", a)
+	}
+	v, err := s.value("--project")
+	if err != nil {
+		t.Fatalf("value: %v", err)
+	}
+	if v != "" {
+		t.Errorf("value = %q, want \"\" (--name= は空値)", v)
+	}
+}
+
+// bool フラグに `=値` が付いても、その値が後続の値フラグへ漏れない (誤消費の回帰防止)。
+func TestArgScanInlineValueNoLeakToNextFlag(t *testing.T) {
+	// --force=x は bool 想定で value() を呼ばない。続く --project は次要素 "foo" を取るべき
+	// (インライン値 "x" を拾ってはならない)。
+	s := newArgScan([]string{"--force=x", "--project", "foo"})
+	var force bool
+	var project string
+	for {
+		a, ok := s.token()
+		if !ok {
+			break
+		}
+		switch a {
+		case "--force":
+			force = true // bool: value() を呼ばない
+		case "--project":
+			v, err := s.value("--project")
+			if err != nil {
+				t.Fatalf("value: %v", err)
+			}
+			project = v
+		default:
+			t.Fatalf("想定外のトークン: %q", a)
+		}
+	}
+	if !force {
+		t.Error("--force が解釈されていない")
+	}
+	if project != "foo" {
+		t.Errorf("project = %q, want foo (インライン値 x が漏れていない)", project)
+	}
+}
+
 // extractColorFlag は `--` 以降を (終端マーカーごと) そのまま rest へ素通しし、
 // `--` の後ろにある --color は奪わない。
 func TestExtractColorFlagTerminator(t *testing.T) {

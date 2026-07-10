@@ -13,7 +13,7 @@ import (
 func TestCompletionScriptsListAllSubcommands(t *testing.T) {
 	bash := bashCompletionScript()
 	zsh := zshCompletionScript()
-	for _, s := range completionSubcommands {
+	for _, s := range completionSubcommands() {
 		if !strings.Contains(bash, s.name) {
 			t.Errorf("bash 補完にサブコマンド %q が無い", s.name)
 		}

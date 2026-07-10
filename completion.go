@@ -23,42 +23,19 @@ import (
 // completionSubcommand は補完で提示するサブコマンドとその説明 (zsh 用)。
 type completionSubcommand struct{ name, desc string }
 
-var completionSubcommands = []completionSubcommand{
-	{"list", "現在 project のタスク一覧 (既定)"},
-	{"tui", "一覧+詳細をインタラクティブに閲覧 (自動更新)"},
-	{"serve", "同一 LAN のスマホから閲覧する簡易 HTTP サーバ"},
-	{"show", "1 タスクの全文を表示"},
-	{"edit", "ストア/タスクをエディタで開く"},
-	{"open", "タスクの worktree をエディタで開く"},
-	{"focus", "実行中タスクの herdr pane にフォーカスを移す (herdr)"},
-	{"status", "ストアの未同期状態を表示"},
-	{"sync", "ストアを add/commit/push して同期"},
-	{"worktree-init", "worktree 作成後フックを実行"},
-	{"worktree-remove", "worktree 撤去フック + git worktree remove"},
-	{"scaffold-worktree", "worktree 設定の雛形を展開"},
-	{"doctor", "id 重複/不一致を点検"},
-	{"archive", "タスクを退避 (削除せず一覧から外す)"},
-	{"auto-archive", "完了後に一定期間経過した done を一括退避"},
-	{"unarchive", "退避したタスクを元に戻す"},
-	{"issue", "タスクを GitHub issue として共有"},
-	{"cost", "タスクの Claude トークン消費/概算コストを集計"},
-	{"report", "一定期間の完了タスクを markdown で出力"},
-	{"worktime", "タスクの実稼働時間 (working 合計) と稼働区間を表示"},
-	{"session-hook", "Claude Code の hook から呼ぶ"},
-	{"session-link", "セッションをタスクに紐づける"},
-	{"session-rename", "現在の Claude セッション名をタスク名に変える (tmux)"},
-	{"session-prune", "state dir の古いマーカー/link を掃除する"},
-	{"statusline", "実行中タスクを status line に表示"},
-	{"alloc-id", "タスク id を原子的に採番し予約ファイルを作成"},
-	{"spawn", "別 pane で新セッションを開き対象タスクに着手させる (herdr)"},
-	{"claim", "着手時に in-progress をロック下で原子的に予約 (start の TOCTOU 回避)"},
-	{"resume", "blocked/review を in-progress に戻して作業を再開"},
-	{"done", "完了/レビュー待ちの frontmatter を確定 (status/completed_at)"},
-	{"block", "保留の frontmatter を確定 (status/blocked_at/blocked_reason)"},
-	{"where", "データディレクトリのパスを表示"},
-	{"version", "ビルド元の commit + CalVer を表示"},
-	{"completion", "シェル補完スクリプトを出力"},
-	{"help", "ヘルプを表示"},
+// completionSubcommands はコマンドレジストリ (commands.go) の visible なコマンドから
+// 派生する (名前・説明・並び順はレジストリが単一の情報源)。hidden な内部コマンドは除く。
+// var ではなく関数にしているのは、commands 初期化子が cmdCompletion を参照し、その先で
+// この一覧を読むため。var にすると commands ↔ completionSubcommands の初期化サイクルになる。
+func completionSubcommands() []completionSubcommand {
+	out := make([]completionSubcommand, 0, len(commands))
+	for _, c := range commands {
+		if c.hidden {
+			continue
+		}
+		out = append(out, completionSubcommand{c.name, c.desc})
+	}
+	return out
 }
 
 // 列挙できるフラグ値 (静的補完で候補を出せるもの)。
@@ -70,8 +47,9 @@ var (
 )
 
 func subcommandNames() []string {
-	names := make([]string, len(completionSubcommands))
-	for i, s := range completionSubcommands {
+	subs := completionSubcommands()
+	names := make([]string, len(subs))
+	for i, s := range subs {
 		names[i] = s.name
 	}
 	return names
@@ -263,7 +241,8 @@ func bashCompletionScript() string {
 	kinds := strings.Join(completionKindValues, " ")
 	colors := strings.Join(completionColorValues, " ")
 	shells := strings.Join(completionShellValues, " ")
-	topFlags := "--all-projects --all -a --status --kind --project --projects --search --grep --content --full --watch -w --interval --active --recent --archived --json --color --help"
+	// top-level (サブコマンド未確定時) と list サブコマンドのフラグは同じ集合 = listFlags。
+	topFlags := strings.Join(withColorHelp(listFlags), " ")
 
 	return fmt.Sprintf(`# bash completion for agent-tasks
 # 有効化: source <(agent-tasks completion bash)
@@ -336,43 +315,46 @@ _agent_tasks() {
 
     local flags="--color --help"
     case "$sub" in
-        list)              flags="%[4]s" ;;
-        tui)               flags="--status --project --projects --all-projects --all --interval --color --help" ;;
-        report)            flags="--month --week --since --until --project --projects --all-projects --color --help" ;;
-        show)              flags="--archived --json --color --help" ;;
-        worktime)          flags="--all --json --project --projects --all-projects --color --help" ;;
-        edit)              flags="--color --help" ;;
-        archive|unarchive) flags="--color --help" ;;
-        auto-archive)      flags="--older-than --project --projects --all-projects --dry-run --color --help" ;;
-        issue)             flags="--repo --color --help" ;;
-        doctor)            flags="--project --color --help" ;;
-        sync)              flags="--no-push --push --color --help" ;;
-        scaffold-worktree) flags="--list --dir --force --color --help" ;;
-        worktree-init)     flags="--force --color --help" ;;
-        worktree-remove)   flags="--force --hook-only --color --help" ;;
-        session-hook)      flags="--print-config --color --help" ;;
-        session-link)      flags="--session --project --color --help" ;;
-        session-rename)    flags="--project --color --help" ;;
-        session-prune)     flags="--older-than --dry-run --color --help" ;;
-        statusline)        flags="--print-config --color --help" ;;
-        alloc-id)          flags="--slug --title --kind --body-file --project --pull --color --help" ;;
-        claim)             flags="--agent --session --release --to --force --color --help" ;;
-        resume)            flags="--agent --session --color --help" ;;
-        done)              flags="--review --color --help" ;;
-        block)             flags="--reason --color --help" ;;
-        completion)        COMPREPLY=( $(compgen -W "%[3]s" -- "$cur") ); return ;;
-    esac
+%[7]s    esac
     if [[ "$cur" == -* ]]; then
         COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
     fi
 }
 complete -F _agent_tasks agent-tasks
-`, statuses, colors, shells, topFlags, subs, kinds)
+`, statuses, colors, shells, topFlags, subs, kinds, bashSubFlagCases())
+}
+
+// withColorHelp はコマンド固有フラグに共通の --color / --help を末尾付与する
+// (全サブコマンドが受けるので、レジストリの flags には含めず生成時に足す)。
+func withColorHelp(flags []string) []string {
+	return append(append(make([]string, 0, len(flags)+2), flags...), "--color", "--help")
+}
+
+// bashSubFlagCases は bash 補完の per-sub フラグ case をコマンドレジストリから生成する。
+// 各行は 8 スペース字下げ + 改行付き。固有フラグの無いコマンドは行を出さず、呼び出し側の
+// 既定 (--color --help) に委ねる。completion だけはフラグではなく shell 名を補完して return する。
+func bashSubFlagCases() string {
+	var b strings.Builder
+	for _, c := range commands {
+		if c.hidden {
+			continue
+		}
+		if c.name == "completion" {
+			fmt.Fprintf(&b, "        completion)        COMPREPLY=( $(compgen -W %q -- \"$cur\") ); return ;;\n",
+				strings.Join(completionShellValues, " "))
+			continue
+		}
+		if len(c.flags) == 0 {
+			continue // 固有フラグなし → 既定の "--color --help" のまま
+		}
+		fmt.Fprintf(&b, "        %s) flags=%q ;;\n", c.name, strings.Join(withColorHelp(c.flags), " "))
+	}
+	return b.String()
 }
 
 func zshCompletionScript() string {
 	var subLines strings.Builder
-	for _, s := range completionSubcommands {
+	for _, s := range completionSubcommands() {
 		// 説明中の特殊文字を避けるため、説明はそのまま (記号を含まない前提)。
 		fmt.Fprintf(&subLines, "        '%s:%s'\n", s.name, s.desc)
 	}

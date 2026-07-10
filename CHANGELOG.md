@@ -23,9 +23,23 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-10
+
 - serve の一覧ビューに「実行中(セッション外)」セクションを追加。着手済み (in-progress) だが
   セッションが動いていない (ended/unknown/未リンク、human の in-progress) タスクを「その他」から
   分離して表示する (「その他」には todo/blocked/done だけが残る)。
+- **`--flag=value` 形式を全サブコマンドのフラグで受けられるようにした** — これまで `--flag value`
+  (分離形) のみ対応で、`--project=webapp` のような `=` 形式は `--color` 以外「unknown option」に
+  なっていた。共通パーサ (`argScan`) を拡張し、`--project=webapp` / `--status=done` など全フラグで
+  インライン形が使えるようにした (分離形も従来どおり)。標準的な CLI の挙動に揃えた。
+- **シェル補完のフラグ取りこぼしを解消した** — `serve` (`--addr` 等) / `cost` (`--json`/`--record`) /
+  `spawn` (`--split`/`--focus`/`--force`) のフラグが bash 補完に出ていなかったのを、コマンド定義から
+  補完を生成するようにして自動的に埋めた (機能追加後は `make install` で最新化)。
+- (内部) コマンド定義を 1 つのレジストリ (`commands.go`) に集約し、dispatch・補完のサブコマンド
+  一覧・bash 補完のフラグをそこから派生させるようにした。追加時の記載漏れ (dispatch にあるのに
+  補完/ヘルプに無い等) をテストで検出する。
 
 ## 2026-07-09
 

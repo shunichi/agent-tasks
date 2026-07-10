@@ -111,88 +111,15 @@ func dispatch(args []string) error {
 		return cmdVersion(nil)
 	}
 
-	switch cmd {
-	case "list":
-		return cmdList(args)
-	case "tui":
-		return cmdTUI(args)
-	case "serve":
-		return cmdServe(args)
-	case "show":
-		return cmdShow(args)
-	case "edit":
-		return cmdEdit(args)
-	case "status":
-		return cmdStatus(args)
-	case "sync":
-		return cmdSync(args)
-	case "worktree-init":
-		return cmdWorktreeInit(args)
-	case "worktree-remove":
-		return cmdWorktreeRemove(args)
-	case "scaffold-worktree":
-		return cmdScaffoldWorktree(args)
-	case "doctor":
-		return cmdDoctor(args)
-	case "session-hook":
-		return cmdSessionHook(args)
-	case "session-link":
-		return cmdSessionLink(args)
-	case "session-rename":
-		return cmdSessionRename(args)
-	case "session-prune":
-		return cmdSessionPrune(args)
-	case "statusline":
-		return cmdStatusline(args)
-	case "completion":
-		return cmdCompletion(args)
-	case "completion-values":
-		return cmdCompletionValues(args)
-	case "alloc-id":
-		return cmdAllocID(args)
-	case "claim":
-		return cmdClaim(args)
-	case "resume":
-		return cmdResume(args)
-	case "done":
-		return cmdDone(args)
-	case "block":
-		return cmdBlock(args)
-	case "archive":
-		return cmdArchive(args)
-	case "auto-archive":
-		return cmdAutoArchive(args)
-	case "unarchive":
-		return cmdUnarchive(args)
-	case "issue":
-		return cmdIssue(args)
-	case "cost":
-		return cmdCost(args)
-	case "report":
-		return cmdReport(args)
-	case "worktime":
-		return cmdWorktime(args)
-	case "worktime-record":
-		return cmdWorktimeRecord(args)
-	case "tui-overlay":
-		return cmdTuiOverlay(args)
-	case "open":
-		return cmdOpen(args)
-	case "focus":
-		return cmdFocus(args)
-	case "where":
-		fmt.Println(storeDir())
-		return nil
-	case "herdr-probe":
-		return cmdHerdrProbe(args)
-	case "spawn":
-		return cmdSpawn(args)
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
-		usage(os.Stderr)
-		os.Exit(2)
-		return nil
+	// 振り分けはコマンドレジストリ (commands.go) に集約する。switch を手で伸ばす代わりに
+	// 1 つの表を引くことで、dispatch と補完のサブコマンド一覧が食い違わないようにする。
+	if c, ok := commandByName[cmd]; ok {
+		return c.run(args)
 	}
+	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
+	usage(os.Stderr)
+	os.Exit(2)
+	return nil
 }
 
 func usage(w io.Writer) {
@@ -275,6 +202,11 @@ USAGE:
                                      (skill が Write を使わず済み、"File has not been read yet" を回避)。
                                      本文 (要件) は --body-file (省略時は stdin) から読む。
                                      --kind human で人手タスク (branch/worktree を空にする)
+  agent-tasks claim [<project>] <id> [--agent <name>] [--session <id>] [--force] [--release [--to <status>]]
+                                     着手時に in-progress をロック下で原子的に予約 (skill の start 手順が
+                                     呼ぶ)。二重着手ガード + status=in-progress / started_at (初回のみ) を確定。
+                                     既に in-progress なら停止 (--force で上書き着手)。--release で予約を戻す
+                                     (既定 todo、--to で戻し先 todo/blocked/review/done を指定)
   agent-tasks resume [<project>] <id> [--agent <name>] [--session <url>]  blocked/review のタスクを
                                      in-progress に戻して作業を再開 (skill の resume 手順が呼ぶ)。
                                      started_at は保持し blocked_* / completed_at は落とす。todo は

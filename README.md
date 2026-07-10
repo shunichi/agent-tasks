@@ -156,3 +156,6 @@ agent-tasks where                # データディレクトリのパス
 並行開発まわりの作り込み (worktree 作成後フック、scaffold、セッション状態の可視化、status line、
 シェル補完、色出力、日時フィールドなど) と CLI の全コマンドは
 **[docs/details.md](docs/details.md)** にまとめている。
+
+これまでの開発の振り返り (2026-06〜07。規模感・時系列・設計判断・今後の課題) は
+**[docs/retrospective-2026-07.md](docs/retrospective-2026-07.md)** を参照。

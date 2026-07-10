@@ -97,6 +97,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   `t.TempDir()`。`sort.Slice` や手動ループに戻さない。
 - 機能追加は `store.go` (データ) / `render.go` (表示) / `main.go` (コマンド) の分担を保つ。
   サブコマンドは `main.go` の `switch` に足す。
+- **CLI (Go ソース) を変更・マージしたら必ず `make install` する。** `~/.local/bin/agent-tasks` は
+  `bin/agent-tasks` への symlink で、Go バイナリなのでソース変更後は `make install` (build + symlink +
+  補完再生成) しないと反映されない。忘れるとユーザーが実行する CLI が古いままになる。**完成・main
+  マージ済みの安定した状態でのみインストールする** (WIP や壊れたビルドは入れない)。
 
 ## 機密情報をコミットしない
 

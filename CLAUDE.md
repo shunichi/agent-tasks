@@ -14,7 +14,9 @@
 ```
 agent-tasks/                    ← このリポジトリ = ツール (操作 skill + 閲覧 CLI)
   skills/agent-tasks/SKILL.md   # 操作 (agent 用): /agent-tasks。登録/一覧/おすすめ/着手/spawn/batch/完了/保留
-  main.go                       # 閲覧 CLI: コマンド振り分け + list/show/edit/sync/doctor/where
+  main.go                       # 閲覧 CLI: dispatch (commands レジストリ引き) + list/show/edit/sync/doctor
+  commands.go                   # コマンドレジストリ (単一の情報源): 全サブコマンドの name/desc/run/flags。dispatch・補完のサブコマンド一覧・bash フラグ生成が派生
+  args.go                       # 共通引数パーサ argScan: `--` 終端 / 値フラグ (`--f v` と `--f=v` 両対応) / peek-skip
   store.go                      # タスクの model + ストア走査 + frontmatter パース + doctor 集計
   json.go                       # list/show の --json 出力 (機械可読。計算済み session_state/blocked_for を含む)
   recent.go                     # list --recent: 最近完了タスク (completed_at 降順 N 件) の選択 + 描画
@@ -96,7 +98,10 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 - 採用済みのモダンイディオム例: `slices.SortFunc` + `cmp.Or`/`cmp.Compare`、`strings.Cut`、`strings.Repeat`、
   `t.TempDir()`。`sort.Slice` や手動ループに戻さない。
 - 機能追加は `store.go` (データ) / `render.go` (表示) / `main.go` (コマンド) の分担を保つ。
-  サブコマンドは `main.go` の `switch` に足す。
+  サブコマンドは `commands.go` の `commands` レジストリに 1 エントリ (`name`/`desc`/`run`/`flags`)
+  足す。dispatch・補完のサブコマンド一覧・bash 補完のフラグはそこから派生する (単一の情報源)。
+  zsh の凝った補完 (説明・値補完器) を足すときは `completion.go` に手書きし、ヘルプ文言は
+  `main.go` の `usage()` に書く (どちらも `commands_test.go` の整合テストが記載漏れを検出する)。
 - **CLI (Go ソース) を変更・マージしたら必ず `make install` する。** `~/.local/bin/agent-tasks` は
   `bin/agent-tasks` への symlink で、Go バイナリなのでソース変更後は `make install` (build + symlink +
   補完再生成) しないと反映されない。忘れるとユーザーが実行する CLI が古いままになる。**完成・main

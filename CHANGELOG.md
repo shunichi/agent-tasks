@@ -23,7 +23,9 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+- serve の一覧ビューに「実行中(セッション外)」セクションを追加。着手済み (in-progress) だが
+  セッションが動いていない (ended/unknown/未リンク、human の in-progress) タスクを「その他」から
+  分離して表示する (「その他」には todo/blocked/done だけが残る)。
 
 ## 2026-07-09
 

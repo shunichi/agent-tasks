@@ -13,8 +13,9 @@ func TestTaskSectionClassify(t *testing.T) {
 	}{
 		{"in-progress", sessWaiting, "waiting"},
 		{"in-progress", sessWorking, "working"},
-		{"in-progress", "unknown", "other"}, // マーカー未取得は working 扱いしない
-		{"in-progress", "ended", "other"},
+		{"in-progress", "unknown", "in-progress"}, // マーカー未取得は working 扱いせず in-progress セクションへ
+		{"in-progress", "ended", "in-progress"},   // セッション終了も in-progress セクション
+		{"in-progress", "", "in-progress"},        // human 等 SESSION 無しの in-progress も in-progress
 		{"review", "", "review"},
 		{"todo", "", "other"},
 		{"blocked", "", "other"},
@@ -50,12 +51,13 @@ func TestBuildDashDataStateSectionsOrder(t *testing.T) {
 	if d.Count != 5 {
 		t.Fatalf("Count = %d, want 5", d.Count)
 	}
-	// waiting → review → working → other の固定順。other には todo と unknown の in-progress が入る。
+	// waiting → review → working → in-progress → other の固定順。unknown の in-progress は
+	// other ではなく in-progress セクションへ、other には todo だけが残る。
 	var gotKeys []string
 	for _, g := range d.Groups {
 		gotKeys = append(gotKeys, g.Key)
 	}
-	wantKeys := []string{"waiting", "review", "working", "other"}
+	wantKeys := []string{"waiting", "review", "working", "in-progress", "other"}
 	if len(gotKeys) != len(wantKeys) {
 		t.Fatalf("group keys = %v, want %v", gotKeys, wantKeys)
 	}
@@ -64,9 +66,13 @@ func TestBuildDashDataStateSectionsOrder(t *testing.T) {
 			t.Fatalf("group keys = %v, want %v", gotKeys, wantKeys)
 		}
 	}
-	// other には 2 件 (0004 todo, 0005 unknown in-progress)。セクションの Count で見る。
-	if got := d.Groups[3].Count; got != 2 {
-		t.Errorf("other セクションの件数 = %d, want 2", got)
+	// in-progress セクションには 0005 (unknown in-progress) が 1 件。
+	if got := d.Groups[3].Count; got != 1 {
+		t.Errorf("in-progress セクションの件数 = %d, want 1", got)
+	}
+	// other には 0004 todo だけの 1 件。セクションの Count で見る。
+	if got := d.Groups[4].Count; got != 1 {
+		t.Errorf("other セクションの件数 = %d, want 1", got)
 	}
 	// 各セクションは project サブグループを持ち、カードは project を持つ。
 	if len(d.Groups[0].Projects) != 1 || d.Groups[0].Projects[0].Project != "p" {

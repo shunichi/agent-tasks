@@ -296,11 +296,14 @@ type dashData struct {
 }
 
 // dashSections は状態別セクションの固定表示順とラベル。「今すぐ対応が要るもの」から並べる:
-// 入力待ち → レビュー待ち → 実行中 → その他。空セクションは描画時に飛ばす。
+// 入力待ち → レビュー待ち → 実行中 → 実行中(セッション外) → その他。空セクションは描画時に飛ばす。
+// working (実行中) はセッションが今動いているもの、in-progress (実行中(セッション外)) は着手済みだが
+// セッションが動いていない (ended/unknown/未リンク) もの。その他は todo/blocked/done。
 var dashSections = []struct{ Key, Label string }{
 	{"waiting", "入力待ち"},
 	{"review", "レビュー待ち"},
 	{"working", "実行中"},
+	{"in-progress", "実行中(セッション外)"},
 	{"other", "その他"},
 }
 
@@ -314,7 +317,9 @@ func statusClass(status string) string {
 
 // taskSection は行が入る状態セクションのキーを返す (1 行は 1 セクションのみ)。
 // in-progress かつ SESSION マーカーが waiting/working のものだけ waiting/working に入れ、
-// status=review は review、それ以外 (todo/blocked/done や unknown/ended の in-progress) は other。
+// status=review は review、status=in-progress で session が working/waiting でないもの
+// (unknown/ended/未リンク や human の in-progress) は in-progress、
+// それ以外 (todo/blocked/done) は other。
 func taskSection(status, sessionState string) string {
 	switch sessionState {
 	case sessWaiting:
@@ -324,6 +329,9 @@ func taskSection(status, sessionState string) string {
 	}
 	if status == "review" {
 		return "review"
+	}
+	if status == "in-progress" {
+		return "in-progress"
 	}
 	return "other"
 }
@@ -451,6 +459,7 @@ const dashHTML = `<!doctype html>
   section.sec-waiting h2::before { background: #f0883e; }
   section.sec-review  h2::before { background: #a371f7; }
   section.sec-working h2::before { background: #3fb950; }
+  section.sec-in-progress h2::before { background: #4a9eff; }
   section.sec-other   h2::before { background: #6b7280; }
   section h2 .cnt { color: var(--dim); font-weight: 400; }
   .proj-group { margin: 0 0 0.6rem; }

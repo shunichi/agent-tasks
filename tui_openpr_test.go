@@ -119,3 +119,47 @@ func TestHelpHasOpenSessionKey(t *testing.T) {
 		t.Error("helpEntries に O (セッション URL を開く) が無い")
 	}
 }
+
+// trackerBrowserAction は tracker: の http(s) URL を全て返し、空/非 URL では nil + メッセージを返す。
+func TestTrackerBrowserAction(t *testing.T) {
+	// http URL 複数 → 全件返す。
+	urls, msg := trackerBrowserAction(Task{Tracker: []string{"https://example.com/issues/1", "https://example.com/issues/2"}})
+	if msg != "" {
+		t.Errorf("tracker ありでメッセージが出た: %q", msg)
+	}
+	if !slices.Equal(urls, []string{"https://example.com/issues/1", "https://example.com/issues/2"}) {
+		t.Errorf("urls = %v, want 2 件すべて", urls)
+	}
+
+	// 空 → nil + メッセージ。
+	urls, msg = trackerBrowserAction(Task{})
+	if urls != nil || msg == "" {
+		t.Errorf("tracker 空: urls=%v msg=%q, want nil + メッセージ", urls, msg)
+	}
+
+	// 非 URL のみ → nil + メッセージ。
+	urls, msg = trackerBrowserAction(Task{Tracker: []string{"not-a-url"}})
+	if urls != nil || msg == "" {
+		t.Errorf("非 URL: urls=%v msg=%q, want nil + メッセージ", urls, msg)
+	}
+
+	// URL と非 URL 混在 → http のみ返す。
+	urls, msg = trackerBrowserAction(Task{Tracker: []string{"not-a-url", "https://example.com/issues/3"}})
+	if msg != "" || !slices.Equal(urls, []string{"https://example.com/issues/3"}) {
+		t.Errorf("混在: urls=%v msg=%q, want http のみ 1 件", urls, msg)
+	}
+}
+
+// ヘルプに t (tracker を開く) の項目がある。
+func TestHelpHasOpenTrackerKey(t *testing.T) {
+	found := false
+	for _, e := range helpEntries() {
+		if e[0] == "t" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("helpEntries に t (tracker を開く) が無い")
+	}
+}

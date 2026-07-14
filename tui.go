@@ -610,6 +610,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, openCmd("セッション", urls)
 			}
 			return m, nil
+		case "t":
+			// 選択タスクの tracker (tracker: = 外部 issue tracker / 課題管理の URL、複数可) を
+			// 既定ブラウザで開く。o (PR) / O (セッション) と対の導線。空 / URL でなければフラッシュのみ。
+			if t, ok := m.selectedTask(); ok {
+				urls, msg := trackerBrowserAction(t)
+				if msg != "" {
+					m.flash = msg
+					return m, nil
+				}
+				return m, openCmd("tracker", urls)
+			}
+			return m, nil
 		case "r":
 			m.reload()
 		case " ":
@@ -797,8 +809,27 @@ func sessionBrowserAction(t Task) (urls []string, msg string) {
 	return nil, "session 欄が URL ではありません"
 }
 
+// trackerBrowserAction は t キー (tracker: をブラウザで開く) の振る舞いを決める
+// (テスト用に純粋化)。tracker: の http(s) URL を全て返す。空なら nil とメッセージ、
+// 値はあるが URL 形式が無ければその旨のメッセージを返す (任意ホストを許すが、開けるのは
+// http(s) のみ。doctor が URL 形式を別途検査する)。
+func trackerBrowserAction(t Task) (urls []string, msg string) {
+	if len(t.Tracker) == 0 {
+		return nil, "このタスクに tracker はありません"
+	}
+	for _, u := range t.Tracker {
+		if isHTTPURL(u) {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return nil, "tracker 欄が URL ではありません"
+	}
+	return urls, ""
+}
+
 // openResultMsg は非同期のブラウザ起動の結果 (何を・何件開いたか・成否)。
-// what はフラッシュ表示用の対象名 ("PR" / "セッション")。
+// what はフラッシュ表示用の対象名 ("PR" / "セッション" / "tracker")。
 type openResultMsg struct {
 	what string
 	n    int
@@ -1156,6 +1187,7 @@ func helpEntries() [][2]string {
 		{"f", "選択タスクを実行中の herdr pane にフォーカス (別 pane の作業へ飛ぶ。herdr 内のみ)"},
 		{"o", "選択タスクの PR (prs:) を既定ブラウザで開く"},
 		{"O", "選択タスクのセッション URL (claude.ai) を既定ブラウザで開く"},
+		{"t", "選択タスクの tracker (tracker:) を既定ブラウザで開く"},
 		{"a", "done タスクの表示 / 非表示を切替"},
 		{"s", "status フィルタを循環 (全→todo→…→done)"},
 		{"p", "現在 project のみ / 全 project を切替"},

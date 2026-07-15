@@ -37,14 +37,16 @@ func blockedTitle(t Task) string {
 }
 
 // humanTitlePrefix は human (コードを触らない人手) タスクを一覧で識別するためのプレフィックス。
-const humanTitlePrefix = "[人手] "
+// 表記は kind の値 (human) と揃える (draft バッジと同じく英語ラベルで統一)。
+const humanTitlePrefix = "[human] "
 
 // draftTitlePrefix は簡易登録 (draft) タスクを一覧で識別するためのプレフィックス。TUI から
 // タイトルだけで登録された「要件が未整理」の状態を一目で示す (着手前に詳細化する対象)。
-const draftTitlePrefix = "[簡易] "
+// 表記は frontmatter の draft フラグと揃える (英語ラベルで統一)。
+const draftTitlePrefix = "[draft] "
 
 // displayTitle は一覧表示 (CLI テーブル / TUI) 用のタイトル装飾を返す。human タスクには識別
-// プレフィックスを付け、簡易登録 (draft) には [簡易] を付け、blocked タスクには保留理由を添える
+// プレフィックスを付け、簡易登録 (draft) には [draft] を付け、blocked タスクには保留理由を添える
 // (blockedTitle)。検索 (matchQuery) は生の Title を対象にするので、この装飾はあくまで表示専用
 // (検索・JSON には影響しない)。
 func displayTitle(t Task) string {

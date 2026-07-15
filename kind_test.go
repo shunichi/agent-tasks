@@ -43,7 +43,7 @@ func TestDisplayTitleHuman(t *testing.T) {
 	}
 }
 
-// displayTitle は簡易登録 (draft) タスクに [簡易] プレフィックスを付ける (Title 自体は変えない)。
+// displayTitle は簡易登録 (draft) タスクに [draft] プレフィックスを付ける (Title 自体は変えない)。
 func TestDisplayTitleDraft(t *testing.T) {
 	d := Task{Title: "あとで詳細化するやつ", Draft: true}
 	if got := displayTitle(d); !strings.HasPrefix(got, draftTitlePrefix) || !strings.Contains(got, "あとで詳細化するやつ") {

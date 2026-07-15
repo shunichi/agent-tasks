@@ -48,9 +48,9 @@ func TestTUICreateKeyFlow(t *testing.T) {
 	if got.Title != "新しいタスク" || got.Status != "todo" {
 		t.Errorf("title/status = %q/%q", got.Title, got.Status)
 	}
-	// 一覧に即反映され、[簡易] バッジ付きで出る。
+	// 一覧に即反映され、[draft] バッジ付きで出る。
 	if !strings.Contains(stripANSI(model.View()), draftTitlePrefix) {
-		t.Error("一覧に [簡易] バッジが描画されるはず")
+		t.Error("一覧に [draft] バッジが描画されるはず")
 	}
 }
 

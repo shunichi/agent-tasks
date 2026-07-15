@@ -67,7 +67,7 @@ type Task struct {
 
 	// Draft は TUI から簡易登録された「下書き」タスクを示す (frontmatter の draft: true)。
 	// タイトル (と任意の短い説明) だけで登録され、要件はまだ整理されていない。着手前に
-	// エージェントが要件を詳細化することを期待する状態で、一覧では [簡易] バッジで示す
+	// エージェントが要件を詳細化することを期待する状態で、一覧では [draft] バッジで示す
 	// (displayTitle)。既定 (draft 行なし) は false = 通常タスク。skill 経由の create は
 	// 要件を整えて登録するので draft を立てない (TUI の AI を通さない簡易登録専用)。
 	Draft bool

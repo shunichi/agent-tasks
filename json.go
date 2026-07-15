@@ -18,7 +18,8 @@ type taskJSON struct {
 	Project       string   `json:"project"`
 	Title         string   `json:"title"`
 	Status        string   `json:"status"`
-	Kind          string   `json:"kind,omitempty"` // "human" のときだけ出す (code は省略)
+	Kind          string   `json:"kind,omitempty"`  // "human" のときだけ出す (code は省略)
+	Draft         bool     `json:"draft,omitempty"` // 簡易登録 (TUI) の下書きのときだけ true を出す
 	Agent         string   `json:"agent,omitempty"`
 	Session       string   `json:"session,omitempty"`
 	Issue         string   `json:"issue,omitempty"`
@@ -44,7 +45,7 @@ type taskJSON struct {
 // (マーカーが無ければ "unknown")、blocked_for は blocked かつ blocked_at が妥当なときだけ付ける。
 func toTaskJSON(t Task, now time.Time) taskJSON {
 	j := taskJSON{
-		ID: t.ID, Project: t.Project, Title: t.Title, Status: t.Status, Kind: t.Kind,
+		ID: t.ID, Project: t.Project, Title: t.Title, Status: t.Status, Kind: t.Kind, Draft: t.Draft,
 		Agent: t.Agent, Session: t.Session, Issue: t.Issue, Cost: t.Cost, Branch: t.Branch, Worktree: t.Worktree,
 		Created: t.Created, Updated: t.Updated,
 		StartedAt: t.StartedAt, CompletedAt: t.CompletedAt,

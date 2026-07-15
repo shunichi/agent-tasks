@@ -150,7 +150,7 @@ func cmdAllocID(args []string) error {
 		}
 		now := time.Now()
 		write = func(id string) []byte {
-			return buildNewTaskMarkdown(id, project, slug, title, kind, body, now)
+			return buildNewTaskMarkdown(id, project, slug, title, kind, body, now, false)
 		}
 	}
 
@@ -203,7 +203,10 @@ func readBody(bodyFile string) (string, error) {
 // kind=="human" のときは branch/worktree を空にする (start で worktree を作らないタスク)。
 // title は既存ファイルの表記に合わせて素のまま書く (parseTask は最初の ':' で切るので ':' を含む
 // title も読める)。body は要件セクションに入れ、進捗ログの「登録」行を 1 行付ける。
-func buildNewTaskMarkdown(id, project, slug, title, kind, body string, now time.Time) []byte {
+// draft=true (TUI の簡易登録) のときは frontmatter に draft: true を立て、要件が未整理であることと
+// 着手前にエージェントが詳細化する導線を本文に残す (draft フラグは機械可読な印、本文注記は人/agent
+// 向けの示唆で役割を分ける)。
+func buildNewTaskMarkdown(id, project, slug, title, kind, body string, now time.Time, draft bool) []byte {
 	iso := now.Format(time.RFC3339)
 	logDate := now.Format("2006-01-02 15:04")
 	branch, worktree := "", ""
@@ -221,6 +224,9 @@ func buildNewTaskMarkdown(id, project, slug, title, kind, body string, now time.
 	if kind == "human" {
 		b.WriteString("kind: human\n")
 	}
+	if draft {
+		b.WriteString("draft: true\n")
+	}
 	b.WriteString("agent:\n")
 	b.WriteString("session:\n")
 	b.WriteString(fmLine("branch", branch) + "\n") // human は空値 (末尾スペースなしの "branch:")
@@ -233,8 +239,15 @@ func buildNewTaskMarkdown(id, project, slug, title, kind, body string, now time.
 	if body = strings.TrimSpace(body); body != "" {
 		b.WriteString(body + "\n\n")
 	}
+	if draft {
+		b.WriteString("> 簡易登録 (TUI から作成)。要件は未整理のため、着手前にエージェントが詳細化する。\n\n")
+	}
 	b.WriteString("## 進捗ログ\n")
-	b.WriteString("- " + logDate + " 登録\n")
+	logVerb := "登録"
+	if draft {
+		logVerb = "簡易登録 (TUI)"
+	}
+	b.WriteString("- " + logDate + " " + logVerb + "\n")
 	return []byte(b.String())
 }
 
@@ -255,6 +268,58 @@ func validateSlug(slug string) error {
 		return usagef("--slug の先頭/末尾にハイフンは使えません: %q", slug)
 	}
 	return nil
+}
+
+// slugMaxLen は自動生成 slug の最大長 (ファイル名が長くなりすぎないよう頭打ち)。
+const slugMaxLen = 40
+
+// slugFromTitle は日本語などを含むタイトルから、ファイル名に使える ASCII ケバブケースの slug を
+// 機械生成する。ASCII 英数字はそのまま (小文字化)、その他の文字は区切りのハイフンに畳む。ASCII
+// 英数字が全く無い (例: 日本語のみの) タイトルでは結果が空になるので "task" にフォールバックする。
+// TUI の簡易登録は AI を通さず英語 slug を訳せないので、この機械生成 + フォールバックで賄う
+// (slug はファイル名の飾りで、一次キーは id。着手時にエージェントが必要なら整える)。
+// 返り値は必ず validateSlug を満たす (英小文字・数字・ハイフンのみ、先頭/末尾ハイフンなし、非空)。
+func slugFromTitle(title string) string {
+	var b strings.Builder
+	prevHyphen := true // 先頭のハイフンを防ぐ (空の状態からは区切りを出さない)
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		default:
+			if !prevHyphen {
+				b.WriteByte('-')
+				prevHyphen = true
+			}
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if len(s) > slugMaxLen {
+		s = strings.Trim(s[:slugMaxLen], "-")
+	}
+	if s == "" {
+		return "task"
+	}
+	return s
+}
+
+// createDraftTask は TUI の簡易登録 (draft) タスクを作り、採番した id を返す。タイトル (必須) と
+// 任意の説明だけを受け、slug は slugFromTitle で機械生成、要件は未整理のまま draft: true で登録する
+// (着手前にエージェントが詳細化する導線は buildNewTaskMarkdown が本文に残す)。採番 + 書き込みは
+// allocReserve に委ね、ローカル並行 create の id 競合を避ける。dir はストアの root (通常 storeDir())。
+func createDraftTask(dir, project, title, desc string) (id string, err error) {
+	projDir := filepath.Join(dir, project)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		return "", fmt.Errorf("project ディレクトリを作成できません: %w", err)
+	}
+	slug := slugFromTitle(title)
+	now := time.Now()
+	write := func(id string) []byte {
+		return buildNewTaskMarkdown(id, project, slug, title, "", desc, now, true)
+	}
+	id, _, err = allocReserve(projDir, slug, write)
+	return id, err
 }
 
 // allocTaskFile は projDir のロックを取り、その下で「最大 id + 1」を採番して

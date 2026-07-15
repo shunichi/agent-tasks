@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-osc52/v2"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -142,12 +144,23 @@ type tuiModel struct {
 	searchContent bool   // 本文も検索対象にするか (Tab でトグル)
 	vertical      bool   // 詳細を下に積む縦分割か (狭い/縦長端末。広いと横分割で右に出す)
 	vp            viewport.Model
-	ready         bool
-	width         int
-	height        int
-	sig           uint64    // ストアの変更検知シグネチャ
-	updated       time.Time // 最終再読込時刻
-	loadErr       error
+
+	// タスク簡易登録フォーム (n キーで開くモーダル)。AI を通さず title (+ 任意の説明) だけで
+	// draft タスクを作る。creating 中は一覧の操作キーを止め、フォームだけを描く (help/confirm と同様)。
+	// title は必須の 1 行入力 (textinput)、desc は任意の複数行入力 (textarea)。newFocus は
+	// どちらにフォーカスがあるか (0=title / 1=desc)、newErr は直近の入力/作成エラー (フォーム内に表示)。
+	creating bool
+	newTitle textinput.Model
+	newDesc  textarea.Model
+	newFocus int
+	newErr   string
+
+	ready   bool
+	width   int
+	height  int
+	sig     uint64    // ストアの変更検知シグネチャ
+	updated time.Time // 最終再読込時刻
+	loadErr error
 }
 
 type tuiTickMsg time.Time
@@ -347,6 +360,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 		m.ready = true
 		m.syncDetail()
+		if m.creating {
+			m.sizeCreateInputs() // フォーム表示中のリサイズに追従する
+		}
 		return m, nil
 
 	case tuiTickMsg:
@@ -412,6 +428,30 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		m.flash = "" // 一時メッセージは次のキー入力で消す
+		// 簡易登録フォーム入力中: Ctrl+S で登録 / Esc で中止 / Tab でフィールド切替。
+		// それ以外のキーはフォーカス中の入力欄へ流す (title は 1 行、desc は複数行)。
+		// Enter は desc では改行になるので、登録は Ctrl+S に割り当てる (誤登録を防ぐ)。
+		if m.creating {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.creating = false
+				m.flash = "簡易登録を中止しました"
+				return m, nil
+			case "tab", "shift+tab":
+				return m, m.toggleCreateFocus()
+			case "ctrl+s":
+				return m, m.submitCreate()
+			}
+			var cmd tea.Cmd
+			if m.newFocus == 0 {
+				m.newTitle, cmd = m.newTitle.Update(msg)
+			} else {
+				m.newDesc, cmd = m.newDesc.Update(msg)
+			}
+			return m, cmd
+		}
 		// ヘルプ表示中は ?/q/Esc で閉じるだけ (他キーは無効化)。Ctrl+C は常に終了。
 		if m.showHelp {
 			switch msg.String() {
@@ -624,6 +664,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			m.reload()
+		case "n":
+			// n: タスクの簡易登録フォームを開く (AI を通さず title + 説明で draft タスクを作る)。
+			return m, m.startCreate()
 		case " ":
 			// Space: 選択トグル (マルチセレクト)。選択は project/id で保持され、絞り込み・再読込を
 			// またいで残る。x で選択中の全タスクを一括アーカイブできる。
@@ -652,6 +695,86 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// startCreate は簡易登録フォームを初期化して開く。title を空の 1 行入力、desc を空の複数行入力に
+// し、フォーカスを title に置く。返り値はカーソル点滅の tea.Cmd (textinput.Focus 由来)。
+func (m *tuiModel) startCreate() tea.Cmd {
+	ti := textinput.New()
+	ti.Placeholder = "タスクタイトル (必須)"
+	ti.Prompt = "" // ラベルは枠側で出すので prompt は空にする
+	ti.CharLimit = 200
+
+	ta := textarea.New()
+	ta.Placeholder = "簡単な説明 (任意)。要件は後でエージェントが詳細化します"
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 4000
+
+	m.newTitle = ti
+	m.newDesc = ta
+	m.newFocus = 0
+	m.newErr = ""
+	m.creating = true
+	m.sizeCreateInputs()
+	return m.newTitle.Focus()
+}
+
+// sizeCreateInputs はフォーム入力欄の幅・高さを端末サイズに合わせる (枠 + 左右パディング分を控える)。
+func (m *tuiModel) sizeCreateInputs() {
+	w := m.width - 6 // 枠 (2) + パディング (2) + 余白
+	if w < 10 {
+		w = 10
+	}
+	m.newTitle.Width = w
+	m.newDesc.SetWidth(w)
+	m.newDesc.SetHeight(clampInt((m.height-2)/3, 3, 10))
+}
+
+// toggleCreateFocus は title ↔ desc のフォーカスを入れ替える。移った先の入力欄を Focus し
+// (カーソル点滅の tea.Cmd を返す)、元をぼかす。
+func (m *tuiModel) toggleCreateFocus() tea.Cmd {
+	if m.newFocus == 0 {
+		m.newFocus = 1
+		m.newTitle.Blur()
+		return m.newDesc.Focus()
+	}
+	m.newFocus = 0
+	m.newDesc.Blur()
+	return m.newTitle.Focus()
+}
+
+// createProject は簡易登録の登録先 project を決める。単一 project に絞って見ているならそれ、
+// そうでなければ現在 project (tui を起動した git リポジトリ)。どちらも定まらなければ "" (登録不可)。
+func (m *tuiModel) createProject() string {
+	if len(m.effProjects) == 1 {
+		return m.effProjects[0]
+	}
+	return m.current // git 外 + 横断表示のときは "" になり、submitCreate がエラーにする
+}
+
+// submitCreate はフォームの内容で draft タスクを作る。title 必須・登録先 project 判定に失敗したら
+// newErr に理由を残してフォームに留まる。成功したらフォームを閉じて再読込し、flash で知らせる。
+// 作成はローカルのファイル書き込みだけ (自動 sync しない) で軽いので、tea.Cmd に回さず同期実行する。
+func (m *tuiModel) submitCreate() tea.Cmd {
+	title := strings.TrimSpace(m.newTitle.Value())
+	if title == "" {
+		m.newErr = "タイトルは必須です"
+		return nil
+	}
+	project := m.createProject()
+	if project == "" {
+		m.newErr = "登録先 project を判定できません (git リポジトリ内で tui を起動するか、単一 project 表示に絞ってください)"
+		return nil
+	}
+	id, err := createDraftTask(m.dir, project, title, m.newDesc.Value())
+	if err != nil {
+		m.newErr = "作成に失敗: " + firstLine(err.Error())
+		return nil
+	}
+	m.creating = false
+	m.reload() // 追加したファイルを一覧へ即反映する (ポーリング待ちにしない)
+	m.flash = fmt.Sprintf("簡易登録しました: %s #%s %s", project, id, title)
+	return nil
 }
 
 // selectedTask は選択中の行のタスクを返す。行が無ければ ok=false。
@@ -963,6 +1086,9 @@ func (m *tuiModel) View() string {
 	if !m.ready {
 		return "起動中…"
 	}
+	if m.creating {
+		return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderCreate(), m.renderFooter())
+	}
 	if m.showHelp {
 		return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderHelp(), m.renderFooter())
 	}
@@ -1150,14 +1276,16 @@ func (m *tuiModel) renderFooter() string {
 	}
 	var keys string
 	switch {
+	case m.creating:
+		keys = "Tab フィールド切替  Ctrl+S 登録  Esc 中止"
 	case m.showHelp:
 		keys = "?/q/Esc 閉じる"
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/^n^p 選択  jk 行  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  Space 選択  n 登録  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  n 登録  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
 	}
 	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
 	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
@@ -1181,6 +1309,7 @@ func helpEntries() [][2]string {
 		{"Ctrl+U / Ctrl+D", "詳細を半画面スクロール"},
 		{"マウスホイール", "詳細をスクロール"},
 		{"Space", "選択トグル (マルチセレクト。絞り込み/再読込をまたいで保持)"},
+		{"n", "タスクを簡易登録 (title + 説明で draft 作成。要件は後でエージェントが詳細化)"},
 		{"x", "選択タスク (無ければカーソル行) をアーカイブ (確認あり)"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"S", "選択タスクを別 pane で spawn (別セッションで start。herdr 内のみ)"},
@@ -1197,6 +1326,61 @@ func helpEntries() [][2]string {
 		{"Ctrl+C", "終了"},
 		{"● (緑)", "その行のタスクが今 herdr にライブなローカルセッションを持つ (自分/他 pane 問わず)"},
 	}
+}
+
+// renderCreate は簡易登録フォームを枠付きパネルで content 領域 (header/footer を除いた高さ) に
+// 描く。登録先 project・簡易登録である旨・title/desc の入力欄・エラーを縦に並べる。フォームは
+// 「AI を通さない下書き登録で、要件は後でエージェントが詳細化する」ことを見出しで明示する。
+func (m *tuiModel) renderCreate() string {
+	contentH := max1(m.height - 2) // header + footer
+
+	var b strings.Builder
+	b.WriteString(tuiBoldStyle.Render("タスクを簡易登録"))
+	b.WriteString("  ")
+	b.WriteString(tuiDimStyle.Render("登録先: " + createProjectLabel(m.createProject())))
+	b.WriteString("\n")
+	b.WriteString(tuiDimStyle.Render("タイトルだけで登録できます (draft)。要件は着手前にエージェントが詳細化します。"))
+	b.WriteString("\n\n")
+
+	b.WriteString(fieldLabel("タイトル (必須)", m.newFocus == 0))
+	b.WriteString("\n")
+	b.WriteString(m.newTitle.View())
+	b.WriteString("\n\n")
+	b.WriteString(fieldLabel("説明 (任意)", m.newFocus == 1))
+	b.WriteString("\n")
+	b.WriteString(m.newDesc.View())
+	if m.newErr != "" {
+		b.WriteString("\n\n")
+		b.WriteString(statusStyle("blocked").Render(m.newErr))
+	}
+
+	innerW := m.width - 4
+	if innerW < 1 {
+		innerW = 1
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(0, 1).
+		Width(innerW).
+		Render(b.String())
+	return lipgloss.NewStyle().Width(max1(m.width)).Height(contentH).MaxHeight(contentH).Render(box)
+}
+
+// fieldLabel はフォームのフィールド見出しを返す。フォーカス中はポインタ + 強調、非フォーカスは淡色。
+func fieldLabel(s string, active bool) string {
+	if active {
+		return tuiPointStyle.Render("❯ " + s)
+	}
+	return tuiDimStyle.Render("  " + s)
+}
+
+// createProjectLabel はフォームに出す登録先 project の表示名。判定不能 (空) なら登録不可を明示する。
+func createProjectLabel(p string) string {
+	if p == "" {
+		return "(判定不能 — 登録できません)"
+	}
+	return p
 }
 
 // renderHelp はキーバインド一覧を枠付きパネルで content 領域 (header/footer を除いた高さ) に

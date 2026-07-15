@@ -43,6 +43,18 @@ func TestDisplayTitleHuman(t *testing.T) {
 	}
 }
 
+// displayTitle は簡易登録 (draft) タスクに [簡易] プレフィックスを付ける (Title 自体は変えない)。
+func TestDisplayTitleDraft(t *testing.T) {
+	d := Task{Title: "あとで詳細化するやつ", Draft: true}
+	if got := displayTitle(d); !strings.HasPrefix(got, draftTitlePrefix) || !strings.Contains(got, "あとで詳細化するやつ") {
+		t.Errorf("draft displayTitle = %q, want %q プレフィックス付き", got, draftTitlePrefix)
+	}
+	// draft でなければ装飾しない。
+	if got := displayTitle(Task{Title: "通常タスク"}); got != "通常タスク" {
+		t.Errorf("非 draft displayTitle = %q, want 装飾なし", got)
+	}
+}
+
 // selectTasks の --kind フィルタは human / code を実効種別で絞る (kind 省略は code 側)。
 func TestSelectTasksKindFilter(t *testing.T) {
 	store := t.TempDir()

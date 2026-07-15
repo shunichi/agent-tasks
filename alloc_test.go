@@ -149,7 +149,7 @@ func TestNormalizeKind(t *testing.T) {
 func TestBuildNewTaskMarkdownCode(t *testing.T) {
 	now := time.Date(2026, 7, 8, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
 	body := "ドラッグで並び替え。\n\n- 対象: 一覧"
-	md := buildNewTaskMarkdown("0042", "webapp", "bookmark-dnd", "DnD 並び替え: 一覧", "", body, now)
+	md := buildNewTaskMarkdown("0042", "webapp", "bookmark-dnd", "DnD 並び替え: 一覧", "", body, now, false)
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "0042-bookmark-dnd.md")
@@ -187,7 +187,7 @@ func TestBuildNewTaskMarkdownCode(t *testing.T) {
 // human タスクは kind: human 行を持ち、branch/worktree が空 (末尾スペースなし)。
 func TestBuildNewTaskMarkdownHuman(t *testing.T) {
 	now := time.Date(2026, 7, 8, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
-	md := buildNewTaskMarkdown("0003", "webapp", "deploy", "デプロイ設定変更", "human", "手で変更。", now)
+	md := buildNewTaskMarkdown("0003", "webapp", "deploy", "デプロイ設定変更", "human", "手で変更。", now, false)
 	s := string(md)
 	if !strings.Contains(s, "\nkind: human\n") {
 		t.Errorf("kind: human 行が無い:\n%s", s)
@@ -207,6 +207,94 @@ func TestBuildNewTaskMarkdownHuman(t *testing.T) {
 	}
 	if got.Kind != "human" || got.Branch != "" || got.Worktree != "" {
 		t.Errorf("kind/branch/worktree = %q/%q/%q", got.Kind, got.Branch, got.Worktree)
+	}
+}
+
+// draft=true (TUI の簡易登録) は draft: true 行を立て、要件に詳細化の導線・進捗ログに簡易登録を残す。
+// code タスクなので branch/worktree は通常どおり付く (draft は種別ではなく状態)。
+func TestBuildNewTaskMarkdownDraft(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 14, 0, 0, time.FixedZone("JST", 9*3600))
+	md := buildNewTaskMarkdown("0149", "webapp", "task", "あとで詳細化するやつ", "", "ざっくりメモ", now, true)
+	s := string(md)
+	if !strings.Contains(s, "\ndraft: true\n") {
+		t.Errorf("draft: true 行が無い:\n%s", s)
+	}
+	if !strings.Contains(s, "着手前にエージェントが詳細化する") {
+		t.Errorf("詳細化の導線が本文に無い:\n%s", s)
+	}
+	if !strings.Contains(s, "## 進捗ログ\n- 2026-07-15 10:14 簡易登録 (TUI)\n") {
+		t.Errorf("進捗ログの簡易登録行が期待通りでない:\n%s", s)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "0149-task.md")
+	if err := os.WriteFile(path, md, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseTask(path)
+	if err != nil {
+		t.Fatalf("parseTask: %v", err)
+	}
+	if !got.Draft || got.Status != "todo" {
+		t.Errorf("draft/status = %v/%q, want true/todo", got.Draft, got.Status)
+	}
+	// draft は種別ではないので code タスクの branch/worktree は通常どおり埋まる。
+	if got.Branch != "task/0149-task" || got.Worktree != "../webapp--0149" {
+		t.Errorf("branch/worktree = %q/%q", got.Branch, got.Worktree)
+	}
+}
+
+// slugFromTitle は ASCII をケバブ化し、非 ASCII は畳み、ASCII が無ければ task にフォールバックする。
+// 返り値は必ず validateSlug を満たす。
+func TestSlugFromTitle(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Add DnD sort", "add-dnd-sort"},
+		{"  fix: 0042 bug!! ", "fix-0042-bug"},
+		{"日本語のみのタイトル", "task"},                // ASCII 英数字なし → フォールバック
+		{"TUI から quick add", "tui-quick-add"}, // 混在は ASCII 部分だけ残る
+		{"", "task"},
+		{"---", "task"},
+	}
+	for _, c := range cases {
+		got := slugFromTitle(c.in)
+		if got != c.want {
+			t.Errorf("slugFromTitle(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if err := validateSlug(got); err != nil {
+			t.Errorf("slugFromTitle(%q) = %q が validateSlug を満たさない: %v", c.in, got, err)
+		}
+	}
+	// 長いタイトルは頭打ちされ、それでも valid。
+	long := slugFromTitle(strings.Repeat("ab-", 40))
+	if len(long) > slugMaxLen {
+		t.Errorf("slug 長 %d > %d (頭打ちされていない): %q", len(long), slugMaxLen, long)
+	}
+	if err := validateSlug(long); err != nil {
+		t.Errorf("頭打ち後 slug が invalid: %v (%q)", err, long)
+	}
+}
+
+// createDraftTask は draft タスクを採番して書き、parseTask で draft/title が読み戻せる (往復)。
+func TestCreateDraftTask(t *testing.T) {
+	dir := t.TempDir()
+	id, err := createDraftTask(dir, "webapp", "日本語タイトルの簡易登録", "説明も少し")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "0001" {
+		t.Errorf("id = %q, want 0001", id)
+	}
+	// 日本語のみタイトルは slug=task にフォールバックするのでファイル名は 0001-task.md。
+	path := filepath.Join(dir, "webapp", "0001-task.md")
+	got, err := parseTask(path)
+	if err != nil {
+		t.Fatalf("parseTask(%s): %v", path, err)
+	}
+	if !got.Draft {
+		t.Errorf("Draft = false, want true")
+	}
+	if got.Title != "日本語タイトルの簡易登録" || got.Status != "todo" {
+		t.Errorf("title/status = %q/%q", got.Title, got.Status)
 	}
 }
 

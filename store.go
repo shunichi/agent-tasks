@@ -65,6 +65,13 @@ type Task struct {
 	// (list --archived / show --archived / doctor の重複検査) のときだけ true になる。
 	Archived bool
 
+	// Draft は TUI から簡易登録された「下書き」タスクを示す (frontmatter の draft: true)。
+	// タイトル (と任意の短い説明) だけで登録され、要件はまだ整理されていない。着手前に
+	// エージェントが要件を詳細化することを期待する状態で、一覧では [簡易] バッジで示す
+	// (displayTitle)。既定 (draft 行なし) は false = 通常タスク。skill 経由の create は
+	// 要件を整えて登録するので draft を立てない (TUI の AI を通さない簡易登録専用)。
+	Draft bool
+
 	// Incomplete は作成途中の中途半端なファイル (frontmatter に title が無い) を示す。
 	// alloc-id が採番時に作る空の予約ファイル、または create の書き込み途中で観測した状態。
 	// 一覧表示 (list/json/recent/tui) からは除外するが、doctor では隠さない (未記入予約の検出用)。
@@ -484,6 +491,9 @@ func parseTask(path string) (Task, error) {
 			t.Status = val
 		case "kind":
 			t.Kind = val
+		case "draft":
+			// 明示的に true のときだけ下書き扱い (draft: false や未知値は通常タスク)。
+			t.Draft = val == "true"
 		case "agent":
 			t.Agent = val
 		case "session":

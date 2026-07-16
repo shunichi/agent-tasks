@@ -6,15 +6,20 @@ import (
 	"os/exec"
 )
 
-// cmdSessionRename は「**Claude セッション自体**の名前を対象タスク名 (`task <NNNN>: <title>`) に変える」。
-// Claude Code のセッション名は `/rename` スラッシュコマンドでしか変えられず、Claude 自身はスラッシュ
-// コマンドをツールから直接実行できない。そこで**自分の pane の入力欄に `/rename …` を打ち込んで発火**
-// させる。本物の /rename 経路を通るので claude.ai web / スマホアプリのセッション名にも反映される。
+// cmdSessionRename は「**セッション自体**の名前を対象タスク名 (`task <NNNN>: <title>`) に変える」。
+// `/rename` スラッシュコマンドは **Claude Code と codex の両方が対応** ("rename the current thread")
+// しており、agent 自身はスラッシュコマンドをツールから直接実行できない。そこで**自分の pane の入力欄に
+// `/rename …` を打ち込んで発火**させる。本物の /rename 経路を通るので web / スマホアプリのセッション名にも
+// 反映される。送出内容 (`/rename …`) は agent 非依存なので、Claude/codex どちらの pane でもそのまま効く。
+//
+// (0152→0153 の経緯) 一時期「codex に /rename が無い」と誤認して非 Claude では no-op 化したが、codex にも
+// /rename があると判明したため gating を撤回し、両対応の元の挙動に戻した。/rename を持たない別 agent が
+// 出てきたら、そのとき改めて分岐を検討する (現状の対応 agent はいずれも /rename を持つ)。
 //
 // herdr 移行 (0111): **herdr 内なら `herdr pane run` で自 pane (`HERDR_PANE_ID`) に打ち込む**
 // (tmux 非依存)。herdr 外は従来どおり tmux `send-keys` にフォールバック。tmux も無ければ
 // `/rename …` 行を stdout に出してユーザーに実行してもらう。
-// いずれの経路も「Claude セッション名を変える」= 同じゴール (herdr 内ラベルだけを変える agent rename とは別)。
+// いずれの経路も「セッション名を変える」= 同じゴール (herdr 内ラベルだけを変える agent rename とは別)。
 //
 // 送信の確実性 (0131): 旧実装は `pane send-text` (文字列注入) と `pane send-keys Enter` を**別々の
 // herdr 呼び出し 2 回**に分けていたが、2 プロセス起動の間隔が可変で、Enter が「送信」ではなく入力欄への
@@ -45,16 +50,6 @@ func cmdSessionRename(args []string) error {
 	t, err := parseTask(path)
 	if err != nil {
 		return err
-	}
-
-	// `/rename` は Claude Code 固有のスラッシュコマンド。codex 等 /rename を持たない agent で送出すると
-	// `/rename task …` が入力欄に混入して誤送信になるため、**自セッションが Claude と確証できるときだけ**
-	// 送出する (それ以外は no-op で return nil = start フローは止めない)。中立化した session-link/状態表示と
-	// 違い、この操作だけは Claude 固有機能に依存するので agent を見て分岐する。
-	if !isClaudeSession() {
-		fmt.Fprintln(os.Stderr, "session-rename: Claude セッションでないためスキップしました "+
-			"(/rename は Claude Code 固有。codex 等ではセッション名の追従は行いません)")
-		return nil
 	}
 
 	renameCmd := "/rename " + sessionRenameName(t)
@@ -98,25 +93,4 @@ func cmdSessionRename(args []string) error {
 // タスク名 (`タスク`) より少しだけ表示幅が狭い英語表記にしている。
 func sessionRenameName(t Task) string {
 	return fmt.Sprintf("task %s: %s", t.ID, t.Title)
-}
-
-// isClaudeSession は「今このコマンドを呼んでいるセッションが Claude か」を判定する。
-// session-rename の `/rename` 送出可否に使う (Claude 固有機能なので fail-safe: 確証がなければ false)。
-//
-//   - `CLAUDE_CODE_SESSION_ID` が空でなければ Claude (Claude Code が herdr 内外で export する)。
-//   - それが無くても herdr 内なら自 pane の agent 種別 (`herdrSelfAgent().Agent`) が "claude" なら Claude。
-//
-// どちらでも確証できなければ false を返す (codex 等 = /rename を撃たない)。
-// なお `AGENT_TASKS_AGENT` は spawn する子の agent 指定であって自セッションの種別ではないので、
-// ここでは見ない (Claude から codex 子を spawn する設定でも自分の rename は撃てるべき)。
-func isClaudeSession() bool {
-	if os.Getenv("CLAUDE_CODE_SESSION_ID") != "" {
-		return true
-	}
-	if herdrEnabled() {
-		if self, err := herdrSelfAgent(); err == nil && self.Agent == "claude" {
-			return true
-		}
-	}
-	return false
 }

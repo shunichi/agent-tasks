@@ -25,6 +25,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-17
+
+- `session-rename` の Claude 限定 gating (前日の変更) を**撤回**し、Claude / codex 双方で `/rename` を
+  送出する元の挙動に戻した。codex にも `/rename` ("rename the current thread") があると判明したため
+  (no-op 化は誤った前提だった)。SKILL.md の session-rename 記述も「両対応」に更新。
+
 ## 2026-07-16
 
 - `session-rename` を **Claude セッションのときだけ `/rename` を送出**するようにした (codex 等では

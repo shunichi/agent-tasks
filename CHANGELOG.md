@@ -25,6 +25,8 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-16
+
 - agent-tasks skill を **codex でも使えるように**した。Claude と同一の `SKILL.md` を単一の情報源として
   `$CODEX_HOME/skills/agent-tasks` (既定 `~/.codex/skills/agent-tasks`) へ symlink する
   (`make install` / `make link` が codex 検出時に自動で張る)。SKILL.md に「エージェント別の注意

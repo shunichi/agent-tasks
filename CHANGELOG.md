@@ -27,6 +27,11 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-16
 
+- `session-rename` を **Claude セッションのときだけ `/rename` を送出**するようにした (codex 等では
+  自動 no-op)。従来は codex で実行すると `/rename …` が入力欄に混入する誤送信があった。判定は
+  `CLAUDE_CODE_SESSION_ID` env / herdr の自 pane agent 種別で行う (確証がなければ送出しない fail-safe)。
+  あわせて SKILL.md に skill の呼び出し記法 (Claude `/agent-tasks` / codex `$agent-tasks`) を追記。
+
 - agent-tasks skill を **codex でも使えるように**した。Claude と同一の `SKILL.md` を単一の情報源として
   `$CODEX_HOME/skills/agent-tasks` (既定 `~/.codex/skills/agent-tasks`) へ symlink する
   (`make install` / `make link` が codex 検出時に自動で張る)。SKILL.md に「エージェント別の注意

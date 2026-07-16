@@ -11,14 +11,16 @@
 
 ## インストール
 
-`make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (`~/.claude/skills`)
-を symlink し、bash/zsh の補完スクリプトも書き出す (`~/.local/bin` が PATH にある前提):
+`make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (Claude は `~/.claude/skills`、
+codex が入っていれば `$CODEX_HOME/skills` = 既定 `~/.codex/skills` にも同じ SKILL.md を) symlink し、
+bash/zsh の補完スクリプトも書き出す (`~/.local/bin` が PATH にある前提):
 
 ```sh
 make install
 ```
 
-- skill は symlink なので編集すれば即反映。
+- skill は symlink なので編集すれば即反映。Claude / codex で同一の SKILL.md を共有する
+  (codex 側は `make install`/`make link` が codex を検出したときだけ張る)。
 - CLI は Go バイナリ (依存は最小限) なので、ソースを変えたら `make build` で再ビルドする。
 - **補完は静的ファイル**なので、コマンドやフラグを増やしたら `make install` で再生成する
   (CLI 自体は symlink で最新だが補完だけ古くなるため)。zsh は `~/.zcompdump` キャッシュの都合で

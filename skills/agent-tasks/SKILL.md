@@ -19,6 +19,23 @@ description: "エージェント開発タスクをリポジトリ外の中央ス
 常に `agent-tasks <サブコマンド>` とだけ打てばよく、バイナリ名の使い分けは通常意識しなくてよい。
 **唯一の例外は spawn** (下記) — CLI に相当コマンドが無い経路があるため、SKILL 側で明示的に分岐する。
 
+### エージェント別の注意 (Claude / codex)
+
+この skill と CLI は **agent 非依存**に作ってあり、**Claude / codex 双方から同じ SKILL.md** で使う
+(単一の情報源。Claude は `~/.claude/skills/agent-tasks`、codex は `$CODEX_HOME/skills/agent-tasks`
+= 既定 `~/.codex/skills/agent-tasks` に、いずれも repo `skills/agent-tasks` への symlink で入る。
+`make install` が両方を張る)。タスク管理フロー (create/list/start/spawn/done/block/…) の本体は
+どちらでも同じ。**次の一部だけが Claude 固有**なので、codex では読み替える:
+
+- **session-rename (start 手順0)** は Claude Code の `/rename` を発火させる仕組みなので **codex では効かない**。
+  codex では**この手順をスキップしてよい** (セッション名の追従が無いだけで、タスク管理自体に影響しない)。
+- **session-link の自動検出**は Claude では `CLAUDE_CODE_SESSION_ID` を使うが、**codex でも herdr 内なら
+  `agent get` 由来で自動検出される** (agent 中立)。herdr 外で検出できなければ `--session` 明示か cwd 逆引き。
+- **statusline / session-hook** の設定スニペットは Claude Code の `settings.json` 用。**codex では未対応**
+  (`SESSION` 列は herdr の `agent_status` 由来なので、設定なしでも herdr 内なら working/blocked/idle は出る)。
+- **spawn の起動コマンド**は既定 `claude`。codex から別 pane を spawn したいときは環境変数
+  `AGENT_TASKS_AGENT=codex` を設定する (初期プロンプトは agent 非依存。`-n` 等の claude 固有フラグは外れる)。
+
 ### データの場所
 
 - ストアのルートは環境変数 `AGENT_TASKS_STORE`、未設定なら `~/agent-tasks-store`。

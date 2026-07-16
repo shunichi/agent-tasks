@@ -25,6 +25,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+- agent-tasks skill を **codex でも使えるように**した。Claude と同一の `SKILL.md` を単一の情報源として
+  `$CODEX_HOME/skills/agent-tasks` (既定 `~/.codex/skills/agent-tasks`) へ symlink する
+  (`make install` / `make link` が codex 検出時に自動で張る)。SKILL.md に「エージェント別の注意
+  (Claude / codex)」を追記し、Claude 固有の手順 (session-rename の `/rename`、statusline/session-hook、
+  spawn の既定 `claude`) の codex での読み替えを明記。
+
 ## 2026-07-15
 
 - `tui` の一覧で `n` キーを追加。AI エージェントを通さず、**タイトル (必須) と簡単な説明 (任意)**

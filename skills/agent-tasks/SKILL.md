@@ -27,8 +27,13 @@ description: "エージェント開発タスクをリポジトリ外の中央ス
 `make install` が両方を張る)。タスク管理フロー (create/list/start/spawn/done/block/…) の本体は
 どちらでも同じ。**次の一部だけが Claude 固有**なので、codex では読み替える:
 
-- **session-rename (start 手順0)** は Claude Code の `/rename` を発火させる仕組みなので **codex では効かない**。
-  codex では**この手順をスキップしてよい** (セッション名の追従が無いだけで、タスク管理自体に影響しない)。
+- **skill の呼び出し記法**: Claude は `/agent-tasks`、**codex は `$agent-tasks`**。どちらも自然文
+  (「タスクを登録して」等) で暗黙起動するので通常は記法を意識しなくてよいが、この SKILL 内で例示する
+  `/agent-tasks <サブコマンド>` は **Claude のスラッシュ記法**。codex では `$agent-tasks` + 自然文で呼ぶ
+  (codex には Claude のような「サブコマンドを引数で渡す」機構が無いので、やりたい操作は文で伝える)。
+- **session-rename (start 手順0)** は Claude Code の `/rename` を発火させる仕組み。**codex 等では CLI が
+  自動で no-op する** (自セッションが Claude と確証できるときだけ `/rename` を送出する fail-safe)。よって
+  codex でも**手順どおり呼んでよい** (誤送信は起きず、セッション名の追従が無いだけ。タスク管理には影響しない)。
 - **session-link の自動検出**は Claude では `CLAUDE_CODE_SESSION_ID` を使うが、**codex でも herdr 内なら
   `agent get` 由来で自動検出される** (agent 中立)。herdr 外で検出できなければ `--session` 明示か cwd 逆引き。
 - **statusline / session-hook** の設定スニペットは Claude Code の `settings.json` 用。**codex では未対応**

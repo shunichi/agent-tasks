@@ -46,6 +46,17 @@ func cmdSessionRename(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// `/rename` は Claude Code 固有のスラッシュコマンド。codex 等 /rename を持たない agent で送出すると
+	// `/rename task …` が入力欄に混入して誤送信になるため、**自セッションが Claude と確証できるときだけ**
+	// 送出する (それ以外は no-op で return nil = start フローは止めない)。中立化した session-link/状態表示と
+	// 違い、この操作だけは Claude 固有機能に依存するので agent を見て分岐する。
+	if !isClaudeSession() {
+		fmt.Fprintln(os.Stderr, "session-rename: Claude セッションでないためスキップしました "+
+			"(/rename は Claude Code 固有。codex 等ではセッション名の追従は行いません)")
+		return nil
+	}
+
 	renameCmd := "/rename " + sessionRenameName(t)
 
 	// herdr 内 (主経路): 自 pane の入力欄へ /rename + Enter を pane run で 1 リクエスト送出し発火。
@@ -87,4 +98,25 @@ func cmdSessionRename(args []string) error {
 // タスク名 (`タスク`) より少しだけ表示幅が狭い英語表記にしている。
 func sessionRenameName(t Task) string {
 	return fmt.Sprintf("task %s: %s", t.ID, t.Title)
+}
+
+// isClaudeSession は「今このコマンドを呼んでいるセッションが Claude か」を判定する。
+// session-rename の `/rename` 送出可否に使う (Claude 固有機能なので fail-safe: 確証がなければ false)。
+//
+//   - `CLAUDE_CODE_SESSION_ID` が空でなければ Claude (Claude Code が herdr 内外で export する)。
+//   - それが無くても herdr 内なら自 pane の agent 種別 (`herdrSelfAgent().Agent`) が "claude" なら Claude。
+//
+// どちらでも確証できなければ false を返す (codex 等 = /rename を撃たない)。
+// なお `AGENT_TASKS_AGENT` は spawn する子の agent 指定であって自セッションの種別ではないので、
+// ここでは見ない (Claude から codex 子を spawn する設定でも自分の rename は撃てるべき)。
+func isClaudeSession() bool {
+	if os.Getenv("CLAUDE_CODE_SESSION_ID") != "" {
+		return true
+	}
+	if herdrEnabled() {
+		if self, err := herdrSelfAgent(); err == nil && self.Agent == "claude" {
+			return true
+		}
+	}
+	return false
 }

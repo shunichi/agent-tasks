@@ -16,13 +16,16 @@ import (
 //     しか無い。static な manifest argv では展開できないので、この env を読むラッパーを挟む。
 //
 // やること: HERDR_PLUGIN_CONTEXT_JSON の focused_pane_cwd を取り出し、
-//   herdr plugin pane open --plugin agent-tasks --entrypoint tui --placement popup --width 80% --height 80% --cwd <cwd>
-// を実行する。popup pane がアクティブ pane の cwd で起動 → tui の現在 project がそれになる
+//   herdr plugin pane open --plugin agent-tasks --entrypoint tui --cwd <cwd>
+// を実行する。pane がアクティブ pane の cwd で起動 → tui の現在 project がそれになる
 // (tui 自体は無変更。currentProject が cwd の git root basename を解決)。cwd が取れなければ
 // --cwd を付けずに開く (tui は横断表示 or プラグイン root の project にフォールバック)。
 //
-// placement/size は manifest の [[panes]] にも書いてあるが、action 経由では CLI フラグが manifest を
-// 上書きするので、ここでも popup + 80%/80% を明示する (両経路で同じ見た目にする。0155)。
+// placement/size (popup・幅/高さ 80%) は **manifest の [[panes]] を単一の情報源**とし、ここでは渡さない
+// (0155→0156)。`herdr plugin pane open` は --placement/--width/--height を省略すると manifest の pane 定義に
+// フォールバックする (実地確認済み)。CLI フラグは manifest を上書きするので、ここで再指定すると二重管理に
+// なり、サイズ変更時に manifest と両方直す必要が出る。cwd だけは manifest に静的に書けない (開いた側の
+// pane に依存する) のでここで注入する。
 
 // herdrPluginContext は HERDR_PLUGIN_CONTEXT_JSON の必要フィールド (実地確認済み・0124)。
 // 例: {"workspace_id":"wB","workspace_cwd":"…/workforce","focused_pane_id":"wB:p1",
@@ -50,12 +53,13 @@ func focusedPaneCwd() string {
 	return ctx.WorkspaceCwd
 }
 
-// cmdTuiOverlay は action open-tui の本体。アクティブ pane の cwd で tui overlay を開く。
+// cmdTuiOverlay は action open-tui の本体。アクティブ pane の cwd で tui を開く
+// (placement/size は manifest 由来。上のコメント参照)。
 func cmdTuiOverlay(args []string) error {
 	for _, a := range args {
 		return usagef("tui-overlay: unexpected argument %q", a)
 	}
-	openArgs := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "popup", "--width", "80%", "--height", "80%"}
+	openArgs := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui"}
 	if cwd := focusedPaneCwd(); cwd != "" {
 		openArgs = append(openArgs, "--cwd", cwd)
 	}

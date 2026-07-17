@@ -27,6 +27,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-17
 
+- herdr プラグインの tui pane を **popup 表示 (幅/高さとも 80%)** に変更した (従来は overlay)。
+  manifest (`herdr-plugin.toml`) の `[[panes]]` を `placement = "popup"` + `width/height = "80%"` にし、
+  action 経由のラッパー (`tui-overlay`) も `--placement popup --width 80% --height 80%` を渡す。
+
 - `tui` に **`e` キー**を追加。選択中タスクのファイルをエディタで開く (一覧/詳細のどちらでも)。
   エディタ解決は `edit` サブコマンドと同じ (`AGENT_TASKS_EDITOR > VISUAL > EDITOR`、既定 `code`)。
   TUI を一時中断して端末を渡すのでターミナルエディタ (vim 等) も使え、閉じると一覧を再読込する。

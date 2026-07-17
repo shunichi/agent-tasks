@@ -28,7 +28,7 @@ func TestFocusedPaneCwd(t *testing.T) {
 	}
 }
 
-// コンテキストの focused_pane_cwd を --cwd に渡して overlay を開く。
+// コンテキストの focused_pane_cwd を --cwd に渡して popup を開く (placement/size も明示)。
 func TestTuiOverlayPassesFocusedCwd(t *testing.T) {
 	calls := stubHerdrRun(t, []byte("{}"), nil)
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/x/rails-app"}`)
@@ -38,7 +38,7 @@ func TestTuiOverlayPassesFocusedCwd(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("herdrRun 呼び出し回数 = %d, want 1 (%v)", len(*calls), *calls)
 	}
-	want := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "overlay", "--cwd", "/x/rails-app"}
+	want := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "popup", "--width", "80%", "--height", "80%", "--cwd", "/x/rails-app"}
 	if !slices.Equal((*calls)[0], want) {
 		t.Fatalf("herdrRun args = %v\nwant %v", (*calls)[0], want)
 	}
@@ -58,8 +58,8 @@ func TestTuiOverlayNoContextOmitsCwd(t *testing.T) {
 	if slices.Contains(args, "--cwd") {
 		t.Fatalf("コンテキスト無しで --cwd が付いた: %v", args)
 	}
-	// overlay 起動自体は行うこと (entrypoint tui を開く)。
+	// popup 起動自体は行うこと (entrypoint tui を開く)。
 	if !slices.Contains(args, "tui") || !strings.Contains(strings.Join(args, " "), "pane open") {
-		t.Fatalf("overlay を開く呼び出しになっていない: %v", args)
+		t.Fatalf("popup を開く呼び出しになっていない: %v", args)
 	}
 }

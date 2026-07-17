@@ -28,7 +28,8 @@ func TestFocusedPaneCwd(t *testing.T) {
 	}
 }
 
-// コンテキストの focused_pane_cwd を --cwd に渡して popup を開く (placement/size も明示)。
+// コンテキストの focused_pane_cwd を --cwd に渡して pane を開く。placement/size は
+// manifest ([[panes]]) 由来なので CLI フラグでは渡さない (0156)。
 func TestTuiOverlayPassesFocusedCwd(t *testing.T) {
 	calls := stubHerdrRun(t, []byte("{}"), nil)
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/x/rails-app"}`)
@@ -38,9 +39,15 @@ func TestTuiOverlayPassesFocusedCwd(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("herdrRun 呼び出し回数 = %d, want 1 (%v)", len(*calls), *calls)
 	}
-	want := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "popup", "--width", "80%", "--height", "80%", "--cwd", "/x/rails-app"}
+	want := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--cwd", "/x/rails-app"}
 	if !slices.Equal((*calls)[0], want) {
 		t.Fatalf("herdrRun args = %v\nwant %v", (*calls)[0], want)
+	}
+	// placement/size は manifest 由来。CLI フラグに混ざっていないこと (二重管理防止)。
+	for _, bad := range []string{"--placement", "--width", "--height"} {
+		if slices.Contains((*calls)[0], bad) {
+			t.Errorf("%s を CLI で渡している (manifest を単一の情報源にすべき): %v", bad, (*calls)[0])
+		}
 	}
 }
 

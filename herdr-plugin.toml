@@ -46,9 +46,10 @@ command = ["agent-tasks", "tui"]
 #
 # command は `agent-tasks tui-overlay` を経由する (0124)。これが action コンテキスト
 # (env HERDR_PLUGIN_CONTEXT_JSON) の focused_pane_cwd を読み、`herdr plugin pane open …
-# --placement popup --width 80% --height 80% --cwd <アクティブ pane の cwd>` を実行する。
-# → popup の tui が「今見ている pane のプロジェクト」を初期表示する。`herdr plugin pane open …` を
-# 直接指定すると cwd を渡せず、常にプラグイン root の project になってしまうため、この薄いラッパーを挟む。
+# --cwd <アクティブ pane の cwd>` を実行する。→ popup の tui が「今見ている pane のプロジェクト」を
+# 初期表示する。`herdr plugin pane open …` を直接指定すると cwd を渡せず、常にプラグイン root の
+# project になってしまうため、この薄いラッパーを挟む。placement/size は上の [[panes]] を単一の情報源とし、
+# ラッパーは渡さない (省略時は manifest 値にフォールバックする。0156)。
 # (コマンド名 tui-overlay は 0117 当時の overlay 由来の内部名。0155 で popup へ変えたが名前は据え置き。)
 [[actions]]
 id = "open-tui"

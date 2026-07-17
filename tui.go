@@ -389,6 +389,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case editFinishedMsg:
+		// e キーで開いたエディタを閉じた後。編集でファイルが変わり得るので一覧を再読込して反映する
+		// (r の手動 reload と同じ)。失敗時はエラーを flash に出す (reload はしても実害は無いが、
+		// 開けていない = 変更も無いので skip)。
+		if msg.err != nil {
+			m.flash = "エディタを開けません: " + firstLine(msg.err.Error())
+			return m, nil
+		}
+		m.reload()
+		m.flash = "エディタを閉じました (一覧を再読込)"
+		return m, nil
+
 	case archiveSyncMsg:
 		// アーカイブ後の非同期 scoped sync の結果。ローカルの移動と一覧反映は doArchive の
 		// 発火時に済んでいるので、ここでは同期結果を flash に出すだけ (失敗しても移動は完了済みで、
@@ -660,6 +672,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				return m, openCmd("tracker", urls)
+			}
+			return m, nil
+		case "e":
+			// 選択タスクの frontmatter ファイルをエディタで開く (CLI の edit と同じエディタ解決)。
+			// tea.ExecProcess で TUI を一時中断して端末をエディタに渡すので、ターミナルエディタ
+			// (vim 等) がそのまま使え、GUI エディタ (code 等) でも動く。閉じたら editFinishedMsg で
+			// 一覧を再読込し、編集結果を表示へ反映する。
+			if t, ok := m.selectedTask(); ok {
+				return m, m.editCmd(t.Path)
 			}
 			return m, nil
 		case "r":
@@ -965,6 +986,35 @@ func openCmd(what string, urls []string) tea.Cmd {
 	return func() tea.Msg {
 		return openResultMsg{what: what, n: len(urls), err: openURLs(urls)}
 	}
+}
+
+// editFinishedMsg は e キーで開いたエディタを閉じた後に届く (TUI 復帰時)。
+type editFinishedMsg struct{ err error }
+
+// editCmd は path をエディタで開く tea.Cmd を返す。ブラウザ起動 (openCmd) と違い、ここは
+// tea.ExecProcess を使う: TUI を一時中断して端末をエディタに明け渡すことで、ターミナルエディタ
+// (vim 等) が対話できる (バックグラウンド起動では端末を持てず使えない)。GUI エディタ (code 等) は
+// 即座に戻るだけで無害。エディタ解決は CLI の edit と同じ editorArgv (AGENT_TASKS_EDITOR > VISUAL >
+// EDITOR、既定 code) を流用する。見つからなければ ExecProcess せずエラーを editFinishedMsg で返す。
+func (m *tuiModel) editCmd(path string) tea.Cmd {
+	c, err := editorCommand(path)
+	if err != nil {
+		return func() tea.Msg { return editFinishedMsg{err: err} }
+	}
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return editFinishedMsg{err: err}
+	})
+}
+
+// editorCommand は path を開くエディタの *exec.Cmd を組む。エディタ解決は CLI の edit と同じ
+// editorArgv (AGENT_TASKS_EDITOR > VISUAL > EDITOR、既定 code) を流用する。PATH に無ければエラー。
+func editorCommand(path string) (*exec.Cmd, error) {
+	argv := append(editorArgv(), path)
+	bin, err := exec.LookPath(argv[0])
+	if err != nil {
+		return nil, fmt.Errorf("エディタが見つかりません: %s (AGENT_TASKS_EDITOR / VISUAL / EDITOR で指定可)", argv[0])
+	}
+	return exec.Command(bin, argv[1:]...), nil
 }
 
 // openURLs は各 URL を OS の既定ブラウザで開く。TUI は alt-screen なので、外部プロセスは
@@ -1283,9 +1333,9 @@ func (m *tuiModel) renderFooter() string {
 	case m.searching:
 		keys = "文字入力で絞り込み  Tab 本文検索切替  Enter 確定  Esc 解除"
 	case m.showDetail:
-		keys = "↑↓/^n^p 選択  jk 行  Space 選択  n 登録  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
+		keys = "↑↓/^n^p 選択  jk 行  Space 選択  n 登録  e 編集  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 詳細を閉じる"
 	default:
-		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  n 登録  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
+		keys = "↑↓/jk 選択  Enter 詳細  Space 選択  n 登録  e 編集  x アーカイブ  / 検索  c コピー  S spawn  f 移動  o PR  a done  s status  p project  ? ヘルプ  q/Esc 終了"
 	}
 	// flash (コピー結果など) は footer 先頭に最優先で置く。ヘッダの status 情報を潰さず、
 	// footer は別行なので狭い端末 (tmux popup / 縦分割の詳細表示) でも両方見える。狭くて
@@ -1310,6 +1360,7 @@ func helpEntries() [][2]string {
 		{"マウスホイール", "詳細をスクロール"},
 		{"Space", "選択トグル (マルチセレクト。絞り込み/再読込をまたいで保持)"},
 		{"n", "タスクを簡易登録 (title + 説明で draft 作成。要件は後でエージェントが詳細化)"},
+		{"e", "選択タスクのファイルをエディタで開く (AGENT_TASKS_EDITOR/VISUAL/EDITOR、既定 code。閉じたら再読込)"},
 		{"x", "選択タスク (無ければカーソル行) をアーカイブ (確認あり)"},
 		{"c", "選択タスクの start task <NNNN> をクリップボードへコピー"},
 		{"S", "選択タスクを別 pane で spawn (別セッションで start。herdr 内のみ)"},

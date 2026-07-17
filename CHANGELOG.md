@@ -27,6 +27,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## 2026-07-17
 
+- `tui` に **`e` キー**を追加。選択中タスクのファイルをエディタで開く (一覧/詳細のどちらでも)。
+  エディタ解決は `edit` サブコマンドと同じ (`AGENT_TASKS_EDITOR > VISUAL > EDITOR`、既定 `code`)。
+  TUI を一時中断して端末を渡すのでターミナルエディタ (vim 等) も使え、閉じると一覧を再読込する。
+
 - `session-rename` の Claude 限定 gating (前日の変更) を**撤回**し、Claude / codex 双方で `/rename` を
   送出する元の挙動に戻した。codex にも `/rename` ("rename the current thread") があると判明したため
   (no-op 化は誤った前提だった)。SKILL.md の session-rename 記述も「両対応」に更新。

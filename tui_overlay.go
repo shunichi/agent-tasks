@@ -16,10 +16,13 @@ import (
 //     しか無い。static な manifest argv では展開できないので、この env を読むラッパーを挟む。
 //
 // やること: HERDR_PLUGIN_CONTEXT_JSON の focused_pane_cwd を取り出し、
-//   herdr plugin pane open --plugin agent-tasks --entrypoint tui --placement overlay --cwd <cwd>
-// を実行する。overlay pane がアクティブ pane の cwd で起動 → tui の現在 project がそれになる
+//   herdr plugin pane open --plugin agent-tasks --entrypoint tui --placement popup --width 80% --height 80% --cwd <cwd>
+// を実行する。popup pane がアクティブ pane の cwd で起動 → tui の現在 project がそれになる
 // (tui 自体は無変更。currentProject が cwd の git root basename を解決)。cwd が取れなければ
 // --cwd を付けずに開く (tui は横断表示 or プラグイン root の project にフォールバック)。
+//
+// placement/size は manifest の [[panes]] にも書いてあるが、action 経由では CLI フラグが manifest を
+// 上書きするので、ここでも popup + 80%/80% を明示する (両経路で同じ見た目にする。0155)。
 
 // herdrPluginContext は HERDR_PLUGIN_CONTEXT_JSON の必要フィールド (実地確認済み・0124)。
 // 例: {"workspace_id":"wB","workspace_cwd":"…/workforce","focused_pane_id":"wB:p1",
@@ -52,7 +55,7 @@ func cmdTuiOverlay(args []string) error {
 	for _, a := range args {
 		return usagef("tui-overlay: unexpected argument %q", a)
 	}
-	openArgs := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "overlay"}
+	openArgs := []string{"plugin", "pane", "open", "--plugin", "agent-tasks", "--entrypoint", "tui", "--placement", "popup", "--width", "80%", "--height", "80%"}
 	if cwd := focusedPaneCwd(); cwd != "" {
 		openArgs = append(openArgs, "--cwd", cwd)
 	}

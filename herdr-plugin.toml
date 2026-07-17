@@ -7,8 +7,8 @@
 # 提供機能:
 #   - worktime 記録 (event hook) … pane の agent 状態遷移を worktime ログに追記する (0114)。
 #     これで実稼働時間の記録源が herdr に一本化され、Claude 固有の session-hook が不要になる。
-#   - tui overlay (pane) … `agent-tasks tui` を herdr の overlay pane で開く (0117)。tmux の
-#     display-popup 相当。1 つのプラグインに worktime 記録と tui popup を同居させ、導入
+#   - tui popup (pane) … `agent-tasks tui` を herdr の popup pane (幅/高さ 80%) で開く (0117/0155)。
+#     tmux の display-popup 相当。1 つのプラグインに worktime 記録と tui popup を同居させ、導入
 #     (plugin link) を 1 回で済ませる。
 #
 # command が呼ぶ agent-tasks は PATH 上の agent-tasks (herdr 版が本採用)。
@@ -23,16 +23,18 @@ min_herdr_version = "0.7.0"
 on = "pane.agent_status_changed"
 command = ["agent-tasks", "worktime-record"]
 
-# tui を overlay pane で開くエントリポイント (0117)。overlay = アクティブ pane の上に一時的な
-# zoomed 表示で開き、閉じると元の focus/zoom に戻る (tmux display-popup 相当)。
+# tui を popup pane で開くエントリポイント (0117/0155)。popup = アクティブ pane の上に画面中央の
+# フローティング表示で開き、閉じると元の focus に戻る (tmux display-popup 相当)。幅/高さは画面の 80%。
 # 手動起動: herdr plugin pane open --plugin agent-tasks --entrypoint tui
 [[panes]]
 id = "tui"
 title = "agent-tasks"
-placement = "overlay"
+placement = "popup"
+width = "80%"
+height = "80%"
 command = ["agent-tasks", "tui"]
 
-# 上記 overlay pane を開く action。キー一発で開けるようにするための間接層:
+# 上記 popup pane を開く action。キー一発で開けるようにするための間接層:
 # herdr の custom keybinding (`[[keys.command]]`) は plugin の *pane* を直接開けず、
 # 開けるのは *action* だけ (type="plugin_action")。そこで pane を開く action を用意する。
 # config.toml に次を足すとキー割り当てになる (README / docs の手順参照):
@@ -40,15 +42,16 @@ command = ["agent-tasks", "tui"]
 #   key = "prefix+a"
 #   type = "plugin_action"
 #   command = "agent-tasks.open-tui"
-#   description = "agent-tasks tui (overlay)"
+#   description = "agent-tasks tui (popup)"
 #
 # command は `agent-tasks tui-overlay` を経由する (0124)。これが action コンテキスト
-# (env HERDR_PLUGIN_CONTEXT_JSON) の focused_pane_cwd を読み、`herdr plugin pane open … --cwd
-# <アクティブ pane の cwd>` を実行する。→ overlay の tui が「今見ている pane のプロジェクト」を
-# 初期表示する。`herdr plugin pane open …` を直接指定すると cwd を渡せず、常にプラグイン root の
-# project になってしまうため、この薄いラッパーを挟む。
+# (env HERDR_PLUGIN_CONTEXT_JSON) の focused_pane_cwd を読み、`herdr plugin pane open …
+# --placement popup --width 80% --height 80% --cwd <アクティブ pane の cwd>` を実行する。
+# → popup の tui が「今見ている pane のプロジェクト」を初期表示する。`herdr plugin pane open …` を
+# 直接指定すると cwd を渡せず、常にプラグイン root の project になってしまうため、この薄いラッパーを挟む。
+# (コマンド名 tui-overlay は 0117 当時の overlay 由来の内部名。0155 で popup へ変えたが名前は据え置き。)
 [[actions]]
 id = "open-tui"
-title = "agent-tasks tui (overlay)"
+title = "agent-tasks tui (popup)"
 contexts = ["workspace"]
 command = ["agent-tasks", "tui-overlay"]

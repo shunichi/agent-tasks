@@ -33,10 +33,10 @@ make install
 自 session_id / pane 特定・session-rename は herdr の socket API を使うので、**herdr 上で最も素直に
 動く**。herdr 外 (素の tmux など) でも **degrade して動作**する (spawn は tmux フォールバック、状態は
 hook 由来マーカー等)。導入は上記の `make install` だけ (以前あった別名ビルド / env ルーターは、
-herdr 版を本採用したので不要になった)。worktime 記録と tui overlay は herdr プラグインで提供する
+herdr 版を本採用したので不要になった)。worktime 記録と tui popup は herdr プラグインで提供する
 (次節)。
 
-### herdr プラグイン (worktime 記録 + tui overlay)
+### herdr プラグイン (worktime 記録 + tui popup)
 
 このリポジトリ自身が herdr プラグインを兼ねる (`herdr-plugin.toml` が repo root にある)。導入は 1 回:
 
@@ -49,9 +49,10 @@ herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ..
 - **worktime 記録** (event hook `pane.agent_status_changed` → `agent-tasks worktime-record`)。
   pane の agent 状態遷移を実稼働ログに追記する (`agent-tasks worktime` で集計)。詳細は 0114 /
   `docs/herdr-migration.md`。
-- **tui overlay** (pane entrypoint `tui` + action `open-tui`)。`agent-tasks tui` を herdr の overlay
-  pane で開く (tmux の `display-popup` 相当。どの pane で作業中でも一時的に前面表示し、閉じると元へ戻る)。
-  **開いた時点でアクティブだった pane のプロジェクトのタスク**を初期表示する (0124)。
+- **tui popup** (pane entrypoint `tui` + action `open-tui`)。`agent-tasks tui` を herdr の popup
+  pane (画面中央・幅/高さとも 80%) で開く (tmux の `display-popup` 相当。どの pane で作業中でも一時的に
+  前面表示し、閉じると元へ戻る。0155)。**開いた時点でアクティブだった pane のプロジェクトのタスク**を
+  初期表示する (0124)。
   - 手動起動: `herdr plugin pane open --plugin agent-tasks --entrypoint tui`
     (このコマンド単体は cwd を渡さないのでアクティブ pane の project にはならない。キー割り当ての
     action 経由なら下記のとおりアクティブ pane の project になる)
@@ -63,11 +64,11 @@ herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ..
     key = "prefix+a"
     type = "plugin_action"
     command = "agent-tasks.open-tui"
-    description = "agent-tasks tui (overlay)"
+    description = "agent-tasks tui (popup)"
     ```
     追加後 `herdr server reload-config` (または再起動) で反映。`agent-tasks` が PATH に必要
     (`make install` で入る)。action は `agent-tasks tui-overlay` を経由し、
-    アクティブ pane の cwd を解決して overlay を開く (詳細は 0124 / `docs/herdr-migration.md`)。
+    アクティブ pane の cwd を解決して popup を開く (詳細は 0124 / `docs/herdr-migration.md`)。
 
 ## 使い方
 

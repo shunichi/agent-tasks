@@ -22,9 +22,8 @@ description: "エージェント開発タスクをリポジトリ外の中央ス
 ### エージェント別の注意 (Claude / codex)
 
 この skill と CLI は **agent 非依存**に作ってあり、**Claude / codex 双方から同じ SKILL.md** で使う
-(単一の情報源。Claude は `~/.claude/skills/agent-tasks`、codex は `$CODEX_HOME/skills/agent-tasks`
-= 既定 `~/.codex/skills/agent-tasks` に、いずれも repo `skills/agent-tasks` への symlink で入る。
-`make install` が両方を張る)。タスク管理フロー (create/list/start/spawn/done/block/…) の本体は
+(単一の情報源。Claude は `~/.claude/skills/agent-tasks`、codex は `~/.agents/skills/agent-tasks`
+に、いずれも repo `skills/agent-tasks` への symlink で入る。`make install` が両方を張る)。タスク管理フロー (create/list/start/spawn/done/block/…) の本体は
 どちらでも同じ。**次の点だけ agent で違いがある**ので読み替える (一部は Claude 固有、一部は両対応だが記法が違う):
 
 - **skill の呼び出し記法**: Claude は `/agent-tasks`、**codex は `$agent-tasks`**。どちらも自然文

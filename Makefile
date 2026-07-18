@@ -4,8 +4,11 @@
 NAME ?= agent-tasks
 BIN := bin/$(NAME)
 PREFIX ?= $(HOME)/.local
-# codex のホーム ($CODEX_HOME、既定 ~/.codex)。codex 用 skill は $CODEX_HOME/skills 配下に置く。
-CODEX_HOME ?= $(HOME)/.codex
+# codex 用 skill の設置先。codex は ~/.agents/skills を skill 探索先とする運用に移行したので
+# $(AGENTS_HOME)/skills 配下に置く。CODEX_HOME (既定 ~/.codex) は「過去に codex を使った形跡」の
+# 検出と、旧設置先 ($CODEX_HOME/skills) に残る symlink の後始末にのみ使う。
+AGENTS_HOME ?= $(HOME)/.agents
+CODEX_HOME  ?= $(HOME)/.codex
 # progName をビルド名に合わせて埋め込む。state dir (session.go) と補完のコマンド名/関数名
 # (completion.go) がこの値に追従する。既定 NAME=agent-tasks は var の既定値と同じで無害。
 LDFLAGS := -X main.progName=$(NAME)
@@ -30,13 +33,19 @@ link: link-codex
 	ln -sfn $(CURDIR)/skills/agent-tasks $(HOME)/.claude/skills/agent-tasks
 
 # codex 用 skill の symlink。Claude と同一の SKILL.md を単一の情報源として共有する
-# (フォーマットは互換)。codex 未導入のマシンで空の $CODEX_HOME を作らないよう、codex バイナリが
-# あるか $CODEX_HOME が既に在るときだけ張る。
+# (フォーマットは互換)。設置先は ~/.agents/skills (codex の新しい探索先)。codex 未導入のマシンで
+# 空の ~/.agents を作らないよう、codex バイナリがあるか ~/.agents / ~/.codex が既に在る (= 過去に
+# codex を使った形跡) ときだけ張る。旧設置先 ($CODEX_HOME/skills) に自分が張った symlink が残って
+# いれば、skill の二重登録を避けるため撤去する (実ディレクトリは触らない = symlink のときだけ)。
 link-codex:
-	@if command -v codex >/dev/null 2>&1 || [ -d "$(CODEX_HOME)" ]; then \
-		mkdir -p "$(CODEX_HOME)/skills"; \
-		ln -sfn $(CURDIR)/skills/agent-tasks "$(CODEX_HOME)/skills/agent-tasks"; \
-		echo "linked codex skill -> $(CODEX_HOME)/skills/agent-tasks"; \
+	@if command -v codex >/dev/null 2>&1 || [ -d "$(AGENTS_HOME)" ] || [ -d "$(CODEX_HOME)" ]; then \
+		mkdir -p "$(AGENTS_HOME)/skills"; \
+		ln -sfn $(CURDIR)/skills/agent-tasks "$(AGENTS_HOME)/skills/agent-tasks"; \
+		echo "linked codex skill -> $(AGENTS_HOME)/skills/agent-tasks"; \
+		if [ -L "$(CODEX_HOME)/skills/agent-tasks" ]; then \
+			rm -f "$(CODEX_HOME)/skills/agent-tasks"; \
+			echo "removed legacy codex skill link -> $(CODEX_HOME)/skills/agent-tasks"; \
+		fi; \
 	else \
 		echo "codex not detected; skip codex skill link"; \
 	fi

@@ -12,7 +12,7 @@
 ## インストール
 
 `make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (Claude は `~/.claude/skills`、
-codex が入っていれば `$CODEX_HOME/skills` = 既定 `~/.codex/skills` にも同じ SKILL.md を) symlink し、
+codex が入っていれば `~/.agents/skills` にも同じ SKILL.md を) symlink し、
 bash/zsh の補完スクリプトも書き出す (`~/.local/bin` が PATH にある前提):
 
 ```sh

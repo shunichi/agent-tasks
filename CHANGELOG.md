@@ -25,6 +25,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-18
+
+- codex 用 skill の設置先を `$CODEX_HOME/skills` (既定 `~/.codex/skills`) から **`~/.agents/skills`** に
+  変更した (codex の skill 探索先が `~/.agents/skills` に移行したため)。`make install` / `make link` が
+  `~/.agents/skills/agent-tasks` へ symlink し、旧設置先 (`~/.codex/skills/agent-tasks`) に自分が張った
+  symlink が残っていれば skill の二重登録を避けるため撤去する。空ディレクトリを作らない検出ガードは
+  codex バイナリ有無 / `~/.agents`・`~/.codex` の存在で維持。
+
 ## 2026-07-17
 
 - herdr プラグインの tui pane を **popup 表示 (幅/高さとも 80%)** に変更した (従来は overlay)。

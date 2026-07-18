@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-18
+
 - codex 用 skill の設置先を `$CODEX_HOME/skills` (既定 `~/.codex/skills`) から **`~/.agents/skills`** に
   変更した (codex の skill 探索先が `~/.agents/skills` に移行したため)。`make install` / `make link` が
   `~/.agents/skills/agent-tasks` へ symlink し、旧設置先 (`~/.codex/skills/agent-tasks`) に自分が張った

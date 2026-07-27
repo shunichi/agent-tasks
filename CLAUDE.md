@@ -23,6 +23,7 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
   tui.go                        # tui: 一覧+詳細のインタラクティブ閲覧 (Bubble Tea。mtime ポーリングで自動更新)
   version.go                     # version: ビルド埋め込みの VCS 情報 (commit+CalVer) を表示 (手動 bump なし)
   render.go                     # 色付け + CJK 幅対応のテーブル描画
+  markdown.go                   # tui 詳細ペイン用の軽量 Markdown レンダラ (自前。CJK 折返し + 行頭禁則) + frontmatter/本文の分割
   worktree.go                   # worktree-init: 作成後フック (.worktreeinclude コピー + post-create 実行) / worktree-remove: 撤去フック (post-remove 実行 + git worktree remove)
   scaffold.go                   # scaffold-worktree: スタック別 worktree 設定の雛形展開 (templates を embed)
   session.go                    # session-hook + session-link + list の SESSION 列 (working/waiting/ended)

@@ -152,17 +152,8 @@ func taskBody(path string) string {
 		return ""
 	}
 	s := strings.TrimPrefix(string(data), "\ufeff")
-	lines := strings.Split(s, "\n")
-	// 先頭が "---" なら次の "---" までを frontmatter として飛ばす。
-	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
-		for i := 1; i < len(lines); i++ {
-			if strings.TrimSpace(lines[i]) == "---" {
-				lines = lines[i+1:]
-				break
-			}
-		}
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n")) + "\n"
+	_, body := splitFrontmatter(s)
+	return strings.TrimSpace(body) + "\n"
 }
 
 // fmField は setFrontmatterFields に渡す frontmatter の key/value。

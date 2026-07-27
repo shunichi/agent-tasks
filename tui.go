@@ -336,7 +336,9 @@ func (m *tuiModel) syncDetail() {
 		m.vp.GotoTop()
 		return
 	}
-	m.vp.SetContent(m.wrapDetail(tuiDetail(m.rows[m.cursor])))
+	// tuiDetail は viewport 幅で折返し済みの装飾テキストを返すので wrapDetail は通さない
+	// (通すと折返し済みの行をもう一度折り返してぶら下げインデントが崩れる)。
+	m.vp.SetContent(tuiDetail(m.rows[m.cursor], m.vp.Width))
 	m.vp.GotoTop()
 }
 
@@ -1784,15 +1786,37 @@ func tuiTrunc(s string, w int) string {
 	return truncateDisp(s, w)
 }
 
-// tuiDetail は詳細ペインの内容を組み立てる。ファイル全文 (frontmatter + 本文) に、
-// show と同じ PR 一覧 / 所要時間サマリを末尾へ添える。色は付けず素のテキストにする
-// (viewport の折返しと相性が良く、TUI 側の lipgloss スタイルと混ざらない)。
-func tuiDetail(t Task) string {
+// tuiDetail は詳細ペインの内容を width 幅で組み立てる。frontmatter は素の key: value の
+// まま (Markdown に通すと "---" が水平線に化ける)、本文は Markdown として整形し、
+// show と同じ PR 一覧 / 所要時間サマリを末尾へ添える。
+// 折返しはここで済ませる: viewport は長い行を折り返さず横に切り捨てるうえ、Markdown の
+// ぶら下げインデントは行組みの一部なので、後段の一律折返しでは表現できない。
+func tuiDetail(t Task, width int) string {
 	data, err := os.ReadFile(t.Path)
-	body := string(data)
+	src := string(data)
 	if err != nil {
-		body = fmt.Sprintf("(読み込み失敗: %v)", err)
+		src = fmt.Sprintf("(読み込み失敗: %v)", err)
 	}
+	if width < 1 {
+		width = tuiMinDetailWidth
+	}
+	meta, body := splitFrontmatter(src)
+	var parts []string
+	// 先頭にライブのセッション状態を出す (in-progress のみ。frontmatter の session URL とは別の、
+	// hook 由来の working/waiting/ended)。どの pane が応答待ちかを詳細でも確認できる (0070)。
+	// link された session_id が今 herdr にいれば「ライブ」も出す (status 非依存。一覧の ● に対応)。
+	if snap, ok := herdrStateSnapshot(); ok {
+		if sid := liveSessionID(t, snap); sid != "" {
+			parts = append(parts, tuiDetailPlain("herdr セッション: ライブ ("+sid+")", width), "")
+		}
+	}
+	if label := tuiSessionLabel(t); label != "" {
+		parts = append(parts, tuiDetailPlain("セッション状態: "+label, width), "")
+	}
+	if meta != "" {
+		parts = append(parts, renderFrontmatter(meta, width), mdMarker.render(mdRepeatTo("─", width)))
+	}
+	parts = append(parts, renderMarkdown(strings.TrimRight(body, "\n"), width))
 	now := time.Now()
 	var footers []string
 	if s := prSummary(t, colors{}); s != "" {
@@ -1801,23 +1825,20 @@ func tuiDetail(t Task) string {
 	if s := timestampSummary(t, now, colors{}); s != "" {
 		footers = append(footers, s)
 	}
-	out := strings.TrimRight(body, "\n")
 	if len(footers) > 0 {
-		out += "\n\n" + strings.Join(footers, "\n")
+		parts = append(parts, "", tuiDetailPlain(strings.Join(footers, "\n"), width))
 	}
-	// 先頭にライブのセッション状態を出す (in-progress のみ。frontmatter の session URL とは別の、
-	// hook 由来の working/waiting/ended)。どの pane が応答待ちかを詳細でも確認できる (0070)。
-	if label := tuiSessionLabel(t); label != "" {
-		out = "セッション状態: " + label + "\n\n" + out
+	return strings.Join(parts, "\n") + "\n"
+}
+
+// tuiDetailPlain は Markdown として解釈させたくない補助行 (セッション状態・サマリ) を、
+// 装飾せず幅だけ守って出す。
+func tuiDetailPlain(s string, width int) string {
+	var out []string
+	for line := range strings.SplitSeq(s, "\n") {
+		out = append(out, mdWrap([]mdRun{{text: line, sid: mdPlain}}, width, mdSpaces(0), mdSpaces(2))...)
 	}
-	// link された session_id が今 herdr にいれば「ライブ」を出す (status 非依存。一覧の ● に対応)。
-	// 一覧の緑 ● が何を指すかを詳細でも確認できる (別 pane のライブセッションも含む)。
-	if snap, ok := herdrStateSnapshot(); ok {
-		if sid := liveSessionID(t, snap); sid != "" {
-			out = "herdr セッション: ライブ (" + sid + ")\n\n" + out
-		}
-	}
-	return out + "\n"
+	return strings.Join(out, "\n")
 }
 
 // storeSignature はストア配下の *.md の (相対パス, mtime, size) を畳み込んだ

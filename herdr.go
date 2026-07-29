@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,7 +27,7 @@ import (
 const herdrBinary = "herdr"
 
 // herdrRun は herdr サブコマンドを実行し stdout を返す (テストで差し替え可能な seam)。
-// 失敗時は stderr を含むエラーにする。
+// 失敗時は stderr を含むエラーにする (JSON エラーなら herdrCLIError にして code を保つ)。
 var herdrRun = func(args ...string) ([]byte, error) {
 	out, err := exec.Command(herdrBinary, args...).Output()
 	if err != nil {
@@ -35,11 +36,55 @@ var herdrRun = func(args ...string) ([]byte, error) {
 			sub = strings.Join(args, " ")
 		}
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			if cerr := parseHerdrCLIError(sub, ee.Stderr, err); cerr != nil {
+				return nil, cerr
+			}
 			return nil, fmt.Errorf("herdr %s: %w: %s", sub, err, strings.TrimSpace(string(ee.Stderr)))
 		}
 		return nil, fmt.Errorf("herdr %s: %w", sub, err)
 	}
 	return out, nil
+}
+
+// herdrCLIError は herdr CLI が非 0 終了時に stderr へ返す JSON エラー
+// (`{"error":{"code":…,"message":…},"id":…}`) を型として保つ。呼び出し側が `code` で分岐できる
+// ようにするため (メッセージの文字列マッチに頼らない)。JSON でない失敗 (herdr 自体が無い等) では
+// 作られず、素の fmt.Errorf が返る。
+type herdrCLIError struct {
+	Sub     string // 実行したサブコマンド (メッセージ用)
+	Code    string // 例 agent_not_found / agent_not_ready
+	Message string
+	err     error // 元の exec エラー (exit status)
+}
+
+func (e *herdrCLIError) Error() string {
+	return fmt.Sprintf("herdr %s: %v: %s (%s)", e.Sub, e.err, e.Message, e.Code)
+}
+
+func (e *herdrCLIError) Unwrap() error { return e.err }
+
+// parseHerdrCLIError は stderr を herdr の JSON エラーとして読む。code が取れなければ nil
+// (呼び出し側は従来の stderr 文字列付きエラーにフォールバックする)。
+func parseHerdrCLIError(sub string, stderr []byte, cause error) *herdrCLIError {
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(stderr, &body) != nil || body.Error.Code == "" {
+		return nil
+	}
+	return &herdrCLIError{Sub: sub, Code: body.Error.Code, Message: body.Error.Message, err: cause}
+}
+
+// herdrErrorCode は err に含まれる herdr のエラー code を返す (無ければ空)。
+func herdrErrorCode(err error) string {
+	var cerr *herdrCLIError
+	if errors.As(err, &cerr) {
+		return cerr.Code
+	}
+	return ""
 }
 
 // --- env ヘルパ (herdr が pane 内プロセスへ注入する変数) ---
@@ -193,11 +238,41 @@ func herdrPaneSendText(pane, text string) error {
 }
 
 // herdrPaneRun は pane に文字列 + 本物の Enter を 1 リクエストで送る (末尾に Enter が付く)。
-// text と Enter が分かれない (アトミック) ので、claude の入力欄への submit を確実に発火させたい
-// とき (session-rename の /rename 打ち込みなど) に使う。send-text + send-keys の 2 呼び出しに
-// 分けると 2 プロセス間のギャップで Enter が改行として食われることがある (0131)。
+// text と Enter が分かれない (アトミック) ので、send-text + send-keys の 2 呼び出しに分けたとき
+// 2 プロセス間のギャップで Enter が改行として食われる問題を避けられる (0131)。
+// ただし pane 層なので相手が agent かは問わない。agent の入力欄へ送るなら herdrSendPrompt を使う。
 func herdrPaneRun(pane, command string) error {
 	_, err := herdrRun("pane", "run", pane, command)
+	return err
+}
+
+// herdrAgentPrompt は agent の入力欄へ 1 行を submit する (agent 層 API)。pane 層の herdrPaneRun と
+// アトミック性は同じだが、agent 層は送出前に**その agent の生きた bracketed-paste モードを見てから**
+// Enter を送る (herdr #1525) ので、入力欄が paste モードのときに Enter が「改行」として食われる余地が
+// 無い。対象が agent を載せた pane かも検証する (agent_not_found / agent_not_ready)。
+//
+// --wait は意図的に付けない。唯一の呼び出し元 (session-rename) は**自分のターン中 = すでに working**
+// から送るが、herdr の --wait は turn を追跡せず「すでに working なら その active turn の完了に
+// マッチしうる」ため、自分のターンの終了を待つだけで送信検証にならない。idle の相手を起こす用途が
+// できたときに wait オプションを足す。
+func herdrAgentPrompt(target, text string) error {
+	_, err := herdrRun("agent", "prompt", target, text)
+	return err
+}
+
+// herdrSendPrompt は pane の agent の入力欄へ 1 行を submit する (入力送出の推奨口)。
+// 主経路は agent 層の agent prompt。agent 検出が効いていない pane (未対応 agent / 起動途中) では
+// agent prompt が対象を拒むので、そのときだけ pane 層の pane run に落とす (0131 までの経路。
+// bracketed-paste を見ないが打ち込みはできる)。
+//
+// 落とすのは **submit 前に確実に失敗した code だけ** に限る。agent_prompt_failed のような送出途中の
+// 失敗で落とすと、既に入っていた 1 行に重ねて二重送信になりうるため。
+func herdrSendPrompt(pane, text string) error {
+	err := herdrAgentPrompt(pane, text)
+	switch herdrErrorCode(err) {
+	case "agent_not_found", "agent_not_ready":
+		return herdrPaneRun(pane, text)
+	}
 	return err
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -264,6 +265,52 @@ func TestDetectSelfSessionIDRejectsPathSep(t *testing.T) {
 	if id, _ := detectSelfSessionID(); id != "" {
 		t.Errorf("path 区切りを含む env 値は弾くべき: got %q", id)
 	}
+}
+
+func TestParseHerdrCLIError(t *testing.T) {
+	cause := errors.New("exit status 1")
+
+	t.Run("JSON エラーから code を取る", func(t *testing.T) {
+		stderr := []byte(`{"error":{"code":"agent_not_found","message":"agent target zz:p9 not found"},"id":"cli:agent:prompt"}`)
+		cerr := parseHerdrCLIError("agent prompt zz:p9", stderr, cause)
+		if cerr == nil {
+			t.Fatal("JSON エラーはパースできるべき")
+		}
+		if cerr.Code != "agent_not_found" {
+			t.Errorf("code: got %q", cerr.Code)
+		}
+		if got := herdrErrorCode(cerr); got != "agent_not_found" {
+			t.Errorf("herdrErrorCode: got %q", got)
+		}
+		if !errors.Is(cerr, cause) {
+			t.Error("元の exec エラーを Unwrap できるべき")
+		}
+		// メッセージには code と herdr のメッセージが残る (人が読む用)。
+		if msg := cerr.Error(); !strings.Contains(msg, "agent_not_found") || !strings.Contains(msg, "not found") {
+			t.Errorf("Error(): got %q", msg)
+		}
+	})
+
+	t.Run("JSON でない stderr は型付けしない", func(t *testing.T) {
+		if cerr := parseHerdrCLIError("pane run", []byte("error: something broke"), cause); cerr != nil {
+			t.Errorf("want nil, got %v", cerr)
+		}
+	})
+
+	t.Run("code の無い JSON は型付けしない", func(t *testing.T) {
+		if cerr := parseHerdrCLIError("pane run", []byte(`{"result":{}}`), cause); cerr != nil {
+			t.Errorf("want nil, got %v", cerr)
+		}
+	})
+
+	t.Run("herdr 由来でないエラーは code 無し", func(t *testing.T) {
+		if got := herdrErrorCode(cause); got != "" {
+			t.Errorf("herdrErrorCode: got %q want empty", got)
+		}
+		if got := herdrErrorCode(nil); got != "" {
+			t.Errorf("herdrErrorCode(nil): got %q want empty", got)
+		}
+	})
 }
 
 func TestHerdrSelfAgentUsesPaneID(t *testing.T) {

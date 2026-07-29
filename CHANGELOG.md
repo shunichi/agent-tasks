@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-07-30
+
 - `session-rename` が herdr 内で `/rename` を打ち込む経路を、pane 層 (`herdr pane run`) から
   **agent 層 (`herdr agent prompt`)** に切り替えた。agent 層は送出前に入力欄の bracketed-paste モードを
   見てから Enter を送るので、Enter が「送信」ではなく「改行」として食われる残りの原因が消える

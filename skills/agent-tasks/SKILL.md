@@ -319,8 +319,10 @@ idle (応答完了) を区別できるのが従来との違い。link はある�
    - これが id から title を解決し、**自分の pane の入力欄に `/rename task <NNNN>: <title>` を打ち込んで
      発火**させる (Claude はスラッシュコマンドをツールから直接呼べないための回避)。本物の /rename 経路
      なので claude.ai / アプリのセッション名に反映される。経路は環境で自動選択:
-     **herdr 内なら `herdr pane send-text` + `pane send-keys Enter`** (tmux 非依存)、herdr 外の tmux 内なら
-     `tmux send-keys`、どちらも無ければ `/rename …` 行を出力するのでユーザーが実行する。
+     **herdr 内なら `herdr agent prompt`** (agent 層 API。文字列と Enter を 1 リクエストで送り、送出前に
+     入力欄の bracketed-paste モードを見るので Enter が改行に化けない。agent 未検出の pane では
+     `pane run` に自動フォールバック)、herdr 外の tmux 内なら `tmux send-keys`、どちらも無ければ
+     `/rename …` 行を出力するのでユーザーが実行する。
    - **なぜ最初か (競合回避)**: 入力欄に打ち込むので、**入力欄が空なうち (指示直後、ユーザーがまだ何も
      打っていない) が最も競合しにくい**。`session-rename` は id を渡すだけで CLI 内で title 解決〜送出まで
      完結する (内容を読まなくてよい) ので、内容取得より前に呼んで問題ない。

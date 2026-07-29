@@ -25,6 +25,13 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-07-30
+
+- `session-rename` が herdr 内で `/rename` を打ち込む経路を、pane 層 (`herdr pane run`) から
+  **agent 層 (`herdr agent prompt`)** に切り替えた。agent 層は送出前に入力欄の bracketed-paste モードを
+  見てから Enter を送るので、Enter が「送信」ではなく「改行」として食われる残りの原因が消える
+  (agent が検出されていない pane では従来どおり `pane run` に自動フォールバックする)。
+
 ## 2026-07-27
 
 - `tui` の詳細ペインでタスク本文を **Markdown として整形表示**するようにした (従来は素のテキスト)。

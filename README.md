@@ -13,7 +13,8 @@
 
 `make install` で CLI をビルドし、CLI (`~/.local/bin`) と skill (Claude は `~/.claude/skills`、
 codex が入っていれば `~/.agents/skills` にも同じ SKILL.md を) symlink し、
-bash/zsh の補完スクリプトも書き出す (`~/.local/bin` が PATH にある前提):
+bash/zsh の補完スクリプトも書き出す。herdr が入っていれば、このリポジトリを herdr plugin として
+link・enable する (`~/.local/bin` が PATH にある前提):
 
 ```sh
 make install
@@ -38,11 +39,14 @@ herdr 版を本採用したので不要になった)。worktime 記録と tui po
 
 ### herdr プラグイン (worktime 記録 + tui popup)
 
-このリポジトリ自身が herdr プラグインを兼ねる (`herdr-plugin.toml` が repo root にある)。導入は 1 回:
+このリポジトリ自身が herdr プラグインを兼ねる (`herdr-plugin.toml` が repo root にある)。
+`make install` が herdr を検出すると、自動で次の登録も行う:
 
 ```sh
-herdr plugin link <このリポジトリのパス>   # 永続 worktree なら ../agent-tasks--herdr
+herdr plugin link <このリポジトリのパス> --enabled
 ```
+
+herdr を後から導入した場合も、再度 `make install` すれば登録される。
 
 プラグインが提供するもの:
 

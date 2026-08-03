@@ -25,6 +25,12 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 (マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
 
+## 2026-08-03
+
+- `make install` / `make link` が herdr を検出した場合、このリポジトリを `agent-tasks` プラグインとして
+  自動的に link・enable するようにした。別途 `herdr plugin link` を実行し忘れて
+  `plugin action not found` になる状態を防ぐ。
+
 ## 2026-07-30
 
 - `session-rename` が herdr 内で `/rename` を打ち込む経路を、pane 層 (`herdr pane run`) から

@@ -13,7 +13,7 @@ CODEX_HOME  ?= $(HOME)/.codex
 # (completion.go) がこの値に追従する。既定 NAME=agent-tasks は var の既定値と同じで無害。
 LDFLAGS := -X main.progName=$(NAME)
 
-.PHONY: build install link link-codex install-completions clean test test-go test-js fmt vet
+.PHONY: build install link link-codex link-herdr install-completions clean test test-go test-js fmt vet
 
 build: $(BIN)
 
@@ -27,7 +27,7 @@ $(BIN): $(wildcard *.go) $(wildcard templates/*/*) $(wildcard webassets/*.html w
 # 残るのを防ぐ)。
 install: build link install-completions
 
-link: link-codex
+link: link-codex link-herdr
 	mkdir -p $(PREFIX)/bin $(HOME)/.claude/skills
 	ln -sf  $(CURDIR)/$(BIN)             $(PREFIX)/bin/$(NAME)
 	ln -sfn $(CURDIR)/skills/agent-tasks $(HOME)/.claude/skills/agent-tasks
@@ -48,6 +48,16 @@ link-codex:
 		fi; \
 	else \
 		echo "codex not detected; skip codex skill link"; \
+	fi
+
+# herdr があれば、このリポジトリ自身をプラグインとして登録する。--enabled を明示し、以前 disabled に
+# されていた場合も make install 後は action/event/pane を利用できる状態に揃える。
+link-herdr:
+	@if command -v herdr >/dev/null 2>&1; then \
+		herdr plugin link "$(CURDIR)" --enabled && \
+		echo "linked herdr plugin -> $(CURDIR)"; \
+	else \
+		echo "herdr not detected; skip herdr plugin link"; \
 	fi
 
 # bash / zsh 補完スクリプトを標準的な場所へ書き出す (ビルドも実行)。ファイル名も $(NAME) 由来に

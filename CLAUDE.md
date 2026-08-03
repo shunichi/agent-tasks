@@ -49,13 +49,14 @@ agent-tasks/                    ← このリポジトリ = ツール (操作 sk
 
 - `make build` — `go build -o bin/agent-tasks .`
 - `make install` — build + symlink (CLI を `~/.local/bin`、skill を `~/.claude/skills` と、codex 導入時は
-  `~/.agents/skills` へ) + 補完再生成
+  `~/.agents/skills` へ) + herdr 導入時の plugin link/enable + 補完再生成
   (`install-completions` を含む。補完は静的ファイルなので、機能追加後は `make install` で最新化する)
 - `make test` / `make fmt` / `make vet`
 - インストール済み symlink (この環境では設定済み):
   - `~/.claude/skills/agent-tasks` → `skills/agent-tasks` (Claude)
   - `~/.agents/skills/agent-tasks` → `skills/agent-tasks` (codex。同一 SKILL.md を共有。`make link` が codex 検出時に張る)
   - `~/.local/bin/agent-tasks` → `bin/agent-tasks` (Go バイナリ。**ソース変更後は `make build` が必要**)
+  - herdr 導入時は repo root → herdr plugin `agent-tasks` (`make link` が自動登録・enable)
 
 ## CHANGELOG
 

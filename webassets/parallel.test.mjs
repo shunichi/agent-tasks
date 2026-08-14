@@ -99,17 +99,14 @@ describe("byDate / datesDesc (日ごと集約)", () => {
   });
 });
 
-describe("mostActive (最もタスク種類の多い日)", () => {
-  it("ユニーク id 数が最大の日を返す", () => {
+describe("詳細ビューの既定日 (datesDesc の先頭 = 最新日)", () => {
+  it("活動量の多い日が過去にあっても最新日を選ぶ", () => {
     const pieces = [
-      { d: "2026-07-06", id: "a", s: 0, e: 10 },
-      { d: "2026-07-06", id: "a", s: 20, e: 30 }, // 同じ id → 1種類
-      { d: "2026-07-08", id: "x", s: 0, e: 10 },
-      { d: "2026-07-08", id: "y", s: 0, e: 10 }   // 2種類
+      { d: "2026-07-06", id: "x", s: 0, e: 10 },
+      { d: "2026-07-06", id: "y", s: 0, e: 10 },  // 過去日のほうが稼働タスクが多い
+      { d: "2026-07-08", id: "a", s: 0, e: 10 }
     ];
-    const m = P.byDate(pieces);
-    const dates = P.datesDesc(m);
-    expect(P.mostActive(m, dates)).toBe("2026-07-08");
+    expect(P.datesDesc(P.byDate(pieces))[0]).toBe("2026-07-08");
   });
 });
 

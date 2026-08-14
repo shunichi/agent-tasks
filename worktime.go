@@ -107,6 +107,87 @@ func mergeIntervals(ivs []timeInterval) []timeInterval {
 	return out
 }
 
+// worktimeOpenCap は「閉じられなかった working 区間」に許す最大長。transcript も herdr も
+// 手がかりを出せなかったときだけの最後の保険で、実測 (閉じている区間 2252 本: p99 23m55s /
+// 最大 1h29m) から「長いが実在しうる作業ストレッチ」の線として 30 分に置く。
+const worktimeOpenCap = 30 * time.Minute
+
+// sessionLiveWorking は「そのセッションが今まさに working か」を herdr に問う。既存の
+// herdrStateSnapshot (session_id → agent_status の短 TTL キャッシュ) を流用するので、
+// worktime のために herdr を追加で叩くことはない。
+//
+// herdr 外 / ソケット不達ではスナップショットが取れず false を返す = 非ライブ扱いになり、
+// 呼び側は transcript か cap に落ちる (**fail-closed**: 判定できないときは区間を伸ばさない)。
+// テストで差し替えられるよう変数にしている。
+var sessionLiveWorking = func(sessionID string) bool {
+	snap, ok := herdrStateSnapshot()
+	if !ok {
+		return false
+	}
+	return mapHerdrStatus(snap[sessionID]) == sessWorking
+}
+
+// sessionOpenEnd は「閉じられなかった working 区間」をどこで閉じるかを決める。
+//
+// worktime ログは状態遷移の点列でしかなく、終端イベント (idle/done) を取りこぼすと区間が開いた
+// ままになる。取りこぼしは pane 消滅と同時の終端イベント (worktime-record が pane から session_id
+// を解決できない) や herdr 自体の終了で起き、実測で 200 ログ中 24 本に発生していた。開いた区間を
+// そのまま winEnd (未完了タスクでは now) まで伸ばすと、9 日間 working といった値になる。
+//
+// 判断は **証拠 → 観測 → 推測** の順:
+//
+//  1. herdr が「今も working」と言う → winEnd まで伸ばす (観測なので上限を掛けない。長時間の
+//     自動実行を過小計上しない)。
+//  2. transcript の最終活動時刻 → そこで閉じる。transcript は作業中ずっと書かれるので、
+//     最終エントリ = 作業が止まった時刻の良い近似 (worktime_activity.go 参照)。最終活動が開始点
+//     より前なら区間は 0 長になる = その working は実作業を伴わない空振りだった、という判定。
+//  3. どちらも得られない → 開始点 + worktimeOpenCap で打ち切る。
+//
+// 区間が開いていない (最後のイベントが working でない) ログには何もせず winEnd を返すので、
+// 既に閉じている区間の集計は一切変わらない。
+func sessionOpenEnd(sessionID string, events []worktimeEvent, winEnd time.Time) time.Time {
+	start, open := openWorkingStart(events)
+	if !open {
+		return winEnd
+	}
+	if sessionLiveWorking(sessionID) {
+		return winEnd
+	}
+	if act, ok := agentLastActivity(sessionID); ok {
+		// 最終活動が開始点より前なら開始点 (= 0 長) に丸める。winEnd も超えさせない。
+		return earlierTime(laterTime(act, start), winEnd)
+	}
+	return earlierTime(start.Add(worktimeOpenCap), winEnd)
+}
+
+// openWorkingStart は「閉じられずに開いたままの working 区間」の開始時刻を返す。
+// 最後の有効イベントが working ならそれが開始点 (workingIntervals は連続 working の先頭だけを
+// 採用し、記録側も同状態の連続を dedup するので、開いた区間の開始 = 最終イベントになる)。
+func openWorkingStart(events []worktimeEvent) (time.Time, bool) {
+	for i := len(events) - 1; i >= 0; i-- {
+		t := parseSessionTime(events[i].Ts)
+		if t.IsZero() {
+			continue // 壊れた ts は workingIntervals 側でも読み飛ばされる
+		}
+		return t, events[i].State == sessWorking
+	}
+	return time.Time{}, false
+}
+
+func earlierTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+func laterTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
 // taskWorktime はタスクの実稼働区間 (窓クリップ済み) と合計を求める。ok=false は link が無く
 // セッションを特定できないとき (hook 未導入 / start が session-link を書いていない)。
 // タスクが使った**全セッション**のログを union する (中断→別セッション再開でも合算)。
@@ -135,7 +216,8 @@ func taskWorktime(t Task, now time.Time) (ivs []timeInterval, total time.Duratio
 		if e != nil {
 			return nil, 0, sessionIDs, true, e
 		}
-		all = append(all, workingIntervals(events, winEnd)...)
+		// openEnd はセッションごとに決める (winEnd をそのまま渡さない。sessionOpenEnd 参照)。
+		all = append(all, workingIntervals(events, sessionOpenEnd(sid, events, winEnd))...)
 	}
 	// 全セッションの区間を窓でクリップ→マージ (重なり除去) してから合算・表示する。
 	ivs = mergeIntervals(clipIntervals(all, winStart, winEnd))

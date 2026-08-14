@@ -30,15 +30,6 @@ function concAt(list, min) { var c = 0; for (var i = 0; i < list.length; i++) { 
 function datesDesc(m) { return Object.keys(m).sort().reverse(); }
 // pieces を日ごとにまとめる
 function byDate(pieces) { var m = {}; pieces.forEach(function (p) { (m[p.d] = m[p.d] || []).push(p); }); return m; }
-function mostActive(m, dates) {
-  var best = dates[0], bestN = -1;
-  dates.forEach(function (d) {
-    var n = {}; m[d].forEach(function (p) { n[p.id] = 1; });
-    var c = Object.keys(n).length;
-    if (c > bestN) { bestN = c; best = d; }
-  });
-  return best;
-}
 
 // ---- DOM 描画 (ブラウザのみ) ----
 function startParallel(PIECES, COLORS) {
@@ -61,8 +52,10 @@ function startParallel(PIECES, COLORS) {
     // meta
     var tot = 0; PIECES.forEach(function (p) { tot += (p.e - p.s); });
     metaEl.textContent = dates.length + " 日 · 稼働合計 " + hm(tot);
-    // 選択日の維持 (消えていたら一番活動の多い日)
-    if (!state.day || !m[state.day]) state.day = mostActive(m, dates);
+    // 選択日の維持 (初回・消えていたら最新日)。
+    // 「最も活動の多い日」を既定にしない: 詳細で見たいのは普通「今日/直近どう動いたか」で、
+    // 過去のピーク日が開いていると毎回クリックし直しになるため。
+    if (!state.day || !m[state.day]) state.day = dates[0];
 
     app.innerHTML =
       '<h2 class="sec">典型的な1週間 — 曜日 × 時刻ヒートマップ</h2>' +
@@ -309,5 +302,5 @@ if (typeof window !== "undefined" && typeof document !== "undefined" && window.P
 // Node (vitest): 純粋関数だけを公開する (描画コードは上のガードで走らない)。
 // このファイルは <script> インライン展開されるため ESM export は使えず、CommonJS の存在ガードで公開する。
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { WD, esc, clip, hm, fmtT, pad2, parseD, dowOf, dlabel, concAt, datesDesc, byDate, mostActive };
+  module.exports = { WD, esc, clip, hm, fmtT, pad2, parseD, dowOf, dlabel, concAt, datesDesc, byDate };
 }

@@ -49,8 +49,11 @@
 - **入力送出**: `herdr pane send-text <pane> <text>` (リテラル、Enter なし) /
   `herdr pane send-keys <pane> <key…>` / `herdr pane run <pane> <cmd>` (command+Enter) /
   `herdr agent send <target> <text>`。
-- **pane 起動**: `herdr agent start <name> [--cwd] [--split right|down] [--env K=V] [--focus|--no-focus] -- <argv…>`
-  (新 agent を直接起動) / `herdr pane split [<pane>] --direction right|down [--cwd] [--env] [--no-focus]`。
+- **pane 起動 (2 段)**: `herdr pane split [<pane>|--current] --direction right|down [--cwd] [--env] [--focus|--no-focus]`
+  で pane を用意し、`herdr agent start <name> --kind <kind> --pane <id> [--timeout MS] [-- <agent 引数…>]`
+  でその pane に agent を載せる。`agent start` は pane を作らない (旧 `--cwd` / `--split` / `--focus` は
+  `pane split` 側)。`<name>` は **herdr 全体で一意なスラッグ** (小文字始まり / `[a-z0-9_-]` / 1-32 文字)、
+  実行ファイルは `--kind` が決めるので `--` の後には agent 引数だけを置く。
 - **列挙/検査**: `herdr agent list` / `herdr agent get <target>` / `herdr pane list [--workspace]` /
   `herdr pane get <pane>` (`agent_status` = idle|working|blocked|unknown)。
 - **出力読取**: `herdr {agent,pane} read <target> --source visible|recent|recent-unwrapped [--lines N] [--format text|ansi]`

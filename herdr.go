@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // herdr 連携の共通クライアント層。herdr 全面移行 (0105 で合意) の基盤。
@@ -323,32 +324,111 @@ func herdrAgentFocus(target string) error {
 
 // --- pane 起動 (spawn の中核) ---
 
-// herdrAgentStart は新しい pane で agent を起動する (spawn=0108 の中核)。
-// name は herdr の表示ラベル、cwd は起動ディレクトリ (空なら herdr 既定)、split は right|down
-// (空なら herdr 既定)、focus=false で背面起動 (親のフォーカスを奪わない)。argv は pane 内で
-// 実行するコマンド (例 ["claude","-n","task 0001: …","タスク 0001 に着手して"])。
-// 作成された pane 情報を返す。
-func herdrAgentStart(name, cwd, split string, focus bool, argv []string) (*herdrPane, error) {
-	if err := requireHerdr(); err != nil {
-		return nil, err
+// herdrAgentNameMax は herdr の agent 名 (スラッグ) の最大長。herdr は「小文字始まり /
+// [a-z0-9_-] / 1-32 文字」しか受け付けない (invalid_agent_name)。
+const herdrAgentNameMax = 32
+
+// herdrSlugify は任意の文字列を herdr の agent 名に使える字種へ落とす (小文字化し、
+// [a-z0-9_-] 以外を "-" に潰して連続を 1 つに畳み、前後の "-" を落とす)。
+// 「小文字始まり」までは保証しない — 呼び出し側が "task-" のような接頭辞で担保する。
+func herdrSlugify(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			// 連続する区切りは 1 つに畳む。日本語のように 1 語が複数 rune になる入力で
+			// "-" が伸び続けて 32 文字枠を食い潰すのを防ぐ。
+			if cur := b.String(); cur != "" && !strings.HasSuffix(cur, "-") {
+				b.WriteByte('-')
+			}
+		}
 	}
-	if len(argv) == 0 {
-		return nil, fmt.Errorf("herdr agent start: argv が空")
+	return strings.Trim(b.String(), "-")
+}
+
+// herdrAgentNameCandidates は name を第一候補に、衝突時の代替名 (番号サフィックス) を並べて返す。
+// herdr は agent 名の一意性を要求し (agent_name_taken)、**終了した agent でも pane が残っている限り
+// 名前を握り続ける**ので、同じタスクを spawn し直すと第一候補は普通にぶつかる。
+func herdrAgentNameCandidates(name string) []string {
+	base := herdrSlugify(name)
+	if base == "" {
+		base = "agent"
 	}
-	args := []string{"agent", "start", name}
+	names := []string{fitHerdrAgentName(base, "")}
+	for i := 2; i <= 9; i++ {
+		names = append(names, fitHerdrAgentName(base, "-"+strconv.Itoa(i)))
+	}
+	return names
+}
+
+// fitHerdrAgentName は base + suffix を herdrAgentNameMax に収める。溢れる分は base 側だけを詰める
+// (suffix は衝突回避の識別子なので落とさない)。
+func fitHerdrAgentName(base, suffix string) string {
+	if n := max(herdrAgentNameMax-len(suffix), 0); len(base) > n {
+		base = strings.TrimRight(base[:n], "-")
+	}
+	return base + suffix
+}
+
+// herdrPaneSplit は現在の pane を分割して新しい pane を作る (中は素の対話シェル)。
+// direction は right|down (空なら herdr 既定)、cwd は新 pane の作業ディレクトリ、
+// focus=false なら背面に作る (親のフォーカスを奪わない)。
+func herdrPaneSplit(cwd, direction string, focus bool) (*herdrPane, error) {
+	args := []string{"pane", "split", "--current"}
+	if direction != "" {
+		args = append(args, "--direction", direction)
+	}
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
-	}
-	if split != "" {
-		args = append(args, "--split", split)
 	}
 	if focus {
 		args = append(args, "--focus")
 	} else {
 		args = append(args, "--no-focus")
 	}
-	args = append(args, "--")
-	args = append(args, argv...)
+	out, err := herdrRun(args...)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Result struct {
+			Pane herdrPane `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("herdr pane split: JSON パース失敗: %w", err)
+	}
+	return &resp.Result.Pane, nil
+}
+
+// herdrPaneClose は pane を閉じる。
+func herdrPaneClose(pane string) error {
+	_, err := herdrRun("pane", "close", pane)
+	return err
+}
+
+// herdrAgentStart は**既存の** pane (対話シェルのプロンプト状態) で agent を起動する。
+// name は herdr 全体で一意なスラッグ、kind は herdr がサポートする agent 種別
+// (claude/codex/…。実行ファイルはこれで決まる)、agentArgs は **その agent に渡す引数だけ**
+// (実行ファイル名は含めない)。timeoutMs<=0 なら herdr 既定 (30s) の起動待ちになる。
+// 成功 = その pane で期待した agent が検出され、入力を受け付けられる状態になったこと。
+func herdrAgentStart(name, kind, pane string, timeoutMs int, agentArgs []string) (*herdrPane, error) {
+	if err := requireHerdr(); err != nil {
+		return nil, err
+	}
+	if name == "" || kind == "" || pane == "" {
+		return nil, fmt.Errorf("herdr agent start: name/kind/pane は必須 (name=%q kind=%q pane=%q)", name, kind, pane)
+	}
+	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
+	if timeoutMs > 0 {
+		args = append(args, "--timeout", strconv.Itoa(timeoutMs))
+	}
+	if len(agentArgs) > 0 {
+		args = append(args, "--")
+		args = append(args, agentArgs...)
+	}
 	out, err := herdrRun(args...)
 	if err != nil {
 		return nil, err
@@ -362,6 +442,71 @@ func herdrAgentStart(name, cwd, split string, focus bool, argv []string) (*herdr
 		return nil, fmt.Errorf("herdr agent start: JSON パース失敗: %w", err)
 	}
 	return &resp.Result.Agent, nil
+}
+
+// herdrStartAgentInNewPane は「pane を分割 → そこで agent を起動」を 1 操作にまとめる (spawn の中核)。
+// herdr の agent start が pane を自分で作らなくなり既存 pane を要求するようになったので 2 段になった。
+//
+// 名前の衝突 (agent_name_taken) は候補名を替えて**同じ pane で**試し直す。pane は既に対話シェルの
+// プロンプト状態にあり、名前の検証は起動コマンド送出より前に行われるので、作り直す必要がない。
+func herdrStartAgentInNewPane(name, kind, cwd, split string, focus bool, timeoutMs int, agentArgs []string) (*herdrPane, error) {
+	if err := requireHerdr(); err != nil {
+		return nil, err
+	}
+	pane, err := herdrPaneSplit(cwd, split, focus)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range herdrAgentNameCandidates(name) {
+		agent, err := herdrAgentStartWhenReady(n, kind, pane.PaneID, timeoutMs, agentArgs)
+		if err == nil {
+			return agent, nil
+		}
+		if herdrErrorCode(err) == "agent_name_taken" {
+			continue
+		}
+		return nil, herdrStartFailed(pane.PaneID, err)
+	}
+	// 候補を使い切った = 一度も起動コマンドを送っていないので pane は空のまま。閉じてよい。
+	_ = herdrPaneClose(pane.PaneID)
+	return nil, fmt.Errorf("herdr agent start: 使える agent 名がありません (%s とその代替名がすべて使用中)", herdrSlugify(name))
+}
+
+// herdrPaneReadyTimeout / herdrPaneReadyInterval は split 直後の pane が対話シェルのプロンプトに
+// 落ち着くまで待つ上限と再試行間隔 (テストで縮められるよう var)。
+var (
+	herdrPaneReadyTimeout  = 15 * time.Second
+	herdrPaneReadyInterval = 200 * time.Millisecond
+)
+
+// herdrAgentStartWhenReady は pane が対話シェルのプロンプトに落ち着くのを待ちながら agent を起動する。
+// split した直後の pane はまだシェルの起動中で、herdr の agent start は「使えるシェルではない」と
+// agent_pane_busy で即座に断る。herdr 側に pane の ready 待ちが無いのでここで埋める。
+//
+// 再試行してよい根拠: agent_pane_busy は**起動コマンドを送る前**の拒否なので、繰り返しても
+// agent が二重に立ち上がることはない。
+func herdrAgentStartWhenReady(name, kind, pane string, timeoutMs int, agentArgs []string) (*herdrPane, error) {
+	deadline := time.Now().Add(herdrPaneReadyTimeout)
+	for {
+		agent, err := herdrAgentStart(name, kind, pane, timeoutMs, agentArgs)
+		if herdrErrorCode(err) != "agent_pane_busy" || !time.Now().Before(deadline) {
+			return agent, err
+		}
+		time.Sleep(herdrPaneReadyInterval)
+	}
+}
+
+// herdrStartFailed は 2 段起動の後始末を決める。**起動前に確実に失敗した**とき (名前・kind・pane の
+// 検証エラー) だけ、作った空 pane を閉じる。timeout や未知の失敗では agent が遅れて立ち上がって
+// いるかもしれないので閉じず、pane id を添えて返す — 生きている agent を巻き添えに殺すより、
+// 空 pane が 1 つ残るほうが害が小さい。
+func herdrStartFailed(pane string, err error) error {
+	switch herdrErrorCode(err) {
+	case "invalid_agent_name", "agent_name_taken", "invalid_agent_kind", "pane_not_found", "agent_pane_busy":
+		_ = herdrPaneClose(pane)
+		return err
+	}
+	return fmt.Errorf("%w (pane %s は残しました。agent が遅れて起動しているかもしれません。不要なら herdr pane close %s)", err, pane, pane)
 }
 
 // --- herdr-probe: クライアント層の疎通確認 (開発/デバッグ用) ---

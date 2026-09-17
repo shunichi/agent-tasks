@@ -21,6 +21,20 @@ func stubHerdrRun(t *testing.T, out []byte, err error) *[][]string {
 	return &calls
 }
 
+// stubHerdrRunWith は呼び出しごとに応答を変えられるスタブ。pane split → agent start のような
+// 多段操作で、段ごとに違う JSON / エラーを返したいときに使う。
+func stubHerdrRunWith(t *testing.T, fn func(args []string) ([]byte, error)) *[][]string {
+	t.Helper()
+	orig := herdrRun
+	var calls [][]string
+	herdrRun = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return fn(args)
+	}
+	t.Cleanup(func() { herdrRun = orig })
+	return &calls
+}
+
 func TestHerdrEnvHelpers(t *testing.T) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_PANE_ID", "w3:p1")

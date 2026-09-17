@@ -59,17 +59,29 @@ func TestSpawnTaskDoubleStartGuard(t *testing.T) {
 		t.Errorf("ガードで止まる前に herdr を叩いた: %v", *calls)
 	}
 	// --force なら通す (herdr が呼ばれる)。
-	stubHerdrRun(t, []byte(`{"result":{"agent":{"pane_id":"w1:p2"}}}`), nil)
+	stubSpawnHerdr(t, "w1:p2")
 	if _, err := spawnTask(task, "down", false, true); err != nil {
 		t.Errorf("--force では通すはず: %v", err)
 	}
 }
 
-// 成功パス: spawnTask は label/split/focus を組み立てて herdr agent start を叩き、pane を返す。
+// stubSpawnHerdr は spawn の 2 段起動 (pane split → agent start) に応える最小スタブ。
+func stubSpawnHerdr(t *testing.T, paneID string) *[][]string {
+	t.Helper()
+	return stubHerdrRunWith(t, func(args []string) ([]byte, error) {
+		if args[1] == "split" {
+			return []byte(`{"result":{"pane":{"pane_id":"` + paneID + `"}}}`), nil
+		}
+		return []byte(`{"result":{"agent":{"pane_id":"` + paneID + `"}}}`), nil
+	})
+}
+
+// 成功パス: spawnTask は背面に pane を割ってから、その pane で agent をスラッグ名で起動する。
 func TestSpawnTaskInvokesHerdr(t *testing.T) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_SOCKET_PATH", "/tmp/h.sock")
-	calls := stubHerdrRun(t, []byte(`{"result":{"agent":{"pane_id":"w1:p3"}}}`), nil)
+	t.Setenv("AGENT_TASKS_AGENT", "claude")
+	calls := stubSpawnHerdr(t, "w1:p3")
 
 	task := Task{ID: "0007", Project: "webapp", Title: "サンプル", Status: "todo"}
 	pane, err := spawnTask(task, "down", false, false)
@@ -79,19 +91,23 @@ func TestSpawnTaskInvokesHerdr(t *testing.T) {
 	if pane.PaneID != "w1:p3" {
 		t.Errorf("pane_id = %q, want w1:p3", pane.PaneID)
 	}
-	if len(*calls) != 1 {
-		t.Fatalf("herdr 呼び出し回数 = %d, want 1", len(*calls))
+	if len(*calls) != 2 {
+		t.Fatalf("herdr 呼び出し回数 = %d, want 2 (split + start): %v", len(*calls), *calls)
 	}
-	got := (*calls)[0]
-	// 先頭が agent start <label>、split=down、背面起動 (--no-focus) であること。
-	if len(got) < 3 || got[0] != "agent" || got[1] != "start" || got[2] != "task 0007: サンプル" {
-		t.Errorf("先頭引数が想定と違う: %v", got)
+	split, start := (*calls)[0], (*calls)[1]
+	// pane は下方向・背面 (親のフォーカスを奪わない)。
+	if !containsPair(split, "--direction", "down") || !containsArg(split, "--no-focus") {
+		t.Errorf("pane split が想定と違う: %v", split)
 	}
-	if !containsPair(got, "--split", "down") {
-		t.Errorf("--split down が無い: %v", got)
+	// agent 名は herdr のスラッグ制約に合わせた別物で、人向けラベルは -n 側に載る。
+	if len(start) < 3 || start[0] != "agent" || start[1] != "start" || start[2] != "task-webapp-0007" {
+		t.Errorf("agent start の先頭引数が想定と違う: %v", start)
 	}
-	if !containsArg(got, "--no-focus") {
-		t.Errorf("--no-focus が無い (背面起動のはず): %v", got)
+	if !containsPair(start, "--kind", "claude") || !containsPair(start, "--pane", "w1:p3") {
+		t.Errorf("--kind / --pane が想定と違う: %v", start)
+	}
+	if !containsPair(start, "-n", "task 0007: サンプル") {
+		t.Errorf("表示ラベルが -n で渡っていない: %v", start)
 	}
 }
 

@@ -6,19 +6,33 @@ import (
 	"strings"
 )
 
-// spawnArgv は子セッションの起動コマンド argv を組み立てる。claude は -n でセッション名を付けられる
-// (web/アプリのセッション一覧でどのタスクか分かる)。他 agent は -n 非対応なので付けない (agent 非依存)。
-func spawnArgv(agent, label, prompt string) []string {
+// spawnAgentArgs は子セッションの agent に渡す**引数だけ**を組み立てる。実行ファイル名は herdr の
+// --kind が決めるので含めない。claude は -n でセッション名を付けられる (web/アプリのセッション一覧で
+// どのタスクか分かる)。他 agent は -n 非対応なので付けない (agent 非依存)。
+func spawnAgentArgs(agent, label, prompt string) []string {
 	if agent == "claude" {
-		return []string{agent, "-n", label, prompt}
+		return []string{"-n", label, prompt}
 	}
-	return []string{agent, prompt}
+	return []string{prompt}
 }
 
 // spawnLabel / spawnPrompt は子セッションの表示ラベル / 初期プロンプトを組み立てる
 // (cmdSpawn と TUI の spawn で共有し、表記を 1 箇所に集約する)。
 func spawnLabel(t Task) string  { return fmt.Sprintf("task %s: %s", t.ID, t.Title) }
 func spawnPrompt(t Task) string { return fmt.Sprintf("タスク %s に着手して", t.ID) }
+
+// spawnAgentName は herdr に登録する agent 名 (スラッグ) を組み立てる。人向けの表示ラベル
+// (spawnLabel = 空白・大文字・日本語を含む) は herdr の名前制約
+// (小文字始まり / [a-z0-9_-] / 1-32 文字) を通らないので、別物として持つ。
+// project を混ぜるのは別 project の同じ id とぶつからないようにするため。32 文字の枠は
+// **project 側だけを詰めて**守る (id は識別の要なので落とさない)。
+func spawnAgentName(t Task) string {
+	proj := herdrSlugify(t.Project)
+	if budget := max(herdrAgentNameMax-len("task-")-1-len(t.ID), 0); len(proj) > budget {
+		proj = proj[:budget]
+	}
+	return herdrSlugify("task-" + proj + "-" + t.ID)
+}
 
 // spawnTask は別 pane で新セッションを開き、対象タスクに着手させる spawn の中核 (fire-and-forget)。
 // cmdSpawn (CLI) と TUI の spawn キーの両方から使う。親は pane を開いて指示を送ったら忘れてよい
@@ -43,10 +57,14 @@ func spawnTask(t Task, split string, focus, force bool) (*herdrPane, error) {
 	if err != nil {
 		return nil, fmt.Errorf("メインリポ root を特定できません (git リポジトリ内で実行してください): %w", err)
 	}
-	// 子に渡す起動コマンド。agent は AGENT_TASKS_AGENT (既定 claude)。claude は -n でセッション名を
-	// 付けられる (web/アプリのセッション一覧でタスクが分かる)。他 agent は -n 非対応 (agent 非依存)。
-	argv := spawnArgv(defaultAgent(), spawnLabel(t), spawnPrompt(t))
-	return herdrAgentStart(spawnLabel(t), root, split, focus, argv)
+	// agent 種別は AGENT_TASKS_AGENT (既定 claude) をそのまま herdr の --kind に渡す。
+	// claude は -n でセッション名を付けられる (web/アプリのセッション一覧でタスクが分かる)。
+	kind := defaultAgent()
+	args := spawnAgentArgs(kind, spawnLabel(t), spawnPrompt(t))
+	// timeoutMs=0 = herdr 既定 (30s) の起動待ち。agent start は「その pane で agent が検出され
+	// 入力を受け付けられる状態になる」まで待つので、spawn は fire-and-forget のまま**起動の検証**まで
+	// 済ませられる (親はここから先、子の進行をポーリングしない)。
+	return herdrStartAgentInNewPane(spawnAgentName(t), kind, root, split, focus, 0, args)
 }
 
 // cmdSpawn は別 pane で新しい agent セッションを開き、対象タスクに着手させる (fire-and-forget)。

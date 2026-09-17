@@ -487,9 +487,17 @@ CLI が内部で行うこと (agent は意識しなくてよい):
   なので cwd が worktree でなくてよく、子が done で worktree を消しても親の足元を消さない (安全)。
 - **二重着手ガード**: 対象が `in-progress` + `session` ありなら「別セッション作業中かも」とエラーで止まる。
   引き継ぐ/再着手すると分かっているときだけ `--force` を付けて再実行する (ユーザーに確認してから)。
-- **子の起動**: `herdr agent start "task <NNNN>: <title>" --cwd <main root> --split <dir> --no-focus --
-  <AGENT> …` を実行。AGENT は `AGENT_TASKS_AGENT` (既定 claude)。claude は `-n` でセッション名を付け、
-  初期プロンプト「タスク <NNNN> に着手して」を渡す (他 agent は `-n` を外す。agent 非依存)。
+- **子の起動 (2 段)**: `herdr pane split --current --direction <dir> --cwd <main root> --no-focus` で
+  pane を用意し、`herdr agent start task-<project>-<NNNN> --kind <AGENT> --pane <pane id> -- …` で
+  その pane に agent を載せる。AGENT は `AGENT_TASKS_AGENT` (既定 claude) で、herdr の `--kind` に
+  そのまま渡る。claude は `-n` でセッション名 (`task <NNNN>: <title>`) を付け、初期プロンプト
+  「タスク <NNNN> に着手して」を渡す (他 agent は `-n` を外す。agent 非依存)。
+  herdr の agent 名は**スラッグ限定 (小文字始まり / `[a-z0-9_-]` / 1-32 文字) かつ一意**なので、
+  人向けの表示ラベルとは別に `task-<project>-<NNNN>` を使い、既に使われていれば `-2`, `-3` … で避ける。
+- **起動の検証**: `agent start` はその pane で agent が検出され入力を受け付けられるまで待つので、
+  コマンドが成功した時点で子の起動は確認済み (数秒かかる)。失敗したときは、起動前の拒否なら
+  作った pane を閉じ、そうでなければ pane を残して pane id を知らせる
+  (遅れて立ち上がっている agent を巻き添えにしないため)。
 
 #### 3b. tmux (herdr 外、`$TMUX` あり)
 

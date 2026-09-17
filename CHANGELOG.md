@@ -23,6 +23,10 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
+(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+
+## 2026-09-17
+
 - `spawn` を herdr の新しい `agent start` シグネチャに追従させ、再び動くようにした (#0162)。`agent start`
   が pane を作らなくなったので「`pane split` → `agent start --kind --pane`」の 2 段に変更。herdr の
   agent 名はスラッグ限定かつ一意なので、人向けラベルとは別に `task-<project>-<NNNN>` を使い、

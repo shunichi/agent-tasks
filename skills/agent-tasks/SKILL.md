@@ -1,6 +1,6 @@
 ---
 name: agent-tasks
-description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks-store) で管理する skill。タスクの登録・一覧・着手 (git worktree で並行)・完了・保留・別 pane への spawn・複数タスクの連続実行 (batch) を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', 'タスクに着手', 'タスクを完了', '別 pane で着手/spawn', '複数タスクを順番に処理/連続実行/まとめてやって', '/agent-tasks create|list|start|done|block|spawn|batch' など。"
+description: "エージェント開発タスクをリポジトリ外の中央ストア (~/agent-tasks-store) で管理する skill。タスクの登録・一覧・おすすめ・着手 (git worktree で並行)・再開・完了・保留・アーカイブ・GitHub issue 化・ストアの同期・別 pane への spawn・複数タスクの連続実行 (batch) を行う。トリガー: 'タスクを作る/登録', 'タスク一覧', '次に何をやればいい/おすすめ', 'タスクに着手', 'タスクを再開', 'resume 0001', 'Resume task 0001', '保留を解除してやる', 'レビュー指摘に対応する', 'タスクを完了', 'タスクを保留', 'タスクをアーカイブ', 'タスクを issue にして', 'タスクを同期/sync', '別 pane で着手/spawn', '複数タスクを順番に処理/連続実行/まとめてやって', '/agent-tasks create|list|recommend|start|resume|done|block|archive|unarchive|issue|sync|scaffold|batch' など。"
 ---
 
 # agent-tasks skill
@@ -150,7 +150,7 @@ updated: "2026-06-28T14:30:00+09:00"
 - **list**: 「タスク一覧」「タスクの進捗」「何が残ってる」
 - **recommend**: 「次に何をやるべき/やればいい」「おすすめ (のタスク)」「next」「recommend」
 - **start**: 「〜に着手」「タスク 0001 をやって」「start 0001」 (未着手 = todo から)
-- **resume**: 「〜を再開」「保留を解除してやる」「レビュー指摘に対応する」「resume 0001」 (blocked/review から in-progress へ戻す)
+- **resume**: 「〜を再開」「保留を解除してやる」「レビュー指摘に対応する」「resume 0001」「Resume task 0001」 (英語表記でも同じ。blocked/review から in-progress へ戻す)
 - **spawn**: 「別 pane で着手」「新しいセッションで 0001 をやって」「spawn 0001」
 - **batch**: 「複数タスクを順番に処理/連続実行」「0042 と 0045 をまとめてやって」「batch 0042 0045」 (直列に start→done。低リスクは自動マージ)
 - **done**: 「〜が完了」「done 0001」
@@ -433,9 +433,17 @@ idle (応答完了) を区別できるのが従来との違い。link はある�
 > 再開は worktree を撤去済みなので作り直しが要る → `start` を使う。CLI の `resume` はこの 2 つを
 > エラーで弾いて誘導する。
 
-0. **まず `agent-tasks session-rename <NNNN>` を叩く (start 手順 0 と同じ・最優先)。**
-   別セッションで再開する場合、この pane 名をタスク名に追従させる。理由・経路は start 手順 0 と同じ
-   (入力欄が空なうちに送るのが最も競合しにくい)。
+0. **まず `agent-tasks session-rename <NNNN>` を叩く (最優先・タスク特定より前。start 手順 0 と同じ)。**
+   「resume <NNNN>」「Resume task <NNNN>」と指示されたら、**対象タスクの特定・status 確認より前に**、
+   まずこれを 1 回実行する。
+   ```sh
+   agent-tasks session-rename <NNNN>
+   ```
+   - **resume でこそ効く**: 再開は「別セッションを開いて続きをやる」のが主局面なので、名前を付けないと
+     claude.ai web / スマホアプリのセッション一覧に無名 (または前タスク名) のセッションが並び、
+     どれがどのタスクか分からなくなる。
+   - 理由・経路 (herdr `agent prompt` / tmux `send-keys` / 出力フォールバック) は start 手順 0 と同じ。
+     入力欄が空なうち (指示直後) が最も競合しにくいので、内容取得より前に呼ぶ。
 1. 対象タスクを特定する (project + id)。frontmatter の `status` が `blocked` / `review` であることを確認する
    (`kind: human` の人手タスクも同様に resume してよい。worktree は元々持たない)。
 2. **`agent-tasks resume <NNNN>` で in-progress に戻す**:

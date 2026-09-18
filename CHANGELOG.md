@@ -23,7 +23,14 @@ commit + CalVer を表示)。CHANGELOG は「いつ何が変わったか」、ve
 
 ## [Unreleased]
 
-(マージ待ちの変更をここに置く。マージ時に下の日付セクションへ移す。)
+### Fixed
+
+- **`skill` の起動トリガーに resume が無く、「Resume task 0070」でセッション名が変わらなかった問題を修正**
+  (#0164)。SKILL.md の frontmatter `description` (skill の自動起動判定に使われる唯一の材料) に
+  resume / 再開が含まれておらず、別セッションで「Resume task <NNNN>」と指示しても skill が起動せず、
+  resume 手順 0 の `session-rename` (= `/rename` 発火) に到達しなかった。description に resume と
+  英語表記のトリガーを追加し、併せて抜けていた recommend / archive / unarchive / issue / sync /
+  scaffold も列挙した。resume 手順 0 も start と同水準に「最優先・タスク特定より前」と明記。
 
 ## 2026-09-17
 
